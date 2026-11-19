@@ -1,0 +1,15 @@
+# secrets
+.env
+.env.*
+!.env.example
+**/.keys/
+# throwaway spike (workshop clone, probes, keys)
+spike/
+# build / deps
+node_modules/
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+dist/
+data/
+.DS_Store
