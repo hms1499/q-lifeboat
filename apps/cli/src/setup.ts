@@ -1,4 +1,4 @@
-import { loadAgentKey, loadOwner, loadTokens, loadVault, NETWORK, RESCUE_SELECTOR } from "@qday/core";
+import { loadAgentKey, loadOwner, loadTokens, loadVault, NETWORK, RESCUE_SELECTOR, type TokenSymbol } from "@qday/core";
 import { evmWindowCost } from "@qorechain/evm";
 import {
   fetchAuthenticators,
@@ -17,6 +17,8 @@ type Tokens = { fUSD: Hex; fETH: Hex; fBTC: Hex };
 
 export const WINDOW_BLOCKS = 600;
 export const WINDOW_MAX_TXS = 10;
+/** The tokens `setup` approves to the vault, one EVM tx each inside the window above. */
+export const APPROVED_TOKENS: readonly TokenSymbol[] = ["fUSD", "fETH", "fBTC"];
 const APPROVE_GAS = 100_000n;
 const AGENT_TTL_SECONDS = 7 * 24 * 3600;
 const EXPIRY_MARGIN_SECONDS = 60;
@@ -107,7 +109,8 @@ export async function runSetup(env: Env = process.env): Promise<void> {
 
   // Approvals are ECDSA EVM txs and cannot ride in the hybrid cosmos tx. They need the window opened above.
   const wallet = createWalletClient({ account: privateKeyToAccount(owner.privateKey as Hex), chain, transport: http() });
-  for (const [symbol, address] of Object.entries(tokens)) {
+  for (const symbol of APPROVED_TOKENS) {
+    const address = tokens[symbol];
     const tx = await wallet.writeContract({
       address: address as Hex,
       abi: erc20Abi,

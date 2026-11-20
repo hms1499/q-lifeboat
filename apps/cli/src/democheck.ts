@@ -15,7 +15,8 @@ export type AttackFile = { drains: DrainRecord[]; forged: ForgedRecord; misuse: 
 export type IncidentView = {
   id: string;
   detectedAt: string;
-  trigger: { hash: string };
+  /** `block` is the trigger tx's block (a decimal string on the wire). */
+  trigger: { hash: string; block?: string | number };
   rescues: { token: string; hash: string; amount: string; expected: string; success: boolean }[];
 };
 
@@ -49,17 +50,26 @@ export function rescueHashes(incident: Pick<IncidentView, "rescues">): Hex[] {
   return incident.rescues.filter((r) => r.success && r.hash).map((r) => r.hash as Hex);
 }
 
+/** Drains that the node took but whose receipt the attacker never saw: demo-check fetches their receipts. */
+export function drainsWithoutBlock(a: AttackFile): Hex[] {
+  return a.drains.filter((d) => d.hash && d.block === undefined).map((d) => d.hash!);
+}
+
 const fusd = (v: bigint) => formatUnits(v, 18);
 const drainHashes = (a: AttackFile) => a.drains.filter((d) => d.hash).map((d) => d.hash!);
 
 /**
- * The Task 5 verdict for one run. B = block of the first drain that landed, R = block of the incident's last
+ * The Task 5 verdict for one run. B = earliest block among the drains that landed (as recorded, plus
+ * `drainReceiptBlocks` fetched for drains whose receipt the attacker missed) and the incident trigger's block, so a
+ * lost receipt never understates the latency. R = block of the incident's last
  * successful rescue receipt. Kept = what the vault holds plus what the recovery withdraw already paid out to the
  * owner's safe address, over the 100 fUSD the owner started with. Pass: R - B <= 3, kept >= 80%, (a), (b).
  */
 export function evaluateRun(i: {
   attack: AttackFile;
-  incident?: Pick<IncidentView, "id">;
+  incident?: Pick<IncidentView, "id"> & { trigger?: Partial<IncidentView["trigger"]> };
+  /** Blocks of successful receipts fetched for `drainsWithoutBlock(attack)`. */
+  drainReceiptBlocks?: bigint[];
   rescueBlock?: bigint;
   vaultFusd: bigint;
   recoveredFusd: bigint;
@@ -69,6 +79,9 @@ export function evaluateRun(i: {
   const initial = i.initial ?? MINT_AMOUNT;
   const failures: string[] = [];
   const landed = i.attack.drains.filter((d) => d.status === "success" && d.block !== undefined).map((d) => BigInt(d.block!));
+  landed.push(...(i.drainReceiptBlocks ?? []));
+  const triggerBlock = i.incident?.trigger?.block;
+  if (triggerBlock !== undefined && /^\d+$/.test(String(triggerBlock))) landed.push(BigInt(triggerBlock));
   const firstDrainBlock = landed.length ? landed.reduce((a, b) => (b < a ? b : a)) : undefined;
   if (firstDrainBlock === undefined) failures.push("no drain landed");
   if (!i.incident) failures.push("no incident for this run's drains");
@@ -159,6 +172,12 @@ export async function runDemoCheck(args: string[], env: Env = process.env): Prom
   if (safe && !isAddress(safe, { strict: false })) throw new Error("SAFE_ADDR must be a 0x address");
 
   const incident = pickIncident(await fetchIncidents(env), hashes);
+  // A drain the attacker sent but never saw a receipt for may still be the first one that landed.
+  const drainReceiptBlocks: bigint[] = [];
+  for (const hash of drainsWithoutBlock(attack)) {
+    const receipt = await publicClient.getTransactionReceipt({ hash }).catch(() => undefined);
+    if (receipt?.status === "success") drainReceiptBlocks.push(receipt.blockNumber);
+  }
   let rescueBlock: bigint | undefined;
   for (const hash of incident ? rescueHashes(incident) : []) {
     const { blockNumber } = await publicClient.getTransactionReceipt({ hash });
@@ -167,6 +186,7 @@ export async function runDemoCheck(args: string[], env: Env = process.env): Prom
   const r = evaluateRun({
     attack,
     incident,
+    drainReceiptBlocks,
     rescueBlock,
     vaultFusd: await balanceOf(fUSD, vault),
     recoveredFusd: safe ? await balanceOf(fUSD, safe as Hex) : 0n,

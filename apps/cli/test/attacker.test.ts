@@ -10,7 +10,8 @@ import {
   OWNER_WINDOW_TXS_USED,
   type AttackDeps,
 } from "../src/attacker";
-import { WINDOW_MAX_TXS } from "../src/setup";
+import { loadTokens } from "@qday/core";
+import { APPROVED_TOKENS, WINDOW_MAX_TXS } from "../src/setup";
 
 const h = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as Hex;
 const REFUSAL =
@@ -49,8 +50,11 @@ describe("attack constants", () => {
     expect(FORGED_SIG_BYTES).toBe(4627);
   });
 
-  it("fits the owner's scoped setup window: 3 approvals + 3 drains + 1 forged withdraw + 1 recovery withdraw <= 10", () => {
-    expect(OWNER_WINDOW_TXS_USED).toBe(8);
+  it("fits the owner's scoped setup window: setup's approvals + drains + forged withdraw + recovery withdraw <= its maxTxs", () => {
+    // setup approves every token loadTokens returns; the count comes from setup, not a literal.
+    const tokens = loadTokens({ FUSD_ADDRESS: `0x${"1".repeat(40)}`, FETH_ADDRESS: `0x${"2".repeat(40)}`, FBTC_ADDRESS: `0x${"3".repeat(40)}` });
+    expect([...APPROVED_TOKENS].sort()).toEqual(Object.keys(tokens).sort());
+    expect(OWNER_WINDOW_TXS_USED).toBe(APPROVED_TOKENS.length + DRAIN_COUNT + 1 + 1);
     expect(OWNER_WINDOW_TXS_USED).toBeLessThanOrEqual(WINDOW_MAX_TXS);
   });
 });
@@ -65,6 +69,30 @@ describe("revertName", () => {
     const wrapped = new ContractFunctionExecutionError(inner, { abi: vaultAbi, functionName: "withdraw", args: [] });
     expect(revertName(wrapped)).toBe("BadSignature");
     expect(revertName(new Error("socket hang up"))).toBe("socket hang up");
+  });
+});
+
+describe("loadMisuseRelayer", () => {
+  const FUNDER = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+  const GAS = "test test test test test test test test test test test junk";
+
+  it("relays (b) from FUNDER_MNEMONIC, never the guardian (GAS_MNEMONIC) whose nonce the agent's rescues use", async () => {
+    const { loadMisuseRelayer } = await import("../src/attacker");
+    const { deriveUnifiedAccount } = await import("@qorechain/sdk");
+    const r = await loadMisuseRelayer({ FUNDER_MNEMONIC: FUNDER, GAS_MNEMONIC: GAS });
+    expect(r.cosmos).toBe((await deriveUnifiedAccount(FUNDER)).cosmos);
+  });
+
+  it("fails clearly when FUNDER_MNEMONIC is unset (no fallback to the guardian or the owner)", async () => {
+    const { loadMisuseRelayer } = await import("../src/attacker");
+    await expect(loadMisuseRelayer({ GAS_MNEMONIC: GAS, OWNER_MNEMONIC: GAS })).rejects.toThrow(/FUNDER_MNEMONIC/);
+    await expect(loadMisuseRelayer({ FUNDER_MNEMONIC: "  " })).rejects.toThrow(/FUNDER_MNEMONIC/);
+    await expect(loadMisuseRelayer({ FUNDER_MNEMONIC: "not a mnemonic" })).rejects.toThrow(/FUNDER_MNEMONIC could not/);
+  });
+
+  it("refuses a funder that is the guardian account", async () => {
+    const { loadMisuseRelayer } = await import("../src/attacker");
+    await expect(loadMisuseRelayer({ FUNDER_MNEMONIC: GAS, GAS_MNEMONIC: GAS })).rejects.toThrow(/guardian/);
   });
 });
 

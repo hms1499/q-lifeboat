@@ -1,6 +1,15 @@
 import type { Hex } from "viem";
 import { describe, expect, it, vi } from "vitest";
-import { evaluateRun, parseAttackFile, pickIncident, rescueHashes, waitForIncident, type AttackFile, type IncidentView } from "../src/democheck";
+import {
+  drainsWithoutBlock,
+  evaluateRun,
+  parseAttackFile,
+  pickIncident,
+  rescueHashes,
+  waitForIncident,
+  type AttackFile,
+  type IncidentView,
+} from "../src/democheck";
 
 const E18 = 10n ** 18n;
 const D1 = `0x${"d1".repeat(32)}` as Hex;
@@ -109,6 +118,43 @@ describe("evaluateRun", () => {
     const none = evaluateRun({ ...ok, attack: attackFile({ drains: [{ index: 1, error: "refused" }] }) });
     expect(none.pass).toBe(false);
     expect(none.failures.join()).toMatch(/no drain landed/);
+  });
+});
+
+describe("first drain block B", () => {
+  // Drain 1 landed but its receipt wait failed: attack.json has its hash, no block.
+  const lostReceipt = attackFile({
+    drains: [
+      { index: 1, hash: D1, error: "timeout" },
+      { index: 2, hash: D2, block: "1001", status: "success" },
+    ],
+  });
+  const base = { attack: lostReceipt, rescueBlock: 1004n, vaultFusd: 80n * E18, recoveredFusd: 0n, attackerFusd: 20n * E18 };
+
+  it("lists drains that have a hash but no block, so their receipts can be fetched", () => {
+    expect(drainsWithoutBlock(lostReceipt)).toEqual([D1]);
+    expect(drainsWithoutBlock(attackFile())).toEqual([]);
+  });
+
+  it("is the min over recorded drain blocks, fetched receipt blocks of those drains, and the incident trigger's block", () => {
+    // Without the extra sources B would be 1001 and the 4-block rescue would wrongly pass.
+    expect(evaluateRun({ ...base, incident: incident(D2, "t") }).firstDrainBlock).toBe(1001n);
+    const fetched = evaluateRun({ ...base, incident: incident(D2, "t"), drainReceiptBlocks: [1000n] });
+    expect(fetched.firstDrainBlock).toBe(1000n);
+    expect(fetched.pass).toBe(false);
+    expect(fetched.failures.join()).toMatch(/4 blocks/);
+    const fromTrigger = evaluateRun({ ...base, incident: { ...incident(D1, "t"), trigger: { hash: D1, block: "1000" } } });
+    expect(fromTrigger.firstDrainBlock).toBe(1000n);
+  });
+
+  it("uses the trigger block when no drain block was recorded at all", () => {
+    const r = evaluateRun({
+      ...base,
+      attack: attackFile({ drains: [{ index: 1, hash: D1, error: "timeout" }] }),
+      incident: { ...incident(D1, "t"), trigger: { hash: D1, block: "1002" } },
+    });
+    expect(r.firstDrainBlock).toBe(1002n);
+    expect(r.failures.join()).not.toMatch(/no drain landed/);
   });
 });
 

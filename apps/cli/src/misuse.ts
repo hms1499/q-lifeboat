@@ -1,5 +1,6 @@
 import { agentWallet, loadAgentKey, loadGasAccount, loadOwnerAddress, NETWORK } from "@qday/core";
 import { broadcastTx } from "@qday/core/chain";
+import type { UnifiedAccount } from "@qorechain/sdk";
 import {
   buildPhantomExecuteEvm,
   decodeAuthenticatorExecutions,
@@ -49,11 +50,18 @@ export type MisuseOutcome = {
 
 /**
  * The agent key (ed25519, AGENT_ED25519_SK) tries `token.transfer(to, amount)` directly through the authenticator
- * lane, relayed by GAS_MNEMONIC. Never loads OWNER_MNEMONIC. Broadcasts one cosmos tx.
+ * lane. The relayer pays the cosmos fee: `relayer` when given (the demo passes the funder, so the guardian's
+ * sequence/EVM nonce stays free for rescues), GAS_MNEMONIC otherwise. Never loads OWNER_MNEMONIC. One cosmos tx.
  */
-export async function attemptAgentMisuse(token: Hex, to: Hex, amount: bigint, env: Env = process.env): Promise<MisuseOutcome> {
+export async function attemptAgentMisuse(
+  token: Hex,
+  to: Hex,
+  amount: bigint,
+  env: Env = process.env,
+  relayer?: UnifiedAccount,
+): Promise<MisuseOutcome> {
   const owner = loadOwnerAddress(env);
-  const gas = await loadGasAccount(env);
+  const gas = relayer ?? (await loadGasAccount(env));
   const agent = loadAgentKey(env);
   const { pk } = agent;
   const wallet = agentWallet(agent);

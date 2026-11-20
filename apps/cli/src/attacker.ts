@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { loadOwner, loadTokens, loadVault, vaultAbi } from "@qday/core";
-import { ML_DSA_87_SIGNATURE_LENGTH } from "@qorechain/sdk";
+import { loadGasAccount, loadOwner, loadTokens, loadVault, vaultAbi } from "@qday/core";
+import { deriveUnifiedAccount, ML_DSA_87_SIGNATURE_LENGTH, type UnifiedAccount } from "@qorechain/sdk";
 import {
   BaseError,
   bytesToHex,
@@ -15,6 +15,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { chain, publicClient } from "./chain";
 import { attemptAgentMisuse, type MisuseOutcome } from "./misuse";
 import { runDirFromEnv, writeRunFile } from "./run";
+import { APPROVED_TOKENS } from "./setup";
 
 type Env = Record<string, string | undefined>;
 
@@ -27,10 +28,10 @@ export const FORGED_SIG_BYTES = ML_DSA_87_SIGNATURE_LENGTH;
 export const FORGED_WITHDRAW_GAS = 1_000_000n;
 export const MISUSE_AMOUNT = 10n ** 18n;
 /**
- * EVM txs the demo sends inside the owner's scoped setup window (`WINDOW_MAX_TXS`): 3 approvals (setup),
- * the drains, 1 forged withdraw, 1 recovery withdraw.
+ * EVM txs the demo sends inside the owner's scoped setup window (`WINDOW_MAX_TXS`): setup's approvals, the drains,
+ * 1 forged withdraw, 1 recovery withdraw.
  */
-export const OWNER_WINDOW_TXS_USED = 3 + DRAIN_COUNT + 1 + 1;
+export const OWNER_WINDOW_TXS_USED = APPROVED_TOKENS.length + DRAIN_COUNT + 1 + 1;
 const RECEIPT_POLL_MS = 250;
 const RECEIPT_TIMEOUT_MS = 60_000;
 /** The chain's call-policy refusal (CLAUDE.md chain fact 1, docs/EVIDENCE.md tx 7E9B629F). */
@@ -129,8 +130,29 @@ export async function attack(deps: AttackDeps): Promise<AttackResult> {
   return { drains, forged, misuse };
 }
 
+/**
+ * The account that relays (b) and pays its cosmos fee: the FUNDER (FUNDER_MNEMONIC; demo.sh sets it from the root
+ * OWNER_MNEMONIC). Never the guardian (GAS_MNEMONIC): its sequence is its EVM nonce, which the agent's rescue and
+ * window txs use. No fallback, so a missing funder fails before the attack sends anything.
+ */
+export async function loadMisuseRelayer(env: Env): Promise<UnifiedAccount> {
+  const mnemonic = env.FUNDER_MNEMONIC?.trim();
+  if (!mnemonic) throw new Error("FUNDER_MNEMONIC is not set: it relays (b) so the guardian's nonce stays free (demo.sh sets it)");
+  let relayer: UnifiedAccount;
+  try {
+    relayer = await deriveUnifiedAccount(mnemonic);
+  } catch (e) {
+    throw new Error(`FUNDER_MNEMONIC could not be used to derive an account (${e instanceof Error ? e.name : "UnknownError"})`);
+  }
+  if (env.GAS_MNEMONIC?.trim()) {
+    const guardian = await loadGasAccount(env);
+    if (guardian.cosmos === relayer.cosmos) throw new Error("FUNDER_MNEMONIC is the guardian (GAS_MNEMONIC) account; use another funder");
+  }
+  return relayer;
+}
+
 /** Diana wiring. The drain and (a) use ONLY the owner's ECDSA key; (b) uses the agent key (assumed stolen too). */
-async function productionAttackDeps(env: Env, attacker: Hex) {
+async function productionAttackDeps(env: Env, attacker: Hex, relayer: UnifiedAccount) {
   const owner = await loadOwner(env); // only its secp256k1 key is used: the leaked key
   const vault = loadVault(env);
   const { fUSD } = loadTokens(env);
@@ -153,7 +175,7 @@ async function productionAttackDeps(env: Env, attacker: Hex) {
     // writeContract does not simulate, and an explicit gas limit skips estimation, so the reverting tx is mined.
     sendWithdraw: (amount, sig) =>
       wallet.writeContract({ address: vault, abi: vaultAbi, functionName: "withdraw", args: withdrawArgs(amount, sig), gas: FORGED_WITHDRAW_GAS }),
-    misuse: () => attemptAgentMisuse(fUSD, attacker, MISUSE_AMOUNT, env),
+    misuse: () => attemptAgentMisuse(fUSD, attacker, MISUSE_AMOUNT, env, relayer),
     randomBytes: (n) => new Uint8Array(randomBytes(n)),
   };
   return { deps, owner: owner.evm as Hex, vault, token: fUSD };
@@ -164,7 +186,8 @@ export async function runAttack(env: Env = process.env): Promise<void> {
   const attacker = env.ATTACKER_ADDR?.trim();
   if (!attacker || !isAddress(attacker, { strict: false })) throw new Error("ATTACKER_ADDR must be a 0x address");
   const dir = runDirFromEnv(env);
-  const { deps, owner, vault, token } = await productionAttackDeps(env, attacker as Hex);
+  const relayer = await loadMisuseRelayer(env); // before any tx: a missing funder must not abort mid-attack
+  const { deps, owner, vault, token } = await productionAttackDeps(env, attacker as Hex, relayer);
   const startedAt = new Date().toISOString();
   console.log(`attack on ${owner} (vault ${vault}) with the leaked ECDSA key -> ${attacker}`);
   const result = await attack(deps);
