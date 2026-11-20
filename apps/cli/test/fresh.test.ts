@@ -27,7 +27,9 @@ import {
   MINT_GAS,
   parseFundUqor,
   type FreshDeps,
+  newAgentKeyHex,
 } from "../src/fresh";
+import { loadAgentKey } from "@qday/core";
 
 const MNEMONIC = "test test test test test test test test test test test junk";
 const FUNDER_MNEMONIC = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
@@ -36,6 +38,8 @@ const FUSD = "0x8478737e5ac2c2cbf70aad17f459d1b8ab8a7a14" as const;
 const VAULT = "0x00000000000000000000000000000000000000a1" as const;
 const ATTACKER = "0x00000000000000000000000000000000000000ba" as const;
 const SAFE = "0x00000000000000000000000000000000000000cf" as const;
+/** The per-run agent ed25519 secret key the mocked generator hands out (an authenticator key binds to ONE account). */
+const AGENT_SK = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
 
 describe("parseFundUqor", () => {
   it("defaults to 1.5 QOR and reads FRESH_FUND_UQOR", () => {
@@ -153,6 +157,7 @@ describe("freshOwner", () => {
       home,
       now: () => new Date("2026-11-20T08:05:09Z"),
       newMnemonic: () => MNEMONIC,
+      newAgentKey: () => AGENT_SK,
       randomAddress: vi.fn().mockReturnValueOnce(ATTACKER).mockReturnValueOnce(SAFE),
       log: (l) => void lines.push(l),
       sleep: async () => {},
@@ -197,6 +202,7 @@ describe("freshOwner", () => {
         'RUN_ID="20261120T080509Z"',
         `OWNER_MNEMONIC="${MNEMONIC}"`,
         `OWNER_EVM_ADDRESS="${fresh.evm}"`,
+        `AGENT_ED25519_SK="${AGENT_SK}"`,
         `VAULT_ADDRESS="${VAULT}"`,
         `ATTACKER_ADDR="${ATTACKER}"`,
         `SAFE_ADDR="${SAFE}"`,
@@ -207,8 +213,32 @@ describe("freshOwner", () => {
     expect(statSync(out.runEnv).mode & 0o777).toBe(0o600);
     expect(lines.join("\n")).not.toContain(MNEMONIC);
     expect(lines.join("\n")).not.toContain(fresh.privateKey.slice(2));
+    expect(lines.join("\n")).not.toContain(AGENT_SK); // the per-run agent key is never logged
     expect(lines).toContain(`RUN_ENV=${out.runEnv}`);
     expect(lines.some((l) => l.includes("TX1"))).toBe(true); // each step logs its tx hash
+  });
+
+  it("writes a valid per-run agent key that differs between two runs (the real generator) and never logs it", async () => {
+    const keys: string[] = [];
+    const logged: string[] = [];
+    for (const minute of ["05", "06"]) {
+      const { d, lines } = deps({ newAgentKey: newAgentKeyHex, now: () => new Date(`2026-11-20T08:${minute}:09Z`) });
+      d.randomAddress = vi.fn().mockReturnValueOnce(ATTACKER).mockReturnValueOnce(SAFE);
+      const out = await freshOwner(env, d);
+      const sk = /^AGENT_ED25519_SK="([0-9a-f]+)"$/m.exec(readFileSync(out.runEnv, "utf8"))?.[1];
+      expect(sk).toBeDefined();
+      expect(() => loadAgentKey({ AGENT_ED25519_SK: sk })).not.toThrow(); // the format setup, agent and (b) read
+      keys.push(sk!);
+      logged.push(...lines);
+    }
+    expect(keys[0]).not.toBe(keys[1]);
+    for (const k of keys) expect(logged.join("\n")).not.toContain(k);
+  });
+
+  it("newAgentKeyHex gives 32 random bytes as 64 lowercase hex characters", () => {
+    const a = newAgentKeyHex();
+    expect(a).toMatch(/^[0-9a-f]{64}$/);
+    expect(newAgentKeyHex()).not.toBe(a);
   });
 
   it("refuses before broadcasting when the funder cannot cover the amount plus fees", async () => {
@@ -252,7 +282,14 @@ describe("freshOwner", () => {
 
   const RUN_ENV = () => join(home, ".config/qday/runs/20261120T080509Z/run.env");
   const INCOMPLETE = () =>
-    ['RUN_ID="20261120T080509Z"', `OWNER_MNEMONIC="${MNEMONIC}"`, `OWNER_EVM_ADDRESS="${fresh.evm}"`, 'RUN_COMPLETE="0"', ""].join("\n");
+    [
+      'RUN_ID="20261120T080509Z"',
+      `OWNER_MNEMONIC="${MNEMONIC}"`,
+      `OWNER_EVM_ADDRESS="${fresh.evm}"`,
+      `AGENT_ED25519_SK="${AGENT_SK}"`,
+      'RUN_COMPLETE="0"',
+      "",
+    ].join("\n");
 
   it("refuses to continue (no mint) when the deployed vault's roles do not match, leaving run.env incomplete with the key", async () => {
     const { d, lines } = deps({ readRoles: vi.fn(async () => ({ owner: fresh.evm as Hex, guardian: SAFE as Hex })) });

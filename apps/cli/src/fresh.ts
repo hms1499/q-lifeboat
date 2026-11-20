@@ -1,7 +1,8 @@
+import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { NETWORK, vaultAbi } from "@qday/core";
+import { loadAgentKey, NETWORK, vaultAbi } from "@qday/core";
 import { evmWindowCost, evmWindowStatus } from "@qorechain/evm";
 import {
   bank,
@@ -82,6 +83,14 @@ export function buildDeployWindowParams(cosmos: string) {
   return { sender: cosmos, blocks: DEPLOY_WINDOW_BLOCKS, maxTxs: DEPLOY_WINDOW_MAX_TXS, maxValue: budget.toString() };
 }
 
+/**
+ * A fresh agent ed25519 secret key: 32 random bytes as 64 hex characters (the AGENT_ED25519_SK format
+ * `loadAgentKey` reads). Each demo run needs its own: diana binds an authenticator key to ONE account.
+ */
+export function newAgentKeyHex(): string {
+  return randomBytes(32).toString("hex");
+}
+
 export function checkVaultRoles(onChain: { owner: string; guardian: string }, want: { owner: string; guardian: string }): void {
   if (onChain.owner.toLowerCase() !== want.owner.toLowerCase()) throw new Error(`deployed vault owner() is ${onChain.owner}, expected ${want.owner}`);
   if (onChain.guardian.toLowerCase() !== want.guardian.toLowerCase()) {
@@ -107,6 +116,8 @@ export type FreshDeps = {
   home?: string;
   now(): Date;
   newMnemonic(): string;
+  /** A fresh AGENT_ED25519_SK (64 hex characters). */
+  newAgentKey(): string;
   /** A fresh random address whose key is thrown away. */
   randomAddress(): Hex;
   log(line: string): void;
@@ -149,7 +160,8 @@ async function waitFor<T>(deps: FreshDeps, read: () => Promise<T>, ok: (v: T) =>
 /**
  * Provision a brand-new demo owner (Task 5, decision 1): fund it from the FUNDER, register its ML-DSA-87 key
  * (own tx), open an unscoped deploy window, deploy its own GuardianVault(owner, GUARDIAN_ADDRESS), mint it
- * 100 fUSD. `~/.config/qday/runs/<runId>/run.env` is written with the mnemonic and RUN_COMPLETE=0 BEFORE the fund
+ * 100 fUSD. A fresh agent ed25519 key is generated too (an authenticator key binds to one account).
+ * `~/.config/qday/runs/<runId>/run.env` is written with both secrets and RUN_COMPLETE=0 BEFORE the fund
  * tx, and completed (vault, attacker, safe, RUN_COMPLETE=1) only when every step succeeded; only then is the
  * `RUN_ENV=` line printed. On failure the incomplete run dir is printed so its QOR can be recovered.
  * Logs addresses and tx hashes only, never a secret.
@@ -168,13 +180,16 @@ export async function freshOwner(env: Env, deps: FreshDeps) {
   const mnemonic = deps.newMnemonic();
   const fresh = await deriveSecret(mnemonic, "the generated mnemonic");
   const owner = fresh.evm as Hex;
+  // The agent key for this run: the root AGENT_ED25519_SK is already bound to another account.
+  const agentSk = deps.newAgentKey();
+  loadAgentKey({ AGENT_ED25519_SK: agentSk }); // same format check setup, the agent and (b) apply; never echoes it
   const attacker = deps.randomAddress();
   const safe = deps.randomAddress();
   deps.log(`run ${runId}: fresh owner ${owner} (${fresh.cosmos}), attacker ${attacker}, safe ${safe}`);
 
   // 2. Persist the fresh owner's key BEFORE any QOR is sent to it: a later failure must not lose the account.
   checkFunderBalance(await deps.uqorBalance(funder.cosmos), fund);
-  const base = { RUN_ID: runId, OWNER_MNEMONIC: mnemonic, OWNER_EVM_ADDRESS: owner };
+  const base = { RUN_ID: runId, OWNER_MNEMONIC: mnemonic, OWNER_EVM_ADDRESS: owner, AGENT_ED25519_SK: agentSk };
   const runEnv = writeRunFile(dir, "run.env", formatRunEnv({ ...base, RUN_COMPLETE: "0" }));
   try {
     // Fund it (step 2 of R1).
@@ -230,6 +245,7 @@ export function productionFreshDeps(): FreshDeps {
   return {
     now: () => new Date(),
     newMnemonic: () => generateMnemonic(),
+    newAgentKey: newAgentKeyHex,
     randomAddress: () => privateKeyToAccount(generatePrivateKey()).address,
     log: (line) => console.log(line),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
