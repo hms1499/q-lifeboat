@@ -46,6 +46,7 @@ cd contracts && forge build && forge test -vv && cd ..   # builds contracts/out/
 cp .env.example .env                                     # fill it in; never commit it
 ./demo.sh                                                # one end-to-end run
 ./demo.sh --runs 3                                       # three runs in a row, each from a fresh owner
+./demo.sh --resume ~/.config/qday/runs/<id>/run.env     # redo one run from a complete fresh owner
 bash scripts/test-demo.sh                                # offline check of demo.sh's flow (stub pnpm, no chain)
 ```
 
