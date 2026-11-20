@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadAgentConfig } from "../src/config";
+import { checkVaultGuardian, loadAgentConfig } from "../src/config";
 
 const base = {
   OWNER_EVM_ADDRESS: "0x7777777777777777777777777777777777777777",
@@ -18,7 +18,6 @@ describe("loadAgentConfig", () => {
     expect(c.port).toBe(8787);
     expect(c.allowlist).toEqual([]);
     expect(c.anthropicApiKey).toBeUndefined();
-    expect(c.ownerCosmos).toMatch(/^qor1/);
     expect(c.gas.evm.toLowerCase()).toBe("0x9858effd232b4033e47d90003d41ec34ecaeda94");
   });
 
@@ -55,9 +54,36 @@ describe("loadAgentConfig", () => {
     await expect(loadAgentConfig({ ...base, OWNER_EVM_ADDRESS: owner.toLowerCase() })).rejects.toThrow(/GAS_MNEMONIC.*owner/i);
   });
 
+  it("accepts GUARDIAN_ADDRESS when it is the gas account's EVM address (any case)", async () => {
+    const c = await loadAgentConfig({ ...base, GUARDIAN_ADDRESS: "0x9858EfFD232B4033E47d90003D41EC34EcaEdA94" });
+    expect(c.gas.evm.toLowerCase()).toBe("0x9858effd232b4033e47d90003d41ec34ecaeda94");
+    await expect(loadAgentConfig({ ...base, GUARDIAN_ADDRESS: "0x9858effd232b4033e47d90003d41ec34ecaeda94" })).resolves.toBeTruthy();
+  });
+
+  it("refuses a GUARDIAN_ADDRESS that is not the gas account, or is malformed", async () => {
+    await expect(
+      loadAgentConfig({ ...base, GUARDIAN_ADDRESS: "0x8888888888888888888888888888888888888888" }),
+    ).rejects.toThrow(/GUARDIAN_ADDRESS.*GAS_MNEMONIC/);
+    await expect(loadAgentConfig({ ...base, GUARDIAN_ADDRESS: "0x1234" })).rejects.toThrow(/GUARDIAN_ADDRESS/);
+  });
+
   it("does not echo a bad gas mnemonic", async () => {
     const err = await loadAgentConfig({ ...base, GAS_MNEMONIC: "bad secretword" }).catch((e: Error) => e);
     expect((err as Error).message).toMatch(/GAS_MNEMONIC/);
     expect((err as Error).message).not.toContain("secretword");
+  });
+});
+
+describe("checkVaultGuardian", () => {
+  const agent = "0x9858EfFD232B4033E47d90003D41EC34EcaEdA94";
+
+  it("passes when the vault's guardian() is the agent (any case)", () => {
+    expect(() => checkVaultGuardian(agent.toLowerCase(), agent)).not.toThrow();
+  });
+
+  it("fails loudly when the vault was deployed for another guardian", () => {
+    expect(() => checkVaultGuardian("0x8888888888888888888888888888888888888888", agent)).toThrow(
+      /guardian\(\) is 0x8888888888888888888888888888888888888888.*0x9858EfFD232B4033E47d90003D41EC34EcaEdA94/,
+    );
   });
 });

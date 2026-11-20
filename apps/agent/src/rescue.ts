@@ -1,35 +1,56 @@
-import { decodeAuthenticatorExecutions, fetchAuthNonce, buildPhantomExecuteEvm, resolveEvmAuthDigestVersion } from "@qorechain/sdk";
-import { agentWallet, NETWORK, vaultAbi, type RescueRecord } from "@qday/core";
-import { broadcastTx, publicClient } from "@qday/core/chain";
-import { encodeFunctionData, hexToBytes, parseAbi, parseAbiItem, type Hex } from "viem";
+import { vaultAbi, type RescueRecord } from "@qday/core";
+import { chain, publicClient } from "@qday/core/chain";
+import { createWalletClient, encodeFunctionData, http, parseAbi, parseEventLogs, type Hex, type Log } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import type { AgentConfig } from "./config";
+import type { WindowKeeper } from "./window";
 
 export type RescueResult = RescueRecord;
 
+/** Gas limit of one `vault.rescue(token)` tx. The chain charges at least 50% of it; rescue used 58705 on diana. */
+export const RESCUE_GAS = 120_000n;
+
+/** The only tx the agent ever sends: `vault.rescue(token)`, no value. */
+export type RescueTx = { to: Hex; data: Hex; gas: bigint; nonce: number };
+
+export type RescueReceipt = { status: "success" | "reverted"; logs: Pick<Log, "address" | "topics" | "data">[] };
+
 export type RescueDeps = {
+  vault: Hex;
   /** The ERC-20 tokens the vault can rescue. */
   tokens: Hex[];
   readBalance(token: Hex): Promise<bigint>;
   /** Owner's allowance to the vault. */
   readAllowance(token: Hex): Promise<bigint>;
-  /** Authenticator nonce and EVM digest version, resolved once per run. */
-  fetchAuthState(): Promise<{ nonce: bigint; digestVersion: string }>;
-  buildMsg(token: Hex, nonce: bigint, digestVersion: string): Promise<unknown>;
-  broadcast(msgs: unknown[]): Promise<{
-    hash: string;
-    /** Block height the tx was delivered in. */
-    height?: number;
-    executions: { success: boolean; error?: string }[];
-  }>;
-  /** Sum of the vault's `Rescued(token, amount)` logs in the block at `height`. */
-  readRescued(token: Hex, height: bigint): Promise<bigint>;
+  /** Runs once, only when something will be sent (makes sure the guardian's EVM window is usable). */
+  prepare(): Promise<void>;
+  /** The guardian account's next EVM nonce (pending block). */
+  fetchNonce(): Promise<number>;
+  /** Sign and send from the guardian account; resolves with the tx hash once the node accepted it. */
+  sendTx(tx: RescueTx): Promise<Hex>;
+  waitReceipt(hash: Hex): Promise<RescueReceipt>;
 };
 
+function rescueTx(vault: Hex, token: Hex, nonce: number): RescueTx {
+  return { to: vault, data: encodeFunctionData({ abi: vaultAbi, functionName: "rescue", args: [token] }), gas: RESCUE_GAS, nonce };
+}
+
+/** Sum of the `Rescued(token, amount)` logs the VAULT emitted in this receipt. */
+function rescuedAmount(receipt: RescueReceipt, vault: Hex, token: Hex): bigint {
+  const logs = parseEventLogs({ abi: vaultAbi, eventName: "Rescued", logs: receipt.logs as Log[], strict: true });
+  return logs
+    .filter((l) => l.address.toLowerCase() === vault.toLowerCase() && l.args.token.toLowerCase() === token.toLowerCase())
+    .reduce((sum, l) => sum + l.args.amount, 0n);
+}
+
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
 /**
- * Rescue every token the vault can actually pull (min of balance and allowance > 0) in ONE tx.
- * Nothing is fetched or broadcast when there is nothing to rescue. A failed execution is reported,
- * never thrown, so the incident record is always produced. The reported `amount` is what the vault's
- * `Rescued` logs say it moved (0 when none is found), `expected` is the pre-read estimate.
+ * Rescue every token the vault can actually pull (min of balance and allowance > 0), one `vault.rescue(token)`
+ * tx per token from the guardian account, sent back to back with sequential nonces, then wait for all receipts.
+ * Nothing is prepared, read or sent when there is nothing to rescue. A failure is reported per token, never
+ * thrown, so the incident record is always produced. `amount` is what the vault's `Rescued` logs in that
+ * receipt say it moved; `expected` is the pre-read estimate.
  */
 export async function rescueAll(deps: RescueDeps): Promise<RescueResult[]> {
   const planned: { token: Hex; expected: bigint }[] = [];
@@ -40,44 +61,38 @@ export async function rescueAll(deps: RescueDeps): Promise<RescueResult[]> {
   }
   if (planned.length === 0) return [];
 
+  let nonce: number;
   try {
-    const { nonce, digestVersion } = await deps.fetchAuthState();
-    const msgs = await Promise.all(planned.map((p, i) => deps.buildMsg(p.token, nonce + BigInt(i), digestVersion)));
-    const { hash, height, executions } = await deps.broadcast(msgs);
-    return await Promise.all(
-      planned.map(async (p, i): Promise<RescueResult> => {
-        const x = executions[i];
-        if (!x) return { ...p, amount: 0n, hash, success: false, error: "no execution result for this message" };
-        if (!x.success) return { ...p, amount: 0n, hash, success: false, error: x.error || "execution failed" };
-        let amount = 0n;
-        if (height !== undefined) {
-          try {
-            amount = await deps.readRescued(p.token, BigInt(height));
-          } catch {
-            amount = 0n; // never fall back to the estimate
-          }
-        }
-        return { ...p, amount, hash, success: true };
-      }),
-    );
+    await deps.prepare();
+    nonce = await deps.fetchNonce();
   } catch (e) {
-    const error = e instanceof Error ? e.message : String(e);
-    return planned.map((p) => ({ ...p, amount: 0n, hash: "", success: false, error }));
+    return planned.map((p) => ({ ...p, amount: 0n, hash: "", success: false, error: message(e) }));
   }
-}
 
-const rescuedEvent = parseAbiItem("event Rescued(address indexed token, uint256 amount)");
+  // Send all first. A nonce is consumed only by a tx the node accepted, so a failed send leaves no gap.
+  const sent: ({ hash: Hex } | { error: string })[] = [];
+  for (const p of planned) {
+    try {
+      sent.push({ hash: await deps.sendTx(rescueTx(deps.vault, p.token, nonce)) });
+      nonce += 1;
+    } catch (e) {
+      sent.push({ error: message(e) });
+    }
+  }
 
-const RESCUE_GAS_LIMIT = 200_000n;
-
-/** The one call the agent may ever make: `vault.rescue(token)`, no value, tight gas. */
-export function rescueCall(vault: Hex, token: Hex) {
-  return {
-    to: vault,
-    value: "0",
-    data: encodeFunctionData({ abi: vaultAbi, functionName: "rescue", args: [token] }),
-    gasLimit: RESCUE_GAS_LIMIT,
-  };
+  return Promise.all(
+    planned.map(async (p, i): Promise<RescueResult> => {
+      const s = sent[i];
+      if ("error" in s) return { ...p, amount: 0n, hash: "", success: false, error: s.error };
+      try {
+        const receipt = await deps.waitReceipt(s.hash);
+        if (receipt.status !== "success") return { ...p, amount: 0n, hash: s.hash, success: false, error: "rescue tx reverted" };
+        return { ...p, amount: rescuedAmount(receipt, deps.vault, p.token), hash: s.hash, success: true };
+      } catch (e) {
+        return { ...p, amount: 0n, hash: s.hash, success: false, error: message(e) };
+      }
+    }),
+  );
 }
 
 const erc20Abi = parseAbi([
@@ -85,52 +100,29 @@ const erc20Abi = parseAbi([
   "function allowance(address,address) view returns (uint256)",
 ]);
 
-/** Wire `rescueAll` to diana: viem reads, the agent's ed25519 key for the authenticator lane, the gas wallet as relayer. */
-export function productionDeps(cfg: AgentConfig): RescueDeps {
-  const { pk } = cfg.agentKey;
-  const wallet = agentWallet(cfg.agentKey);
+const RECEIPT_TIMEOUT_MS = 60_000;
+
+/**
+ * Wire `rescueAll` to diana: viem reads, plain EVM txs signed by the guardian account (GAS_MNEMONIC), inside the
+ * guardian's own window (checked only when the cached status is not usable; a sent tx invalidates the cache).
+ */
+export function productionDeps(cfg: AgentConfig, keeper: Pick<WindowKeeper, "ensureIfStale" | "invalidate">): RescueDeps {
+  const account = privateKeyToAccount(cfg.gas.privateKey as Hex);
+  const wallet = createWalletClient({ account, chain, transport: http() });
   return {
+    vault: cfg.vault,
     tokens: Object.values(cfg.tokens),
     readBalance: (token) =>
       publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [cfg.owner] }),
     readAllowance: (token) =>
       publicClient.readContract({ address: token, abi: erc20Abi, functionName: "allowance", args: [cfg.owner, cfg.vault] }),
-    fetchAuthState: async () => ({
-      nonce: (await fetchAuthNonce({ rest: NETWORK.rest, address: cfg.ownerCosmos, pubkey: pk })).nonce,
-      digestVersion: await resolveEvmAuthDigestVersion({ rest: NETWORK.rest }),
-    }),
-    buildMsg: async (token, nonce, digestVersion) => {
-      const call = rescueCall(cfg.vault, token);
-      return buildPhantomExecuteEvm({
-        wallet,
-        relayer: cfg.gas.cosmos,
-        chainId: NETWORK.chainId,
-        account: cfg.ownerCosmos,
-        to: call.to,
-        value: call.value,
-        data: hexToBytes(call.data),
-        gasLimit: call.gasLimit,
-        nonce,
-        digestVersion: digestVersion as "v1" | "v2",
-      });
+    prepare: () => keeper.ensureIfStale(),
+    fetchNonce: () => publicClient.getTransactionCount({ address: account.address, blockTag: "pending" }),
+    sendTx: async (tx) => {
+      const hash = await wallet.sendTransaction({ ...tx, value: 0n });
+      keeper.invalidate();
+      return hash;
     },
-    broadcast: async (msgs) => {
-      const res = await broadcastTx(cfg.gas, msgs as any[], "qday-guardian: rescue");
-      const executions = decodeAuthenticatorExecutions(res, msgs as any[]).map((x) => ({
-        success: x.success,
-        error: x.success ? undefined : x.reason || x.vmError || "execution failed",
-      }));
-      return { hash: res.transactionHash, height: res.height, executions };
-    },
-    readRescued: async (token, height) => {
-      const logs = await publicClient.getLogs({
-        address: cfg.vault,
-        event: rescuedEvent,
-        args: { token },
-        fromBlock: height,
-        toBlock: height,
-      });
-      return logs.reduce((sum, l) => sum + (l.args.amount ?? 0n), 0n);
-    },
+    waitReceipt: (hash) => publicClient.waitForTransactionReceipt({ hash, timeout: RECEIPT_TIMEOUT_MS }),
   };
 }

@@ -12,6 +12,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^1.11.0",
     "@qday/core": "workspace:*",
+    "@qorechain/evm": "0.14.0",
     "@qorechain/sdk": "0.14.0",
     "viem": "^2.21.0"
   },

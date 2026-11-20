@@ -16,6 +16,9 @@ importers:
       '@qday/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@qorechain/evm':
+        specifier: 0.14.0
+        version: 0.14.0(viem@2.58.2(typescript@5.9.3))
       '@qorechain/sdk':
         specifier: 0.14.0
         version: 0.14.0(viem@2.58.2(typescript@5.9.3))

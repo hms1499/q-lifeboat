@@ -6,11 +6,11 @@ type Env = Record<string, string | undefined>;
 
 export type AgentConfig = {
   owner: Hex;
-  ownerCosmos: string;
   vault: Hex;
   tokens: Record<TokenSymbol, Hex>;
+  /** Signs incident reports. */
   agentKey: { sk: Uint8Array; pk: Uint8Array };
-  /** The agent's own funded relayer account. It pays gas; it never holds the owner's key. */
+  /** The agent's own funded account, the vault's immutable guardian: it sends the rescue txs. Never the owner. */
   gas: UnifiedAccount;
   allowlist: Hex[];
   maxOutbound: bigint;
@@ -23,10 +23,17 @@ const DEFAULT_MAX_OUTBOUND = 1000n * 10n ** 18n;
 
 /** Load the agent's configuration. Deliberately never reads OWNER_MNEMONIC. */
 export async function loadAgentConfig(env: Env = process.env): Promise<AgentConfig> {
-  const { evm: owner, cosmos: ownerCosmos } = loadOwnerAddress(env);
+  const { evm: owner } = loadOwnerAddress(env);
   const gas = await loadGasAccount(env);
   if (gas.evm.toLowerCase() === owner.toLowerCase()) {
     throw new Error("GAS_MNEMONIC must be a separate account from the owner (its address equals OWNER_EVM_ADDRESS)");
+  }
+  const guardian = env.GUARDIAN_ADDRESS?.trim();
+  if (guardian) {
+    if (!ADDRESS_RE.test(guardian)) throw new Error("GUARDIAN_ADDRESS must be a 0x address");
+    if (guardian.toLowerCase() !== gas.evm.toLowerCase()) {
+      throw new Error(`GUARDIAN_ADDRESS ${guardian} is not the GAS_MNEMONIC account (${gas.evm})`);
+    }
   }
 
   const allowlist = (env.ALLOWLIST ?? "")
@@ -45,7 +52,6 @@ export async function loadAgentConfig(env: Env = process.env): Promise<AgentConf
 
   return {
     owner,
-    ownerCosmos,
     vault: loadVault(env),
     tokens: loadTokens(env),
     agentKey: loadAgentKey(env),
@@ -55,4 +61,11 @@ export async function loadAgentConfig(env: Env = process.env): Promise<AgentConf
     port: portRaw ? Number(portRaw) : 8787,
     anthropicApiKey: env.ANTHROPIC_API_KEY?.trim() || undefined,
   };
+}
+
+/** Startup check: the vault's immutable `guardian()` must be the agent's own account, or every rescue would revert. */
+export function checkVaultGuardian(onChain: string, agent: string): void {
+  if (onChain.toLowerCase() !== agent.toLowerCase()) {
+    throw new Error(`vault guardian() is ${onChain}, not the agent's account ${agent} (redeploy the vault with GUARDIAN_ADDRESS)`);
+  }
 }
