@@ -190,7 +190,7 @@ export async function freshOwner(env: Env, deps: FreshDeps) {
   // 2. Persist the fresh owner's key BEFORE any QOR is sent to it: a later failure must not lose the account.
   checkFunderBalance(await deps.uqorBalance(funder.cosmos), fund);
   const base = { RUN_ID: runId, OWNER_MNEMONIC: mnemonic, OWNER_EVM_ADDRESS: owner, AGENT_ED25519_SK: agentSk };
-  const runEnv = writeRunFile(dir, "run.env", formatRunEnv({ ...base, RUN_COMPLETE: "0" }));
+  const runEnv = writeRunFile(dir, "run.env", formatRunEnv({ ...base, RUN_COMPLETE: "0" }), { exclusive: true });
   try {
     // Fund it (step 2 of R1).
     const fundTx = await deps.broadcast(funder, [buildFundMsg(funder.cosmos, fresh.cosmos, fund)], "qday: fund fresh demo owner", "hybrid");

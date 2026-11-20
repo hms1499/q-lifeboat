@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { evmWindowCost } from "@qorechain/evm";
@@ -245,6 +245,16 @@ describe("freshOwner", () => {
     const { d } = deps({ uqorBalance: vi.fn(async () => 1_000_000n) });
     await expect(freshOwner(env, d)).rejects.toThrow(/funder/i);
     expect(d.broadcast).not.toHaveBeenCalled();
+  });
+
+  it("never overwrites an existing run.env (same-second run id) and funds nothing", async () => {
+    const { d } = deps();
+    const dir = join(home, ".config/qday/runs/20261120T080509Z");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "run.env"), 'OWNER_MNEMONIC="funded earlier"\n');
+    await expect(freshOwner(env, d)).rejects.toThrow(/EEXIST/);
+    expect(d.broadcast).not.toHaveBeenCalled();
+    expect(readFileSync(join(dir, "run.env"), "utf8")).toBe('OWNER_MNEMONIC="funded earlier"\n');
   });
 
   it("defaults the funder to OWNER_MNEMONIC", async () => {

@@ -44,12 +44,15 @@ export function formatRunEnv(vars: Record<string, string>): string {
     .join("");
 }
 
-/** Write `name` in `dir` (created 0700) with mode 0600, and return its path. */
-export function writeRunFile(dir: string, name: string, content: string): string {
+/**
+ * Write `name` in `dir` (created 0700) with mode 0600, and return its path. `exclusive` throws EEXIST instead of
+ * overwriting, so a run id shared by two runs in one second can never replace a funded mnemonic.
+ */
+export function writeRunFile(dir: string, name: string, content: string, opts: { exclusive?: boolean } = {}): string {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   chmodSync(dir, 0o700);
   const file = join(dir, name);
-  writeFileSync(file, content, { mode: 0o600 });
+  writeFileSync(file, content, { mode: 0o600, ...(opts.exclusive ? { flag: "wx" } : {}) });
   chmodSync(file, 0o600); // an existing file keeps its old mode otherwise
   return file;
 }

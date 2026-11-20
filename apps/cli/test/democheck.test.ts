@@ -2,6 +2,7 @@ import type { Hex } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import {
   drainsWithoutBlock,
+  earliestRescueBlock,
   evaluateRun,
   parseAttackFile,
   pickIncident,
@@ -171,5 +172,34 @@ describe("waitForIncident", () => {
     let t = 0;
     const found = await waitForIncident({ fetchIncidents: async () => [], hashes: [D1], timeoutMs: 3_000, sleep: async (ms) => void (t += ms), now: () => t });
     expect(found).toBeUndefined();
+  });
+});
+
+describe("earliestRescueBlock", () => {
+  const FUSD = "0x00000000000000000000000000000000000000f1";
+  const R2 = `0x${"a2".repeat(32)}` as Hex;
+  const blocks: Record<string, bigint> = { [R1]: 1003n, [R2]: 1009n };
+  const blockOf = async (h: Hex) => blocks[h];
+  const ok = (hash: Hex, token = FUSD) => ({ token, hash, amount: "80", expected: "80", success: true });
+  const failed = { token: FUSD, hash: "" as string, amount: "0", expected: "80", success: false };
+
+  it("(a) a newer failed recheck does not hide the older successful rescue", async () => {
+    const list = [incident(D1, "2026-11-20T10:00:01Z", [ok(R1)]), incident(D2, "2026-11-20T10:00:09Z", [failed])];
+    expect(await earliestRescueBlock({ incidents: list, hashes: [D1, D2], fusd: FUSD, blockOf })).toBe(1003n);
+  });
+
+  it("takes the earliest successful fUSD rescue across incidents, ignoring other tokens and foreign incidents", async () => {
+    const list = [
+      incident(D1, "2026-11-20T10:00:01Z", [ok(R2)]),
+      incident(D2, "2026-11-20T10:00:09Z", [ok(R1)]),
+      incident("0xother", "2026-11-20T10:00:10Z", [ok(R1)]),
+      incident(D2, "2026-11-20T10:00:11Z", [ok(R1, "0xeth")]),
+    ];
+    expect(await earliestRescueBlock({ incidents: list, hashes: [D1, D2], fusd: FUSD.toUpperCase().replace("0X", "0x"), blockOf })).toBe(1003n);
+  });
+
+  it("(b) is undefined when every rescue failed", async () => {
+    const list = [incident(D1, "t1", [failed]), incident(D2, "t2", [failed])];
+    expect(await earliestRescueBlock({ incidents: list, hashes: [D1, D2], fusd: FUSD, blockOf })).toBeUndefined();
   });
 });

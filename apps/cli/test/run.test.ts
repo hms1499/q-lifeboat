@@ -70,4 +70,14 @@ describe("writeRunFile", () => {
     expect(statSync(dir).mode & 0o777).toBe(0o700);
     expect(statSync(file).mode & 0o777).toBe(0o600);
   });
+
+  it("with exclusive set, refuses to overwrite an existing file and leaves it untouched", () => {
+    base = mkdtempSync(join(tmpdir(), "qday-run-"));
+    const dir = join(base, "runs", "r1");
+    writeRunFile(dir, "run.env", 'A="old"\n', { exclusive: true });
+    expect(() => writeRunFile(dir, "run.env", 'A="new"\n', { exclusive: true })).toThrow(/EEXIST/);
+    expect(readFileSync(join(dir, "run.env"), "utf8")).toBe('A="old"\n');
+    writeRunFile(dir, "run.env", 'A="done"\n'); // the completing write still overwrites
+    expect(readFileSync(join(dir, "run.env"), "utf8")).toBe('A="done"\n');
+  });
 });

@@ -45,6 +45,28 @@ export function pickIncident<T extends Pick<IncidentView, "detectedAt" | "trigge
     .sort((a, b) => Date.parse(b.detectedAt) - Date.parse(a.detectedAt))[0];
 }
 
+/**
+ * R: the block of the earliest successful fUSD rescue across ALL of this run's incidents (trigger = one of the
+ * drains). A later recheck incident with only failed rescues must not hide a rescue that landed. Undefined when none.
+ */
+export async function earliestRescueBlock(o: {
+  incidents: Pick<IncidentView, "trigger" | "rescues">[];
+  hashes: string[];
+  fusd: string;
+  blockOf: (hash: Hex) => Promise<bigint>;
+}): Promise<bigint | undefined> {
+  const want = new Set(o.hashes.map(lower));
+  const rescues = o.incidents
+    .filter((i) => want.has(lower(String(i.trigger?.hash ?? ""))))
+    .flatMap((i) => i.rescues.filter((r) => r.success && r.hash && lower(r.token) === lower(o.fusd)).map((r) => r.hash as Hex));
+  let earliest: bigint | undefined;
+  for (const hash of new Set(rescues)) {
+    const block = await o.blockOf(hash);
+    if (earliest === undefined || block < earliest) earliest = block;
+  }
+  return earliest;
+}
+
 /** Hashes of the incident's successful rescue txs. */
 export function rescueHashes(incident: Pick<IncidentView, "rescues">): Hex[] {
   return incident.rescues.filter((r) => r.success && r.hash).map((r) => r.hash as Hex);
@@ -61,8 +83,8 @@ const drainHashes = (a: AttackFile) => a.drains.filter((d) => d.hash).map((d) =>
 /**
  * The Task 5 verdict for one run. B = earliest block among the drains that landed (as recorded, plus
  * `drainReceiptBlocks` fetched for drains whose receipt the attacker missed) and the incident trigger's block, so a
- * lost receipt never understates the latency. R = block of the incident's last
- * successful rescue receipt. Kept = what the vault holds plus what the recovery withdraw already paid out to the
+ * lost receipt never understates the latency. R = block of the earliest successful fUSD
+ * rescue across this run's incidents (`earliestRescueBlock`). Kept = what the vault holds plus what the recovery withdraw already paid out to the
  * owner's safe address, over the 100 fUSD the owner started with. Pass: R - B <= 3, kept >= 80%, (a), (b).
  */
 export function evaluateRun(i: {
@@ -171,18 +193,20 @@ export async function runDemoCheck(args: string[], env: Env = process.env): Prom
   const safe = env.SAFE_ADDR?.trim();
   if (safe && !isAddress(safe, { strict: false })) throw new Error("SAFE_ADDR must be a 0x address");
 
-  const incident = pickIncident(await fetchIncidents(env), hashes);
+  const incidents = await fetchIncidents(env);
+  const incident = pickIncident(incidents, hashes);
   // A drain the attacker sent but never saw a receipt for may still be the first one that landed.
   const drainReceiptBlocks: bigint[] = [];
   for (const hash of drainsWithoutBlock(attack)) {
     const receipt = await publicClient.getTransactionReceipt({ hash }).catch(() => undefined);
     if (receipt?.status === "success") drainReceiptBlocks.push(receipt.blockNumber);
   }
-  let rescueBlock: bigint | undefined;
-  for (const hash of incident ? rescueHashes(incident) : []) {
-    const { blockNumber } = await publicClient.getTransactionReceipt({ hash });
-    if (rescueBlock === undefined || blockNumber > rescueBlock) rescueBlock = blockNumber;
-  }
+  const rescueBlock = await earliestRescueBlock({
+    incidents,
+    hashes,
+    fusd: fUSD,
+    blockOf: async (hash) => (await publicClient.getTransactionReceipt({ hash })).blockNumber,
+  });
   const r = evaluateRun({
     attack,
     incident,

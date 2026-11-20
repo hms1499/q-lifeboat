@@ -40,6 +40,11 @@ rules (`allowedEvmCalls`, per-tx/daily limits, expiry) · `pqcVerify` / `pqcKeyS
 ## Run it
 Testnet `qorechain-diana` only. Node >= 22, pnpm, Foundry.
 
+Prerequisites for `demo.sh`:
+- The funder (root `OWNER_MNEMONIC`) needs about 2 QOR per run, to fund each fresh owner.
+- The guardian (`GAS_MNEMONIC`) needs about 0.25 QOR per run, for window fees and rescue gas.
+- `GUARDIAN_ADDRESS`, `GAS_MNEMONIC` and the fUSD, fETH and fBTC token addresses must already be set in `.env`.
+
 ```bash
 pnpm install
 cd contracts && forge build && forge test -vv && cd ..   # builds contracts/out/GuardianVault.sol/GuardianVault.json
