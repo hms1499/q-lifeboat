@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(forge test)",
+      "Bash(forge test *)",
+      "Bash(forge build)",
+      "Bash(forge build *)",
+      "Bash(forge fmt *)",
+      "Bash(pnpm -F * test)",
+      "Bash(pnpm -F * test *)",
+      "Bash(pnpm -F * build)",
+      "Bash(pnpm -F * typecheck)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ],
+    "ask": [
+      "Bash(git push *)",
+      "Bash(forge script *)",
+      "Bash(./demo.sh *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./spike/.keys/**)",
+      "Read(~/.config/qday/**)"
+    ]
+  }
+}

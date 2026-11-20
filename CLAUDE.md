@@ -30,6 +30,45 @@ spike/            THROWAWAY Task 0 probes + workshop clone. Gitignored. Never im
 
 Run the real command and read its output before claiming anything passes.
 
+## Workflow per task
+```
+Explore → Plan (+ verify command, failing test first) → [user approves]
+  → Implement ⇄ Verify (local + on-chain, max 3 loops)
+  → Review (fresh context, against Review Focus) ⇄ Implement
+  → Record → Ship (commit; push only when asked)
+```
+Execute plan tasks with `superpowers:subagent-driven-development`. Run `/clear` between tasks: the plan
+checkboxes and the docs below are the handoff state, not the chat history.
+
+**Risk tiers** decide how much of the loop runs:
+- **High**: `contracts/`, `packages/core` message encoding, `apps/agent/src/rules.ts` and `rescue.ts`,
+  `apps/cli` setup/signer/withdraw, and anything that signs or broadcasts on diana. Run every step.
+- **Low**: dashboard UI, docs, README, styling. Implement → Verify → Ship. Skip the independent review.
+
+1. **Explore**: read the task in the plan, the spec section it implements, the chain facts above and
+   the `docs/EVIDENCE.md` entries it depends on. Check `@qorechain/sdk` typings before using any API.
+   Do not write code in this step.
+2. **Plan**: list the files to touch, the failing tests to write first, and the exact verify command
+   with its expected output. The plan document already holds this for most tasks. Confirm it still
+   holds, or flag the gap. Stop for user approval if the approach departs from the plan.
+3. **Implement**: TDD. Write the failing test, run it and see it fail for the right reason, then write
+   the minimum code to pass.
+4. **Verify**: two layers.
+   - Local: the task's `forge test` / `pnpm -F <ws> test` command, run fresh, output read in full.
+   - On-chain (any change that touches diana): the claim counts only with a real tx hash on diana.
+     Mocks such as `MockPqc` can disagree with the chain.
+   On failure, use `superpowers:systematic-debugging`. Do not patch and retry blindly. **After 3 failed
+   loops on the same problem, stop** and report to the user what was tried and what was observed.
+5. **Review** (high tier): an independent reviewer in a fresh context (the subagent reviewers in
+   subagent-driven-development, or `/code-review`). Check against the spec, the Hard rules below and
+   the plan's **Review Focus** items. The author's explanations are not inputs. Findings loop back to
+   Implement. Contract changes also go through QCAI (Stage 1 in Task 2, Stage 2 in Task 7).
+6. **Record**: update the files listed under "Keep these files current". If a new chain fact turned
+   up, or the user had to correct a mistake, add it to this file so the next session doesn't repeat it.
+7. **Ship**: tick the plan checkboxes and commit without asking, but only once Verify (and Review, for
+   the high tier) has passed. Report the commit hash with the verify output. **Never push** and never
+   run `forge script` (deploy/broadcast) without asking the user first.
+
 ## Network (diana)
 | | |
 |---|---|
@@ -71,7 +110,8 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSig
 - License MIT. Credit `qorechain/build-before-qday` (workshop-2 vault + agent patterns) and every
   kit used in the README.
 - TDD: failing test first. Any message encoding change must keep the shared TS↔Solidity test vector green.
-- Do not commit or push unless the user asks.
+- Commits are pre-approved after Verify/Review pass (see Ship above). Push and `forge script` always
+  need the user's go-ahead.
 
 ## Keep these files current as you go
 - `docs/EVIDENCE.md`: every testnet tx that proves a claim (hash + what it proves).
