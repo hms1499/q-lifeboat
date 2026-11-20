@@ -149,7 +149,10 @@ async function waitFor<T>(deps: FreshDeps, read: () => Promise<T>, ok: (v: T) =>
 /**
  * Provision a brand-new demo owner (Task 5, decision 1): fund it from the FUNDER, register its ML-DSA-87 key
  * (own tx), open an unscoped deploy window, deploy its own GuardianVault(owner, GUARDIAN_ADDRESS), mint it
- * 100 fUSD, then write `~/.config/qday/runs/<runId>/run.env`. Logs addresses and tx hashes only, never a secret.
+ * 100 fUSD. `~/.config/qday/runs/<runId>/run.env` is written with the mnemonic and RUN_COMPLETE=0 BEFORE the fund
+ * tx, and completed (vault, attacker, safe, RUN_COMPLETE=1) only when every step succeeded; only then is the
+ * `RUN_ENV=` line printed. On failure the incomplete run dir is printed so its QOR can be recovered.
+ * Logs addresses and tx hashes only, never a secret.
  */
 export async function freshOwner(env: Env, deps: FreshDeps) {
   const guardian = readAddress(env, "GUARDIAN_ADDRESS");
@@ -169,53 +172,54 @@ export async function freshOwner(env: Env, deps: FreshDeps) {
   const safe = deps.randomAddress();
   deps.log(`run ${runId}: fresh owner ${owner} (${fresh.cosmos}), attacker ${attacker}, safe ${safe}`);
 
-  // 2. Fund it.
+  // 2. Persist the fresh owner's key BEFORE any QOR is sent to it: a later failure must not lose the account.
   checkFunderBalance(await deps.uqorBalance(funder.cosmos), fund);
-  const fundTx = await deps.broadcast(funder, [buildFundMsg(funder.cosmos, fresh.cosmos, fund)], "qday: fund fresh demo owner", "hybrid");
-  deps.log(`fund ${qor(fund)} from ${funder.cosmos}: ${fundTx}`);
-  await waitFor(deps, () => deps.uqorBalance(fresh.cosmos), (b) => b >= fund, "the fresh owner's balance");
-
-  // 3. Register its ML-DSA-87 key: its own tx, signed classically (the bootstrap-exempt message).
-  let regTx: string;
+  const base = { RUN_ID: runId, OWNER_MNEMONIC: mnemonic, OWNER_EVM_ADDRESS: owner };
+  const runEnv = writeRunFile(dir, "run.env", formatRunEnv({ ...base, RUN_COMPLETE: "0" }));
   try {
-    regTx = await deps.broadcast(fresh, [buildRegisterMsg(fresh, NETWORK.chainId)], "qday: register ML-DSA-87 key", "classical");
+    // Fund it (step 2 of R1).
+    const fundTx = await deps.broadcast(funder, [buildFundMsg(funder.cosmos, fresh.cosmos, fund)], "qday: fund fresh demo owner", "hybrid");
+    deps.log(`fund ${qor(fund)} from ${funder.cosmos}: ${fundTx}`);
+    await waitFor(deps, () => deps.uqorBalance(fresh.cosmos), (b) => b >= fund, "the fresh owner's balance");
+
+    // 3. Register its ML-DSA-87 key: its own tx, signed classically (the bootstrap-exempt message).
+    let regTx: string;
+    try {
+      regTx = await deps.broadcast(fresh, [buildRegisterMsg(fresh, NETWORK.chainId)], "qday: register ML-DSA-87 key", "classical");
+    } catch (e) {
+      throw new Error(`register ML-DSA-87 key for ${fresh.cosmos} failed: ${errorText(e)}`);
+    }
+    deps.log(`register ML-DSA-87 key: ${regTx}`);
+    const status = await waitFor(deps, () => deps.pqcStatus(fresh.cosmos), (s) => s.registered, "the PQC registration to show on REST");
+    assertRegisteredKey(status, fresh.pqc.publicKey); // what sign-withdraw will check: registered, proven, same key
+
+    // 4. Unscoped window for the deploy + mint (setup later replaces it with the scoped one).
+    const nonceBefore = await deps.evmNonce(owner);
+    const winTx = await deps.broadcast(fresh, [openEvmWindowMsg(buildDeployWindowParams(fresh.cosmos))], "qday: deploy window", "hybrid");
+    deps.log(`deploy window (unscoped, ${DEPLOY_WINDOW_BLOCKS} blocks, ${DEPLOY_WINDOW_MAX_TXS} txs): ${winTx}`);
+    await waitFor(deps, () => deps.windowLive(fresh.cosmos), (live) => live, "the deploy window to be live");
+    // Opening the window advances the account's EVM nonce; wait until the EVM RPC sees it.
+    await waitFor(deps, () => deps.evmNonce(owner), (n) => n > nonceBefore, "the EVM nonce to advance after the window open");
+
+    // 5. Deploy GuardianVault(owner, guardian), check it, mint 100 fUSD.
+    const vault = await deps.deployVault(fresh, owner, guardian);
+    deps.log(`deploy GuardianVault ${vault.address}: ${vault.hash}`);
+    checkVaultRoles(await deps.readRoles(vault.address), { owner, guardian });
+    const mintTx = await deps.mint(fresh, fusd, owner, MINT_AMOUNT);
+    deps.log(`mint 100 fUSD to ${owner}: ${mintTx}`);
+
+    // 6. Complete the run's env file (still outside the repo, 0600).
+    writeRunFile(
+      dir,
+      "run.env",
+      formatRunEnv({ ...base, VAULT_ADDRESS: vault.address, ATTACKER_ADDR: attacker, SAFE_ADDR: safe, RUN_COMPLETE: "1" }),
+    );
+    deps.log(`RUN_ENV=${runEnv}`); // only for a complete run: demo.sh keys on this line
+    return { runId, runEnv, owner, vault: vault.address, attacker, safe };
   } catch (e) {
-    throw new Error(`register ML-DSA-87 key for ${fresh.cosmos} failed: ${errorText(e)}`);
+    deps.log(`incomplete run: ${dir} (run.env has RUN_COMPLETE=0 and the fresh owner's key, to inspect or recover its QOR)`);
+    throw e;
   }
-  deps.log(`register ML-DSA-87 key: ${regTx}`);
-  const status = await waitFor(deps, () => deps.pqcStatus(fresh.cosmos), (s) => s.registered, "the PQC registration to show on REST");
-  assertRegisteredKey(status, fresh.pqc.publicKey); // what sign-withdraw will check: registered, proven, same key
-
-  // 4. Unscoped window for the deploy + mint (setup later replaces it with the scoped one).
-  const nonceBefore = await deps.evmNonce(owner);
-  const winTx = await deps.broadcast(fresh, [openEvmWindowMsg(buildDeployWindowParams(fresh.cosmos))], "qday: deploy window", "hybrid");
-  deps.log(`deploy window (unscoped, ${DEPLOY_WINDOW_BLOCKS} blocks, ${DEPLOY_WINDOW_MAX_TXS} txs): ${winTx}`);
-  await waitFor(deps, () => deps.windowLive(fresh.cosmos), (live) => live, "the deploy window to be live");
-  // Opening the window advances the account's EVM nonce; wait until the EVM RPC sees it.
-  await waitFor(deps, () => deps.evmNonce(owner), (n) => n > nonceBefore, "the EVM nonce to advance after the window open");
-
-  // 5. Deploy GuardianVault(owner, guardian), check it, mint 100 fUSD.
-  const vault = await deps.deployVault(fresh, owner, guardian);
-  deps.log(`deploy GuardianVault ${vault.address}: ${vault.hash}`);
-  checkVaultRoles(await deps.readRoles(vault.address), { owner, guardian });
-  const mintTx = await deps.mint(fresh, fusd, owner, MINT_AMOUNT);
-  deps.log(`mint 100 fUSD to ${owner}: ${mintTx}`);
-
-  // 6. The run's env file, outside the repo.
-  const runEnv = writeRunFile(
-    dir,
-    "run.env",
-    formatRunEnv({
-      RUN_ID: runId,
-      OWNER_MNEMONIC: mnemonic,
-      OWNER_EVM_ADDRESS: owner,
-      VAULT_ADDRESS: vault.address,
-      ATTACKER_ADDR: attacker,
-      SAFE_ADDR: safe,
-    }),
-  );
-  deps.log(`RUN_ENV=${runEnv}`);
-  return { runId, runEnv, owner, vault: vault.address, attacker, safe };
 }
 
 /** Diana wiring for `freshOwner`. Loads the vault artifact first, so a missing build fails before any tx. */

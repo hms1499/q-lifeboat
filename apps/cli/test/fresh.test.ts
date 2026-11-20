@@ -179,7 +179,7 @@ describe("freshOwner", () => {
     return { d, calls, lines };
   }
 
-  it("funds, registers (own classical tx), opens an unscoped window, deploys, checks roles, mints, then writes run.env", async () => {
+  it("funds, registers (own classical tx), opens an unscoped window, deploys, checks roles, mints, then completes run.env", async () => {
     const { d, calls, lines } = deps();
     const out = await freshOwner(env, d);
     expect(calls).toEqual([
@@ -200,6 +200,7 @@ describe("freshOwner", () => {
         `VAULT_ADDRESS="${VAULT}"`,
         `ATTACKER_ADDR="${ATTACKER}"`,
         `SAFE_ADDR="${SAFE}"`,
+        'RUN_COMPLETE="1"',
         "",
       ].join("\n"),
     );
@@ -249,10 +250,42 @@ describe("freshOwner", () => {
     expect(d.deployVault).not.toHaveBeenCalled();
   });
 
-  it("refuses to continue (no mint, no run.env) when the deployed vault's roles do not match", async () => {
-    const { d } = deps({ readRoles: vi.fn(async () => ({ owner: fresh.evm as Hex, guardian: SAFE as Hex })) });
+  const RUN_ENV = () => join(home, ".config/qday/runs/20261120T080509Z/run.env");
+  const INCOMPLETE = () =>
+    ['RUN_ID="20261120T080509Z"', `OWNER_MNEMONIC="${MNEMONIC}"`, `OWNER_EVM_ADDRESS="${fresh.evm}"`, 'RUN_COMPLETE="0"', ""].join("\n");
+
+  it("refuses to continue (no mint) when the deployed vault's roles do not match, leaving run.env incomplete with the key", async () => {
+    const { d, lines } = deps({ readRoles: vi.fn(async () => ({ owner: fresh.evm as Hex, guardian: SAFE as Hex })) });
     await expect(freshOwner(env, d)).rejects.toThrow(/guardian/);
     expect(d.mint).not.toHaveBeenCalled();
-    expect(() => statSync(join(home, ".config/qday/runs/20261120T080509Z/run.env"))).toThrow();
+    expect(readFileSync(RUN_ENV(), "utf8")).toBe(INCOMPLETE()); // RUN_COMPLETE=0, mnemonic kept to recover the QOR
+    expect(statSync(RUN_ENV()).mode & 0o777).toBe(0o600);
+    expect(lines.some((l) => l.startsWith("RUN_ENV="))).toBe(false); // demo.sh only picks up a complete run
+    expect(lines.join("\n")).toContain(`incomplete run: ${join(home, ".config/qday/runs/20261120T080509Z")}`);
+    expect(lines.join("\n")).not.toContain(MNEMONIC);
+  });
+
+  it("writes run.env (0600, dir 0700, RUN_COMPLETE=0, mnemonic present) BEFORE the fund tx", async () => {
+    const seen: { text: string; mode: number; dirMode: number }[] = [];
+    const { d } = deps();
+    const inner = d.broadcast;
+    d.broadcast = vi.fn(async (...a: Parameters<FreshDeps["broadcast"]>) => {
+      if (a[1][0].typeUrl === MSG_SEND_TYPE_URL) {
+        seen.push({
+          text: readFileSync(RUN_ENV(), "utf8"),
+          mode: statSync(RUN_ENV()).mode & 0o777,
+          dirMode: statSync(join(home, ".config/qday/runs/20261120T080509Z")).mode & 0o777,
+        });
+      }
+      return inner(...a);
+    });
+    await freshOwner(env, d);
+    expect(seen).toEqual([{ text: INCOMPLETE(), mode: 0o600, dirMode: 0o700 }]);
+  });
+
+  it("does not write anything when it refuses before the fund tx (funder too poor)", async () => {
+    const { d } = deps({ uqorBalance: vi.fn(async () => 1_000_000n) });
+    await expect(freshOwner(env, d)).rejects.toThrow(/funder/i);
+    expect(() => statSync(RUN_ENV())).toThrow();
   });
 });
