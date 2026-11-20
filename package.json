@@ -2,6 +2,9 @@
   "name": "qday-guardian",
   "private": true,
   "packageManager": "pnpm@10.0.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  },
   "engines": {
     "node": ">=22"
   }

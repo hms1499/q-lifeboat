@@ -1,4 +1,5 @@
 import { ed25519 } from "@noble/curves/ed25519";
+import { hexToBytes } from "viem";
 import { deriveUnifiedAccount, type UnifiedAccount } from "@qorechain/sdk";
 
 type Env = Record<string, string | undefined>;
@@ -9,8 +10,10 @@ export async function loadOwner(env: Env = process.env): Promise<UnifiedAccount>
   if (!mnemonic) throw new Error("OWNER_MNEMONIC is not set");
   try {
     return await deriveUnifiedAccount(mnemonic);
-  } catch {
-    throw new Error("OWNER_MNEMONIC is not a valid mnemonic");
+  } catch (e) {
+    // Only the error name is safe to surface; the message could contain the secret.
+    const name = e instanceof Error ? e.name : "UnknownError";
+    throw new Error(`OWNER_MNEMONIC could not be used to derive an account (${name})`);
   }
 }
 
@@ -22,6 +25,6 @@ export function loadAgentKey(env: Env = process.env): { sk: Uint8Array; pk: Uint
   if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
     throw new Error("AGENT_ED25519_SK must be 32 bytes of hex (64 hex characters)");
   }
-  const sk = Uint8Array.from(Buffer.from(hex, "hex"));
+  const sk = hexToBytes(`0x${hex}`);
   return { sk, pk: ed25519.getPublicKey(sk) };
 }

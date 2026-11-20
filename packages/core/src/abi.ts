@@ -1,6 +1,6 @@
 import type { Abi } from "viem";
 
-/** GuardianVault ABI. Kept in sync with contracts/out by test/abi.test.ts. */
+/** GuardianVault ABI. Hand-copied from the forge artifact (contracts/out), guarded by test/abi.test.ts. */
 export const vaultAbi = [
   {
     "type": "constructor",

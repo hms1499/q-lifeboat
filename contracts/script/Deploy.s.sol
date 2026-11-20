@@ -8,6 +8,8 @@ import {GuardianVault} from "../src/GuardianVault.sol";
 /// (the same path the SDK's deriveUnifiedAccount uses). No private key is read from the environment.
 contract Deploy is Script {
     function run() external returns (GuardianVault vault) {
+        require(block.chainid == 9800, "Deploy: diana (9800) only");
+        // forge-lint: disable-next-line(unsafe-cheatcode)
         uint256 pk = vm.deriveKey(vm.envString("OWNER_MNEMONIC"), 0);
         address owner = vm.addr(pk);
 

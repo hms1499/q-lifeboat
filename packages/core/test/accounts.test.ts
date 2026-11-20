@@ -1,3 +1,4 @@
+import { bytesToHex } from "viem";
 import { describe, expect, it } from "vitest";
 import { loadAgentKey, loadOwner } from "../src/accounts";
 
@@ -7,7 +8,7 @@ const MNEMONIC =
 const SK = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
 const PK = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
 
-const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
+const hex = (b: Uint8Array) => bytesToHex(b).slice(2);
 
 describe("loadOwner", () => {
   it("derives the EVM address from OWNER_MNEMONIC", async () => {

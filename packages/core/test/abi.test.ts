@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { formatAbiItem } from "viem/utils";
 import { toFunctionSelector, type Abi } from "viem";
 import { describe, expect, it } from "vitest";
 import { RESCUE_SELECTOR, vaultAbi } from "../src/abi";
@@ -9,11 +8,28 @@ const ARTIFACT = fileURLToPath(
   new URL("../../../contracts/out/GuardianVault.sol/GuardianVault.json", import.meta.url),
 );
 
-const sigs = (abi: Abi) =>
+type Item = Record<string, unknown>;
+const param = (p: Item): Item => {
+  const out: Item = { type: p.type };
+  if ("indexed" in p) out.indexed = p.indexed;
+  if (p.components) out.components = (p.components as Item[]).map(param);
+  return out;
+};
+// Normalised view of every function/event/error: drops internalType and param names.
+const norm = (abi: Abi) =>
   new Set(
-    abi
-      .filter((i) => i.type === "function" || i.type === "event" || i.type === "error")
-      .map((i) => `${i.type}:${formatAbiItem(i as never)}`),
+    (abi as unknown as Item[])
+      .filter((i) => ["function", "event", "error"].includes(i.type as string))
+      .map((i) =>
+        JSON.stringify({
+          type: i.type,
+          name: i.name,
+          inputs: ((i.inputs as Item[]) ?? []).map(param),
+          outputs: ((i.outputs as Item[]) ?? []).map(param),
+          stateMutability: i.stateMutability ?? null,
+          anonymous: i.anonymous ?? null,
+        }),
+      ),
   );
 
 describe("vaultAbi", () => {
@@ -27,8 +43,8 @@ describe("vaultAbi", () => {
   it("has not drifted from the compiled contract", () => {
     if (!existsSync(ARTIFACT)) throw new Error("run `forge build` in contracts/");
     const compiled = JSON.parse(readFileSync(ARTIFACT, "utf8")).abi as Abi;
-    const ours = sigs(vaultAbi as unknown as Abi);
-    const theirs = sigs(compiled);
+    const ours = norm(vaultAbi as unknown as Abi);
+    const theirs = norm(compiled);
     expect([...theirs].filter((s) => !ours.has(s))).toEqual([]);
     expect([...ours].filter((s) => !theirs.has(s))).toEqual([]);
   });
