@@ -49,7 +49,7 @@ Results are in spec §7 and `docs/EVIDENCE.md`. All gates passed, so we keep the
 - [x] **Step 4:** `transferFrom` of 1000 tokens inside `pull` is not counted against perTx 1 QOR.
 - [x] **Step 5 (gate):** No fallback needed. Extra finding: spending rules don't bind the owner's ECDSA key, so the window budget is the only cap on the attacker. Recorded in `docs/THREAT_MODEL.md`.
 
-### Task 1: `GuardianVault.sol` + Foundry tests (Nov 21–22)
+### Task 1: `GuardianVault.sol` + Foundry tests (Nov 21–22), DONE 2026-11-20
 
 **Files:**
 - Create: `contracts/src/GuardianVault.sol`, `contracts/test/GuardianVault.t.sol`, `contracts/test/mocks/MockPqc.sol`, `contracts/test/mocks/MockERC20.sol`, `contracts/foundry.toml`
@@ -67,21 +67,23 @@ Results are in spec §7 and `docs/EVIDENCE.md`. All gates passed, so we keep the
 
 `MockPqc` is `vm.etch`ed at `0x…a01` and `0x…a02`. It returns configurable `registered`, `proven` and verify results through setters, and verify returns true when `keccak(sig) == keccak(expectedSig)`.
 
-- [ ] **Step 1:** Write the failing `rescue` tests:
+- [x] **Step 1:** Write the failing `rescue` tests:
   - `test_rescuePullsAllowedBalance`: owner has 100e18 and approves max. After rescue the vault holds 100e18 and the owner 0.
   - `test_rescueZeroBalanceDoesNotRevert`.
   - `test_rescueCallableByAnyone`: only the owner's funds move, and only into the vault.
-- [ ] **Step 2:** Write the failing `withdraw` tests:
+- [x] **Step 2:** Write the failing `withdraw` tests:
   - `test_withdrawWithValidSig`.
   - `test_revertsBadSignature`.
   - `test_signatureWorksOnce`: resubmitting an old signature reverts with `BadSignature`.
   - `test_revertsWhenKeyNotRegistered`, `test_revertsWhenKeyNotProven`.
   - `test_signatureBoundToToAmountToken`.
   - `test_nonceIncrementsBeforeTransfer`.
-- [ ] **Step 3:** Run `cd contracts && forge test`. Expected: FAIL (contract missing).
-- [ ] **Step 4:** Implement `GuardianVault.sol` following the `QDayVault` pattern: read the key via `pqcKeyStatus(owner)` and bump the nonce before the external call. Credit the source in a comment.
-- [ ] **Step 5:** Run `forge test -vv`. Expected: all PASS.
-- [ ] **Step 6:** Commit `feat(contracts): GuardianVault with ML-DSA withdraw and rescue`.
+- [x] **Step 3:** Run `cd contracts && forge test`. Expected: FAIL (contract missing).
+- [x] **Step 4:** Implement `GuardianVault.sol` following the `QDayVault` pattern: read the key via `pqcKeyStatus(owner)` and bump the nonce before the external call. Credit the source in a comment.
+- [x] **Step 5:** Run `forge test -vv`. Expected: all PASS.
+- [x] **Step 6:** Commit `feat(contracts): GuardianVault with ML-DSA withdraw and rescue`.
+
+As built: `git init` skipped (repo existed). `MockPqc.pqcVerify` accepts `keccak256("ok", pubkey, message)` so the binding tests are meaningful. Review hardening added `ZeroOwner()`, a code-less token check, chainId/vault binding tests and failure-path tests (21 tests).
 
 ### Task 2: `packages/core` + test vector + diana deploy + Audit Stage 1 (Nov 23)
 
