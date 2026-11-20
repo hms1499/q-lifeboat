@@ -91,6 +91,12 @@ checkboxes and the docs below are the handoff state, not the chat history.
    deploy: 675529 of 878187), so set tight gas limits.
 6. QoreX refuses `signArbitrary`, so ML-DSA signatures for `withdraw` come from the local Guardian
    Signer (`pqcSign`), not the wallet.
+7. The authenticator lane executes `MsgExecuteEVM` FROM the owner's EVM address: `msg.sender` == owner,
+   so `GuardianVault.rescue` is owner-only and the agent still passes (tx `52B81C08…`, 2026-11-20).
+8. Spending rules live on the ACCOUNT, not on a key. `MsgUpdateSpendingRules` (`linkAuthenticatorMsgs(...)[0]`)
+   replaces them wholesale; the first enabled rule applies. Retarget the agent without re-registering it.
+9. From chain v3.2.8 a failed `MsgExecuteEVM` (revert, policy) burns the auth nonce and returns
+   `success=false` inside a SUCCESSFUL tx. Read results with `decodeAuthenticatorExecutions`, never the tx code.
 
 SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSign`, `EthNativeSigner`,
 `linkAuthenticatorMsgs`, `signAuthenticatorLinkEd25519`, `revokeAuthenticatorMsg`,

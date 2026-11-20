@@ -20,7 +20,7 @@ Agent rule under test: `allowedEvmCalls = ["0x3f674746ffcdc3adeee2377accd5a2e706
 
 ## Project contracts
 
-`GuardianVault` at `0x8A11587A08F509781c0ce190EeaD715e4d81b0A5`, owner `0xE871748C0922745Ad94d065a388e95eC420A67EB` (`qor1apchfrqfyf694k2dqedr3r54a3pq5eltmjxxpv`).
+Current `GuardianVault` (v2, QCAI Stage 1 fixes) at `0x17d867860a0A0Ff528dF655439ff59176b061B3C`. v1 at `0x8A11587A08F509781c0ce190EeaD715e4d81b0A5` is retired (empty, pre-audit bytecode). Owner `0xE871748C0922745Ad94d065a388e95eC420A67EB` (`qor1apchfrqfyf694k2dqedr3r54a3pq5eltmjxxpv`).
 
 | Claim | Result | Tx / check |
 |---|---|---|
@@ -28,3 +28,10 @@ Agent rule under test: `allowedEvmCalls = ["0x3f674746ffcdc3adeee2377accd5a2e706
 | Owner opens an unscoped EVM window for the deploy (600 blocks, 3 txs) | OK | `4F80AAD7CD12ABE69BE7F5661A4E27316ACDC3C49A1C363B1F152EE3A96A32D9` |
 | `GuardianVault` deployed by `Deploy.s.sol` (key derived from the owner mnemonic) | Success, block 10407569. `owner()` = owner, `nonce()` = 0. `gasUsed` 675529 of the 878187 limit (77%, so the 50% figure in Task 0 is a floor, not a constant) | `0xc100b0504cf5b5991a9ff73c541d933c041db9d5b919a28d773a5a19b2fcb84d` |
 | Review Focus 2: the deployed vault's `withdrawalMessage(0x2222…, 0x3333…, 1e18, 0)` is byte-identical to `@qday/core` `withdrawalMessage` for the same inputs | MATCH, 172 bytes, keccak `0x89fae1e18eb9f7f687cf95d6080760a6626801cc45ad31ad5bb4d727a9a6177b` on both sides | `eth_call` on diana, 2026-11-20 |
+| v1 retired after QCAI Stage 1; owner opens a 5-tx window for the v2 deploy and proof | OK | `F399C7FEF27DD31B64AC0C4CD4788DDB64F42D59ED87F0AFB5CD4B924D86662C` |
+| `GuardianVault` v2 deployed (owner-only `rescue`, SafeERC20-style return checks) | Success, block 10408285. `owner()` = owner. `gasUsed` 695387 of 904003 | `0x49ce4031f63cd65f5a2891e4a650c41941b17ac2deae1e4fa23832e0609edb41` |
+| Review Focus 2 on v2: on-chain `withdrawalMessage(0x2222…, 0x3333…, 1e18, 0)` == `@qday/core` | MATCH, 172 bytes, keccak `0x5ba836cbac295e4585d81e417d620e678c09c1d911375e14c3e4e7858d19e4a4` | `eth_call` on diana, 2026-11-20 |
+| Throwaway test token (100e18 to owner) and `approve(v2, max)` | Success | `0xdfae29d314c6484d859ee34311cedd977d69b20938c85357426745f84594d59a`, `0x86ba4e4dc750961171f916fca03eaff035382d43fe32916ba1ad003f4cc7e85a` |
+| Owner replaces the account's spending rules with the production shape: `allowedEvmCalls=["0x17d867860a0a0ff528df655439ff59176b061b3c/0x839006f2"]`, `allowedDenoms=["uqor"]` (only `MsgUpdateSpendingRules`; the key stays registered) | OK, `fetchSpendingRules` shows the single rule | `B71F68C7E428653A5DB0D8D0D5DA97B3CE58EAE958EBAFD3EACE99A00BF9E5BF` |
+| A stranger (gas wallet `0xFf82…3850`) cannot call `rescue` (QCAI #1) | Reverts `NotOwner` | `eth_call` simulation on diana, 2026-11-20 |
+| **The authenticator lane calls as the owner**: the agent's `MsgExecuteEVM` to owner-only `rescue(token)` succeeds, so `msg.sender` == owner's EVM address | `success: true`, `gasUsed` 58705; owner 100e18 → 0, vault 0 → 100e18 | `52B81C0850CD88D541CE1A3557621FB10BD5B2597A5B18F963D223A11CABE395` |

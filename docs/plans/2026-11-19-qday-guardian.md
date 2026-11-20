@@ -106,10 +106,12 @@ As built: `git init` skipped (repo existed). `MockPqc.pqcVerify` accepts `keccak
   - `<HASH>` is the value Solidity prints on the first run, then copied into both tests.
 - [x] **Step 2:** Run `forge test --match-contract MessageVector` and `pnpm -F core test`. Expected: both PASS with the same hash.
 - [x] **Step 3:** Deploy to diana with `forge script script/Deploy.s.sol --rpc-url $EVM_RPC --broadcast` (the owner opens a window first). Write `VAULT_ADDRESS` to `.env`, the README and `docs/EVIDENCE.md`.
-- [ ] **Step 4:** Run QCAI Stage 1 on dashboard.qorechain.io (Ethereum/Solidity setting). Save the report, build the findings table in `docs/AUDIT.md`, fix each finding with a test and rerun `forge test`.
-- [ ] **Step 5:** Commit.
+- [x] **Step 4:** Run QCAI Stage 1 on dashboard.qorechain.io (Ethereum/Solidity setting). Save the report, build the findings table in `docs/AUDIT.md`, fix each finding with a test and rerun `forge test`.
+- [x] **Step 5:** Commit.
 
 As built (Steps 1-2): vector addresses are `0x1111…`, `0x2222…`, `0x3333…` because `0x…01-03` are precompiles. Hash `0x783fcbffbc8f1ec81272b39002a0c603c86984c6f9138f874c950e790e3c31eb` (172 bytes) on both sides. `Deploy.s.sol` derives the key with `vm.deriveKey(OWNER_MNEMONIC, 0)` and only runs on chain 9800. The diana vault's owner is the Task 0 spike owner (PQC key already registered).
+
+As built (Steps 3-4): QCAI Stage 1 scored 85/100 (MEDIUM). Fixes: `rescue` is now **owner-only** (`NotOwner`; this replaces Task 1's `test_rescueCallableByAnyone`) and token return values follow SafeERC20 semantics. v1 `0x8A11…b0A5` is retired; v2 is `0x17d867860a0A0Ff528dF655439ff59176b061B3C`. The agent lane calling as the owner was proven on diana (`docs/EVIDENCE.md`). Task 3 setup needs only `MsgUpdateSpendingRules` if the agent key is already registered.
 
 ### Task 3: CLI setup + Guardian Signer + withdraw (Nov 24–25)
 

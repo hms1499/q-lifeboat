@@ -40,14 +40,14 @@ _Coming with Tasks 1–5. See `docs/plans/`._
 
 ## Documents
 - [Threat model](docs/THREAT_MODEL.md)
-- [Audit (QCAI Stage 1 + 2)](docs/AUDIT.md)
+- [Audit (QCAI Stage 1 + 2)](docs/AUDIT.md): Stage 1 scored 85/100 (MEDIUM), every finding handled
 - [On-chain evidence](docs/EVIDENCE.md)
 - [How AI was used](AI_USAGE.md)
 
 ## Deployed (diana)
 | Contract / account | Address |
 |---|---|
-| GuardianVault | [`0x8A11587A08F509781c0ce190EeaD715e4d81b0A5`](https://explore.qore.network/address/0x8A11587A08F509781c0ce190EeaD715e4d81b0A5) |
+| GuardianVault (v2, after QCAI Stage 1) | [`0x17d867860a0A0Ff528dF655439ff59176b061B3C`](https://explore.qore.network/address/0x17d867860a0A0Ff528dF655439ff59176b061B3C) |
 | Owner (ML-DSA-87 guardian) | `0xE871748C0922745Ad94d065a388e95eC420A67EB` / `qor1apchfrqfyf694k2dqedr3r54a3pq5eltmjxxpv` |
 
 ## Credits
