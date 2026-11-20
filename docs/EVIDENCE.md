@@ -70,3 +70,28 @@ fBTC `0xbd16bc9ffaddf241593d891844cc4281f5af903e`.
 | Agent startup: vault `guardian()` matches `GAS_MNEMONIC`; the guardian opens its own hybrid-signed EVM window (14400 blocks, 10 txs, `allowedTargets=[vault]`) | OK | `715C67A3DA36954DD70347B74F962388F9ED8F4F3A5133FBD14898C41B4EC117` |
 | Simulated drain: owner ECDSA key sends 1 fETH to `0x…dEaD` (owner window reopened first, `002B810B…`) | Success, block 10422295 | `0x62ba45325b5c641b3695fba8e58b4250a575563a7edbe9d6cd928b882a0c342f` |
 | **Guardian rescue (Task 4 done).** `decide` → RESCUE (recipient not allowlisted); the agent sends two plain EVM `vault.rescue(token)` txs FROM the guardian `0xFf82…3850` (not the owner), sequential nonces, `maxFeePerGas` 150 gwei | Both status 1 in block 10422299 (4 blocks after the drain), gasUsed 60000 each (50% of the 120k limit). `Rescued` logs: fETH 97e18, fBTC 100e18 = pre-read estimate. Owner fETH 97 → 0, fBTC 100 → 0; vault fETH 0 → 97, fBTC 0 → 100. Signed incident `101a81ba…` (2/2 rescued, template summary) served on `GET /incidents`; the vault-bound transfers did not re-trigger | `0x2660fb6f6a353c0a6cbec5b0e520bef5e54926f8834b8551248c011229080cff` (fETH), `0xc95e29069d47527b3b4d86b30a8aa4db86e12aaa326c935c8c958c672a3acd40` (fBTC) |
+
+## Task 5: end-to-end demo on diana (2026-11-20)
+
+Each run uses a brand-new owner provisioned by `pnpm cli fresh-owner` (its own ML-DSA-87 key, its own `GuardianVault` with the agent account `0xFf82…3850` as guardian, its own agent ed25519 key, 100 fUSD), then `./demo.sh` runs setup → agent → attack → recovery → verdict.
+
+### Run 1 — `20261120T141722Z` — PASS
+
+Fresh owner `0x0aEb66a9Ba4A39B4B5339BB2590e64FA66e9d04A` (`qor1pt4kd2d6fgumfdfnnwe9jrnylfnwn5z223sypr`), vault `0x9e94b1696eb0467e434c4ecdbd2fbb42dd2ed70d`, attacker `0x9d9E5b294A8EAD99134Cffd18fe2a8D2A36560DB`, safe address `0x61e095243b41343713292fA2629089838a925Ba8`. Resumed once with `--resume` after two `setup` bugs (below) were fixed; the fresh-owner txs were not repeated.
+
+| Claim | Result | Tx / check |
+|---|---|---|
+| Funder sends 1.5 QOR to the fresh owner | OK | `C34F85BA55E5E57A211304886EB328F52DC8E5C8C1A62AF4E143BBE8E7FE14D3` |
+| **A brand-new account registers its ML-DSA-87 key** with a classically signed `MsgRegisterPQCKeyV2` (proof of possession) | OK, key registered and proven (the signer's check passed later) | `A665D9CBED0C659B4598E39D796E42E8CCB03082991E70386EBE7D27B675EBF2` |
+| Fresh owner opens an unscoped 3-tx window, deploys its vault, mints 100 fUSD | OK; `owner()`/`guardian()` read back | `DFEB0823AF4CCD8C3BCC47BC3C30DF0AABE108B5483D5E0304602C1EB5374338`, `0xe9bc1628cc3663ee424baf12a5dd828d2b6a4b37232cfc9c43b278fadc035d7f`, `0xc6f1fe8b178d27dfd46e3dee858c4d2bb916b67e6e76db49e32dbe87481870a1` |
+| Before the first link the abstractaccount REST answers HTTP 404 "account … not found" for `authenticators` | `setup` failed until the 404 was read as "no keys" | REST, 2026-11-20 |
+| **An authenticator key binds to ONE account**: linking the root agent key to the fresh owner is refused, "authenticator key already bound to another account" | Tx failed (code 1); fixed with a per-run agent key | `422FE4897AA6362A99904C66152A5E6E77644D68BCC01C323593F99822AE8357` |
+| `setup`: scoped window + link (per-run key) + rule, then `approve(vault, max)` ×3 | OK | `4B6390CED56BE8A62117BA0C1643C926EEF3E0A8E58374BD9000039B27E28C4A`; `0x828cf3194bfcb5889b8d54c3d63eac65f2b75fa8757eeeb87f3baf3960722432`, `0x4831e6470027d487744261da7f19087a1c812826da98934ee191c6eb6814fccc`, `0xe5540d8723c06be5bbad1384462fec933fc1f3aac8f5c1cd9be7105d52438039` |
+| Attack drain 1: leaked ECDSA key sends 10 fUSD to the attacker | Success, block 10437759 | `0x307f314660f0a0eff7809d7fcd96e8d6522c9b038a05b6c1ab3b4e6506901878` |
+| **Guardian rescue**: detected 5.4 s after the agent started polling the block, sent 1.5 s after detection (trigger token first, 40 gwei tip) | Success, block 10437761 = **2 blocks** after drain 1; 89 fUSD into the vault | `0xc32258f9e31759d496013cf2281a4940c818d2918115b8d8ae45439e54ca1cfb` |
+| Drains 2 and 3 (one block apart) find nothing left | Both reverted | `0xcda42340b4a4e373538d23c33610b7628dd84f7963c665248a7c0ed6ea6f3995` (block 10437761), `0x71fcac126aa3e90d0a88e28ab8137792345c118787dc27c070dc6b1a2e4b8057` (block 10437762) |
+| Demo 4(a): attacker calls `vault.withdraw` with a forged 4627-byte signature | `eth_call` → `BadSignature`; the real tx reverted | `0x1cf584df8d0e1e1fce27bc0641d81c17445a4d6f74852953ea55acd43490fb00` |
+| Demo 4(b): the (stolen) agent key calls `fUSD.transfer(attacker)` directly | Refused: "… authenticator not permitted for this action" | `2CCD028471839B0550472B4F054FBA3570400F614B17994BE21654765E952736` |
+| Signed incident served by the agent | `4da6d493-23c5-4caa-898e-0cf29d33f006`, trigger = drain 1 | `GET /incidents` |
+| Recovery: Guardian Signer (ML-DSA) + `withdraw` 1 fUSD to the safe address | `status success`, safe 0 → 1 fUSD | `0xf0ed540a7e0d6a1230a92fa18983c3fbf80851d6a29bd3fb980e8c90af5bc698` |
+| **Verdict** | 2 blocks (≤ 3), **90% kept** (vault 89 + recovered 1 of 100), attacker 10 fUSD, (a) PASS, (b) PASS | `demo-check` RESULT PASS |
