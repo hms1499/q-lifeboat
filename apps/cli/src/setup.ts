@@ -22,8 +22,10 @@ const AGENT_TTL_SECONDS = 7 * 24 * 3600;
 const EXPIRY_MARGIN_SECONDS = 60;
 
 /**
- * The agent's spending rule. It may call exactly `vault.rescue` and move only native uqor, with no
- * erc20/ denom, so the agent cannot move tokens directly.
+ * The agent key's spending rule. It may call exactly `vault.rescue` and move only native uqor, with no
+ * erc20/ denom: listing a token would let the key call that token's `transfer` directly, whatever
+ * allowedEvmCalls says (docs/EVIDENCE.md, tx CADB1412). The agent rescues from its own guardian account,
+ * so this key only signs incident reports and proves that the chain refuses direct token calls.
  */
 export function buildSetupRule(vault: string) {
   const rule = {

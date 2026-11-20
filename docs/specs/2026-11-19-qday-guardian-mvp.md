@@ -20,12 +20,21 @@ which only opens with the owner's ML-DSA-87 signature.
      allowance. `deposit()` takes QOR.
    - `withdraw(to, token, amount, mldsaSig)`: checks `pqcKeyStatus` (0x…a02: registered and proven),
      then `pqcVerify` (0x…a01). The message binds tag, chainId, vault address, to, token, amount and nonce.
-   - No setters. `owner` is immutable. Two-stage QCAI audit.
+   - `rescue` may be called by the owner or by an immutable `guardian` (the agent's own EVM account),
+     fixed at deploy. Funds only ever move owner → vault, whoever calls.
+   - No setters. `owner` and `guardian` are immutable. Two-stage QCAI audit.
 2. **Guardian agent** (Node/TS)
+   - Rescues from its own **guardian EVM account** (`GAS_MNEMONIC`): plain `vault.rescue(token)` txs inside
+     the guardian's own EVM window, scoped to the vault only and opened with the guardian's hybrid
+     (secp256k1 + ML-DSA-87) signature. (Changed 2026-11-20: on diana the authenticator lane now refuses
+     a token move from the owner's account unless the token is listed in the key's spending rule, and
+     listing it lets the key `transfer` the token directly; see `docs/EVIDENCE.md` "Task 4".)
    - An ed25519 key linked to the owner's account in one hybrid tx: permission `evm`,
-     `allowedEvmCalls = [GuardianVault.rescue]`, with per-tx, daily and expiry limits.
+     `allowedEvmCalls = [GuardianVault.rescue]`, `allowedDenoms = ["uqor"]`, with per-tx, daily and expiry
+     limits. It signs the incident reports and proves that the chain refuses a direct token call (demo 4(b)).
    - Watches the owner's EVM address every block. Detection rule: an outbound tx to an address not on
-     the allowlist, or above a threshold. On a match it calls `vault.rescue()` and `vault.deposit()`.
+     the allowlist, or above a threshold. On a match it calls `vault.rescue(token)` for fUSD/fETH/fBTC.
+     `deposit()` QOR is not swept by the agent: QOR on the EVM lane stays the owner's (window budget cap).
    - The LLM writes the incident report. The report is signed with the agent key (authenticated
      messaging) so the dashboard can verify it.
 3. **Dashboard** (React + `@qorechain/react`)
@@ -60,9 +69,9 @@ which only opens with the owner's ML-DSA-87 signature.
 
 | Feature | Used for |
 |---|---|
-| Hybrid signature (secp256k1 + ML-DSA-87) | Agent link tx, opening the window |
-| Scoped EVM window (`allowed_targets`, block/tx/value budget) | Caps the damage when ECDSA leaks |
-| Authenticator lane + spending rules (`perTxLimit`, `dailyLimit`, expiry, `allowedEvmCalls`) | Agent permissions, target restricted to the vault |
+| Hybrid signature (secp256k1 + ML-DSA-87) | Agent link tx, opening the owner's window and the guardian's window |
+| Scoped EVM window (`allowed_targets`, block/tx/value budget) | Caps the damage when the owner's ECDSA leaks; the guardian's window targets only the vault |
+| Authenticator lane + spending rules (`perTxLimit`, `dailyLimit`, expiry, `allowedEvmCalls`, `allowedDenoms=["uqor"]`) | The agent's ed25519 key: signs incident reports; the chain refuses its direct token calls (demo 4(b)). Rescues no longer go through this lane |
 | `pqcVerify` + `pqcKeyStatus` precompiles | `GuardianVault.withdraw` |
 | Signed messages | Authenticated incident reports (agent ed25519 key, checked against the on-chain authenticator list) |
 | MCP / `qore-cli pq status` | Evidence of each tx's protection level |

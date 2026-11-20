@@ -1,6 +1,6 @@
 import { ed25519 } from "@noble/curves/ed25519";
-import { hexToBytes } from "viem";
-import { deriveUnifiedAccount, type UnifiedAccount } from "@qorechain/sdk";
+import { hexToBytes, type Hex } from "viem";
+import { addressesFrom20, deriveUnifiedAccount, type UnifiedAccount } from "@qorechain/sdk";
 
 type Env = Record<string, string | undefined>;
 
@@ -27,4 +27,33 @@ export function loadAgentKey(env: Env = process.env): { sk: Uint8Array; pk: Uint
   }
   const sk = hexToBytes(`0x${hex}`);
   return { sk, pk: ed25519.getPublicKey(sk) };
+}
+
+/** The owner's public addresses from OWNER_EVM_ADDRESS. For processes that must never hold the owner's secret. */
+export function loadOwnerAddress(env: Env = process.env): { evm: Hex; cosmos: string } {
+  const raw = env.OWNER_EVM_ADDRESS?.trim();
+  if (!raw) throw new Error("OWNER_EVM_ADDRESS is not set");
+  if (!/^0x[0-9a-fA-F]{40}$/.test(raw)) throw new Error("OWNER_EVM_ADDRESS must be a 0x-prefixed 20-byte address");
+  return { evm: raw as Hex, cosmos: addressesFrom20(hexToBytes(raw as Hex)).cosmos };
+}
+
+/** Derive the relayer (gas) account from GAS_MNEMONIC. Never echoes the secret in errors. */
+export async function loadGasAccount(env: Env = process.env): Promise<UnifiedAccount> {
+  const mnemonic = env.GAS_MNEMONIC?.trim();
+  if (!mnemonic) throw new Error("GAS_MNEMONIC is not set");
+  try {
+    return await deriveUnifiedAccount(mnemonic);
+  } catch (e) {
+    throw new Error(`GAS_MNEMONIC could not be used to derive an account (${e instanceof Error ? e.name : "UnknownError"})`);
+  }
+}
+
+/** The authenticator wallet shape the SDK expects for the agent's ed25519 key. The key never leaves the process. */
+export function agentWallet(key: { sk: Uint8Array; pk: Uint8Array }) {
+  return {
+    publicKey: key.pk,
+    async signMessage(m: Uint8Array) {
+      return { signature: ed25519.sign(m, key.sk) };
+    },
+  };
 }

@@ -13,7 +13,7 @@ contract MessageVectorTest is Test {
 
     function test_vectorHashAndLength() public {
         vm.chainId(9800);
-        deployCodeTo("GuardianVault.sol:GuardianVault", abi.encode(address(0xBEEF)), VAULT);
+        deployCodeTo("GuardianVault.sol:GuardianVault", abi.encode(address(0xBEEF), address(0xCAFE)), VAULT);
 
         bytes memory m = GuardianVault(VAULT).withdrawalMessage(TO, TOKEN, 1e18, 0);
         assertEq(m.length, 172);

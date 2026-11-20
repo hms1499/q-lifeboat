@@ -1,6 +1,7 @@
 import { bytesToHex } from "viem";
 import { describe, expect, it } from "vitest";
-import { loadAgentKey, loadOwner } from "../src/accounts";
+import { ed25519 } from "@noble/curves/ed25519";
+import { agentWallet, loadAgentKey, loadGasAccount, loadOwner, loadOwnerAddress } from "../src/accounts";
 
 const MNEMONIC =
   "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
@@ -55,5 +56,41 @@ describe("loadAgentKey", () => {
 
   it("throws on non-hex input", () => {
     expect(() => loadAgentKey({ AGENT_ED25519_SK: "zz".repeat(32) })).toThrow(/AGENT_ED25519_SK/);
+  });
+});
+
+describe("loadOwnerAddress", () => {
+  it("returns the evm address and its qor1 form without any secret", () => {
+    const o = loadOwnerAddress({ OWNER_EVM_ADDRESS: "0x9858EfFD232B4033E47d90003D41EC34EcaEdA94" });
+    expect(o.evm).toBe("0x9858EfFD232B4033E47d90003D41EC34EcaEdA94");
+    expect(o.cosmos).toMatch(/^qor1/);
+  });
+  it("rejects missing or malformed values naming the variable", () => {
+    expect(() => loadOwnerAddress({})).toThrow(/OWNER_EVM_ADDRESS is not set/);
+    expect(() => loadOwnerAddress({ OWNER_EVM_ADDRESS: "0x12" })).toThrow(/OWNER_EVM_ADDRESS must be/);
+  });
+});
+
+describe("loadGasAccount", () => {
+  it("derives the relayer account from GAS_MNEMONIC", async () => {
+    const a = await loadGasAccount({ GAS_MNEMONIC: MNEMONIC });
+    expect(a.evm.toLowerCase()).toBe("0x9858effd232b4033e47d90003d41ec34ecaeda94");
+  });
+  it("requires GAS_MNEMONIC and never echoes a bad one", async () => {
+    await expect(loadGasAccount({})).rejects.toThrow(/GAS_MNEMONIC is not set/);
+    const err = await loadGasAccount({ GAS_MNEMONIC: "bad secretword" }).catch((e: Error) => e);
+    expect((err as Error).message).toMatch(/GAS_MNEMONIC/);
+    expect((err as Error).message).not.toContain("secretword");
+  });
+});
+
+describe("agentWallet", () => {
+  it("signs with the agent ed25519 key", async () => {
+    const { sk, pk } = loadAgentKey({ AGENT_ED25519_SK: SK });
+    const w = agentWallet({ sk, pk });
+    const msg = new Uint8Array([1, 2, 3]);
+    const { signature } = await w.signMessage(msg);
+    expect(ed25519.verify(signature, msg, pk)).toBe(true);
+    expect(w.publicKey).toEqual(pk);
   });
 });

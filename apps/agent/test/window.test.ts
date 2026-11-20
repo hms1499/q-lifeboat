@@ -1,0 +1,201 @@
+import { evmWindowCost } from "@qorechain/evm";
+import { openEvmWindowMsg } from "@qorechain/sdk";
+import { describe, expect, it, vi } from "vitest";
+import { RESCUE_GAS, RESCUE_MAX_FEE_PER_GAS } from "../src/rescue";
+import {
+  buildGuardianWindowParams,
+  createSerial,
+  createWindowKeeper,
+  needsWindow,
+  pollUntil,
+  skipWhileBusy,
+  STATUS_POLLS,
+  type WindowStatus,
+} from "../src/window";
+
+const VAULT = "0x17d867860a0A0Ff528dF655439ff59176b061B3C" as const;
+const ONE_TX = evmWindowCost({ gas: RESCUE_GAS, maxFeePerGas: RESCUE_MAX_FEE_PER_GAS });
+const healthy: WindowStatus = { live: true, remainingBlocks: 500n, remainingTxs: 8n, remainingValue: ONE_TX * 8n };
+
+describe("needsWindow", () => {
+  it("is false for a healthy window", () => {
+    expect(needsWindow(healthy)).toBe(false);
+    expect(needsWindow({ ...healthy, remainingBlocks: 100n, remainingTxs: 3n, remainingValue: ONE_TX * 3n })).toBe(false);
+  });
+
+  it("is true when the window is not live", () => {
+    expect(needsWindow({ ...healthy, live: false })).toBe(true);
+  });
+
+  it("is true when fewer than 100 blocks remain", () => {
+    expect(needsWindow({ ...healthy, remainingBlocks: 99n })).toBe(true);
+  });
+
+  it("is true when fewer than 3 txs remain", () => {
+    expect(needsWindow({ ...healthy, remainingTxs: 2n })).toBe(true);
+  });
+
+  it("is true when the value left cannot pay for 3 rescue txs", () => {
+    expect(needsWindow({ ...healthy, remainingValue: ONE_TX * 3n - 1n })).toBe(true);
+  });
+});
+
+describe("buildGuardianWindowParams", () => {
+  const p = buildGuardianWindowParams("qor1guardian", VAULT);
+
+  it("opens 14400 blocks (~5.7 h) / 10 txs scoped to the vault only, budgeted at the rescue fee cap", () => {
+    expect(p).toEqual({
+      sender: "qor1guardian",
+      blocks: 14_400,
+      maxTxs: 10,
+      maxValue: (ONE_TX * 10n).toString(),
+      allowedTargets: [VAULT],
+    });
+  });
+
+  it("passes the SDK bounds check with the vault as the only target", () => {
+    const msg = openEvmWindowMsg(p);
+    expect(msg.typeUrl).toBe("/qorechain.pqc.v1.MsgOpenEVMWindow");
+    expect((msg.value as { allowedTargets: string[] }).allowedTargets.map((a) => a.toLowerCase())).toEqual([VAULT.toLowerCase()]);
+  });
+});
+
+function keeper(statuses: WindowStatus[]) {
+  const queue = [...statuses];
+  const readStatus = vi.fn(async () => queue.shift() ?? healthy);
+  const open = vi.fn(async () => "OPENHASH");
+  const log = vi.fn();
+  const sleep = vi.fn(async () => {});
+  return { k: createWindowKeeper({ readStatus, open, log, sleep }), readStatus, open, log, sleep };
+}
+
+describe("createWindowKeeper", () => {
+  it("ensure() does nothing more than a read when the window is healthy", async () => {
+    const { k, readStatus, open } = keeper([healthy]);
+    await k.ensure();
+    expect(readStatus).toHaveBeenCalledTimes(1);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("ensure() opens ONE window when needed and checks the result", async () => {
+    const { k, readStatus, open, log } = keeper([{ ...healthy, live: false }, healthy]);
+    await k.ensure();
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(readStatus).toHaveBeenCalledTimes(2);
+    expect(log.mock.calls.flat().join(" ")).toContain("OPENHASH");
+  });
+
+  it("ensure() throws when the window cannot be opened or is still unusable", async () => {
+    const refused = keeper([{ ...healthy, live: false }]);
+    refused.open.mockRejectedValueOnce(new Error("tx refused"));
+    await expect(refused.k.ensure()).rejects.toThrow(/tx refused/);
+
+    const used = { ...healthy, remainingTxs: 0n };
+    const stillBad = keeper([{ ...healthy, live: false }, ...Array(STATUS_POLLS).fill(used)]);
+    await expect(stillBad.k.ensure()).rejects.toThrow(/not usable/);
+    expect(stillBad.readStatus).toHaveBeenCalledTimes(1 + STATUS_POLLS);
+  });
+
+  it("ensure() re-reads a stale status after opening instead of failing at once", async () => {
+    const dead = { ...healthy, live: false };
+    const { k, readStatus, open, sleep } = keeper([dead, dead, healthy]);
+    await k.ensure();
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(readStatus).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it("ensureIfStale() trusts a healthy cached status (no REST read)", async () => {
+    const { k, readStatus } = keeper([healthy]);
+    await k.ensure();
+    await k.ensureIfStale();
+    expect(readStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("ensureIfStale() reads again with no cache, after invalidate(), or when the cache is unusable", async () => {
+    const fresh = keeper([]);
+    await fresh.k.ensureIfStale();
+    expect(fresh.readStatus).toHaveBeenCalledTimes(1);
+
+    const inv = keeper([healthy, healthy]);
+    await inv.k.ensure();
+    inv.k.invalidate();
+    await inv.k.ensureIfStale();
+    expect(inv.readStatus).toHaveBeenCalledTimes(2);
+
+    const low = { ...healthy, remainingBlocks: 1n };
+    const bad = keeper([low, ...Array(STATUS_POLLS).fill(low), healthy]);
+    await expect(bad.k.ensure()).rejects.toThrow(/not usable/);
+    await bad.k.ensureIfStale();
+    expect(bad.readStatus).toHaveBeenCalledTimes(2 + STATUS_POLLS);
+    expect(bad.open).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createSerial", () => {
+  it("runs tasks one at a time, and a failed task does not block the next", async () => {
+    const serial = createSerial();
+    const events: string[] = [];
+    let release!: () => void;
+    const first = serial(async () => {
+      events.push("a:start");
+      await new Promise<void>((r) => (release = r));
+      events.push("a:end");
+      throw new Error("a failed");
+    });
+    const second = serial(async () => {
+      events.push("b");
+      return 2;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(events).toEqual(["a:start"]);
+    release();
+    await expect(first).rejects.toThrow("a failed");
+    await expect(second).resolves.toBe(2);
+    expect(events).toEqual(["a:start", "a:end", "b"]);
+  });
+});
+
+describe("pollUntil", () => {
+  it("returns the first value that passes, sleeping between reads", async () => {
+    const read = vi.fn<() => Promise<number>>().mockResolvedValueOnce(1).mockResolvedValueOnce(2).mockResolvedValueOnce(3);
+    const sleep = vi.fn(async () => {});
+    expect(await pollUntil(read, (v) => v >= 2, { tries: 5, delayMs: 10, sleep })).toBe(2);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the last value after `tries` reads when none passes", async () => {
+    const read = vi.fn(async () => 0);
+    const sleep = vi.fn(async () => {});
+    expect(await pollUntil(read, (v) => v > 0, { tries: 3, delayMs: 10, sleep })).toBe(0);
+    expect(read).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("skipWhileBusy", () => {
+  it("drops a call while the previous one is still running, then runs again", async () => {
+    let release!: () => void;
+    const task = vi.fn(() => new Promise<void>((r) => (release = r)));
+    const tick = skipWhileBusy(task);
+    const first = tick();
+    await tick(); // dropped: the first is still running
+    expect(task).toHaveBeenCalledTimes(1);
+    release();
+    await first;
+    const third = tick();
+    expect(task).toHaveBeenCalledTimes(2);
+    release();
+    await third;
+  });
+
+  it("is free again after a task fails", async () => {
+    const task = vi.fn().mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce(undefined);
+    const tick = skipWhileBusy(task);
+    await expect(tick()).rejects.toThrow("boom");
+    await tick();
+    expect(task).toHaveBeenCalledTimes(2);
+  });
+});

@@ -9,6 +9,11 @@ export const vaultAbi = [
         "name": "owner_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "guardian_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
@@ -19,6 +24,19 @@ export const vaultAbi = [
     "inputs": [],
     "outputs": [],
     "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "guardian",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -201,7 +219,7 @@ export const vaultAbi = [
   },
   {
     "type": "error",
-    "name": "NotOwner",
+    "name": "NotAuthorized",
     "inputs": []
   },
   {
@@ -211,10 +229,15 @@ export const vaultAbi = [
   },
   {
     "type": "error",
+    "name": "ZeroGuardian",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ZeroOwner",
     "inputs": []
   }
 ] as const satisfies Abi;
 
-/** `rescue(address)` selector, the only call the agent's authenticator rule allows. */
+/** `rescue(address)` selector: the only vault call the agent sends, and the only call the authenticator rule allows. */
 export const RESCUE_SELECTOR = "0x839006f2" as const;

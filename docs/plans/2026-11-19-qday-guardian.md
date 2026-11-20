@@ -132,7 +132,7 @@ As built (Steps 3-4): QCAI Stage 1 scored 85/100 (MEDIUM). Fixes: `rescue` is no
 
 As built: fUSD/fETH/fBTC are our own `TestToken` faucet contracts (public `mint`), deployed by `DeployTokens.s.sol`; addresses come from `FUSD_ADDRESS`/`FETH_ADDRESS`/`FBTC_ADDRESS`. `setup` sends ONE hybrid tx (`openEvmWindowMsg` + link msgs, or only `MsgUpdateSpendingRules` when the agent key is linked, not revoked and not expired), then the three EVM approvals (an ECDSA tx cannot ride in the hybrid tx). Window `allowedTargets=[fUSD, fETH, fBTC, VAULT]`. `withdraw` is submitted by `RELAYER_MNEMONIC` (default: owner), which needs its own live window. The window stays open after setup (the Task 5 attack needs it); record that exposure in Task 7.
 
-### Task 4: Guardian agent (Nov 26–27)
+### Task 4: Guardian agent (Nov 26–27), DONE 2026-11-20
 
 **Files:**
 - Create: `apps/agent/src/rules.ts`, `watch.ts`, `rescue.ts`, `report.ts`, `server.ts`, `index.ts`
@@ -148,14 +148,16 @@ As built: fUSD/fETH/fBTC are our own `TestToken` faucet contracts (public `mint`
   - `signIncident(i)` and `verifyIncident(i)` (ed25519 over canonical JSON without `sig`).
   - `GET /incidents` and `GET /events` (SSE).
 
-- [ ] **Step 1:** Write the `decide` tests:
+- [x] **Step 1:** Write the `decide` tests:
   - `test_rescueOnUnknownRecipient`.
   - `test_noRescueForAllowlistedRecipient` (Review Focus 4).
   - `test_rescueOnAmountAboveMax`.
-- [ ] **Step 2:** Write the `rescueAll` test (mocked chain client): `test_skipsTokensWithZeroOwnerBalance` (Review Focus 1).
-- [ ] **Step 3:** Write the report tests: `test_signedIncidentVerifies`, `test_tamperedIncidentFails`, and `test_summaryFallbackWhenLLMFails` (an LLM error still produces a template summary).
-- [ ] **Step 4:** Implement. Run `pnpm -F agent test`. Expected: all PASS.
-- [ ] **Step 5:** Commit.
+- [x] **Step 2:** Write the `rescueAll` test (mocked chain client): `test_skipsTokensWithZeroOwnerBalance` (Review Focus 1).
+- [x] **Step 3:** Write the report tests: `test_signedIncidentVerifies`, `test_tamperedIncidentFails`, and `test_summaryFallbackWhenLLMFails` (an LLM error still produces a template summary).
+- [x] **Step 4:** Implement. Run `pnpm -F agent test`. Expected: all PASS.
+- [x] **Step 5:** Commit.
+
+As built (Task 4D, 2026-11-20): the agent no longer rescues through the authenticator lane. On diana the lane now refuses a token move from the owner's account unless the token is listed in the spending rule, and listing it lets the agent key `transfer` it directly (`docs/EVIDENCE.md` "Task 4"). `GuardianVault` (v3, not yet deployed) takes `(owner, guardian)`: `rescue` is callable by the owner or the immutable `guardian` (`NotAuthorized` otherwise), with an unchanged body and message vector; `Deploy.s.sol` reads `GUARDIAN_ADDRESS`. The agent's `GAS_MNEMONIC` account is the guardian: `rescueAll` sends one plain EVM `vault.rescue(token)` tx per token (signed locally, sequential pending nonces, 120k gas, fee cap 150 gwei) and reads success and the moved amount from each receipt's `Rescued` logs; `window.ts` keeps the guardian's own EVM window (14400 blocks, 10 txs, budget sized at that same fee cap, vault as the only target) open with its hybrid signature, checked every 30 s with overlapping checks dropped. Proven on diana: v3 vault `0x7769…71e6`, guardian rescue of fETH + fBTC 4 blocks after a simulated drain (`docs/EVIDENCE.md` Task 4). A token whose balance/allowance read fails is recorded as a failed rescue (`expected` 0) and the others still go out, so even a queued recheck that only hit read errors produces an incident; that token is retried on the next trigger. At startup the agent checks the vault's `guardian()`. The owner's spending rule is back to `allowedDenoms=["uqor"]`, `allowedEvmCalls=[vault.rescue]`: the ed25519 key signs incidents and `pnpm cli agent-misuse` proves the chain refuses its direct token calls (Task 5 (b)).
 
 ### Task 5: Attacker + end-to-end `demo.sh` (Nov 28)
 

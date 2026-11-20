@@ -1,5 +1,6 @@
 import { RESCUE_SELECTOR } from "@qday/core";
 import { evmWindowCost } from "@qorechain/evm";
+import { linkAuthenticatorMsgs, signAuthenticatorLinkEd25519, ruleBoundsEveryDenom, validateSpendingRules } from "@qorechain/sdk";
 import { describe, expect, it } from "vitest";
 import { buildSetupRule, buildWindowParams, selectLinkMsgs } from "../src/setup";
 
@@ -11,22 +12,42 @@ const TOKENS = {
 } as const;
 
 describe("buildSetupRule", () => {
-  const rule = buildSetupRule(VAULT);
+  const rule = buildSetupRule("0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa");
+  const VAULT_LC = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-  it("allows exactly one EVM call: vault.rescue", () => {
-    expect(rule.allowedEvmCalls).toEqual([`${VAULT.toLowerCase()}/${RESCUE_SELECTOR}`]);
+  it("allows exactly one EVM call: vault.rescue (lowercase)", () => {
+    expect(rule.allowedEvmCalls).toEqual([`${VAULT_LC}/${RESCUE_SELECTOR}`]);
   });
 
-  it("allows only uqor, never an erc20/ denom", () => {
+  it("allows only uqor, never an erc20/ denom, and sets no denom limits", () => {
     expect(rule.allowedDenoms).toEqual(["uqor"]);
     expect(rule.allowedDenoms.some((d) => d.startsWith("erc20/"))).toBe(false);
+    expect("denomLimits" in rule).toBe(false);
   });
 
-  it("is enabled, named guardian and bounded", () => {
+  it("is enabled, named guardian and bounded in uqor", () => {
     expect(rule.id).toBe("guardian");
     expect(rule.enabled).toBe(true);
     expect(rule.perTxLimit).toBe("1000000");
     expect(rule.dailyLimit).toBe("3000000");
+  });
+
+  it("is accepted by the SDK validators", () => {
+    expect(() => validateSpendingRules([rule])).not.toThrow();
+    expect(ruleBoundsEveryDenom(rule)).toBe(true);
+  });
+
+  it("survives the SDK link message builder unchanged", () => {
+    const proof = signAuthenticatorLinkEd25519({ chainId: "qorechain-diana", account: "qor1owner", privateKey: new Uint8Array(32).fill(7) });
+    const msgs = linkAuthenticatorMsgs({
+      owner: "qor1owner", chainId: "qorechain-diana", ...proof,
+      permissions: ["evm"], expiryUnix: 2_000_000_000, label: "t", spendingRule: rule,
+    });
+    const upd = msgs.find((m) => m.typeUrl.endsWith(".MsgUpdateSpendingRules"))!;
+    const r = (upd.value as { rules: { allowedDenoms: string[]; allowedEvmCalls: string[]; denomLimits?: unknown[] }[] }).rules[0];
+    expect(r.allowedDenoms).toEqual(["uqor"]);
+    expect(r.allowedEvmCalls).toEqual([`${VAULT_LC}/${RESCUE_SELECTOR}`]);
+    expect(r.denomLimits ?? []).toEqual([]);
   });
 });
 

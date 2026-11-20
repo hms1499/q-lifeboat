@@ -8,8 +8,10 @@ while its EVM window is open. **Q-Day Guardian** is an AI agent that spots the d
 what is left into a `GuardianVault`, which only releases funds with the owner's **ML-DSA-87**
 (post-quantum) signature.
 
-The agent itself is boxed in by the chain. Its linked key may call **one function of one contract**
-(`GuardianVault.rescue`). Even a stolen agent key can only move the owner's funds *to safety*.
+The agent itself is boxed in. Its own account is the vault's immutable `guardian`, which may call
+**one function** (`GuardianVault.rescue`), inside an EVM window that targets only the vault. Its linked
+ed25519 key may call only `vault.rescue` and move no tokens. Even stolen agent keys can only move the
+owner's funds *to safety*.
 
 ## How it works
 
@@ -17,8 +19,8 @@ The agent itself is boxed in by the chain. Its linked key may call **one functio
  attacker (leaked ECDSA key) ──transfer──▶ owner's tokens on EVM lane
                                               │  watched every block
                                               ▼
- Guardian agent (ed25519 key, linked on-chain, allowedEvmCalls = vault.rescue only)
-        │ MsgExecuteEVM via authenticator lane
+ Guardian agent (own guardian account, EVM window scoped to the vault; ed25519 key signs reports)
+        │ vault.rescue(token): pulls owner → vault
         ▼
  GuardianVault ──withdraw only with ML-DSA-87 signature (pqcVerify 0x…a01)──▶ owner
 ```
@@ -47,7 +49,9 @@ _Coming with Tasks 1–5. See `docs/plans/`._
 ## Deployed (diana)
 | Contract / account | Address |
 |---|---|
-| GuardianVault (v2, after QCAI Stage 1) | [`0x17d867860a0A0Ff528dF655439ff59176b061B3C`](https://explore.qore.network/address/0x17d867860a0A0Ff528dF655439ff59176b061B3C) |
+| GuardianVault (v3, owner + immutable guardian) | [`0x776913Abe058941d4c8ac097EE47E29F528f71e6`](https://explore.qore.network/address/0x776913Abe058941d4c8ac097EE47E29F528f71e6) |
+| Guardian (agent account, may call `rescue`) | `0xFf82cAD6638a38d7009D0d5DfB757136B0C03850` |
+| GuardianVault v2 (retired) | `0x17d867860a0A0Ff528dF655439ff59176b061B3C` |
 | fUSD / fETH / fBTC (faucet test tokens, public `mint`) | `0x8478737e5ac2c2cbf70aad17f459d1b8ab8a7a14` / `0x0a958bba25f5fddca1b1f9cec44bdf076a8ea6c5` / `0xbd16bc9ffaddf241593d891844cc4281f5af903e` |
 | Owner (ML-DSA-87 guardian) | `0xE871748C0922745Ad94d065a388e95eC420A67EB` / `qor1apchfrqfyf694k2dqedr3r54a3pq5eltmjxxpv` |
 

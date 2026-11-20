@@ -15,11 +15,11 @@ const param = (p: Item): Item => {
   if (p.components) out.components = (p.components as Item[]).map(param);
   return out;
 };
-// Normalised view of every function/event/error: drops internalType and param names.
+// Normalised view of the constructor and every function/event/error: drops internalType and param names.
 const norm = (abi: Abi) =>
   new Set(
     (abi as unknown as Item[])
-      .filter((i) => ["function", "event", "error"].includes(i.type as string))
+      .filter((i) => ["constructor", "function", "event", "error"].includes(i.type as string))
       .map((i) =>
         JSON.stringify({
           type: i.type,
