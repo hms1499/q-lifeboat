@@ -3,14 +3,17 @@
 #
 #   ./demo.sh            one run
 #   ./demo.sh --runs 3   three runs in a row, each from a FRESH owner; stops at the first FAIL
+#   ./demo.sh --resume ~/.config/qday/runs/<run id>/run.env
+#                        one run that reuses that COMPLETE run (RUN_COMPLETE=1) instead of a fresh owner,
+#                        e.g. after a later step failed; every other step is the same
 #
 # One run: fresh owner (funded by FUNDER_MNEMONIC, default OWNER_MNEMONIC; own ML-DSA key, own vault,
 # 100 fUSD) -> setup (scoped window + agent link + approvals) -> start the agent -> attack with the
 # leaked ECDSA key -> wait for the agent's incident -> recovery (Guardian Signer + withdraw 1 fUSD to a
 # fresh safe address) -> verdict (rescue <= 3 blocks after the first drain, >= 80% kept, (a), (b)).
 #
-# Needs the root .env (see .env.example). Test the orchestration offline with scripts/test-demo.sh. The funder spends ~1.5 QOR + fees per run, the guardian
-# (GAS_MNEMONIC) one window open (~0.225 QOR) + rescue gas. Secrets stay in .env and in
+# Needs the root .env (see .env.example). Test the orchestration offline with scripts/test-demo.sh.
+# The funder spends ~1.5 QOR + fees per run, the guardian (GAS_MNEMONIC) one window open (~0.225 QOR) + rescue gas. Secrets stay in .env and in
 # ~/.config/qday/runs/<run id>/run.env (0600); nothing is written inside the repo.
 set -euo pipefail
 
@@ -19,17 +22,23 @@ AGENT_READY_TIMEOUT=120
 INCIDENT_TIMEOUT=60
 
 usage() {
-  echo "usage: $0 [--runs N]" >&2
+  echo "usage: $0 [--runs N | --resume <run.env>]" >&2
   exit 2
 }
 
 RUNS=1
 ONCE=0
+RESUME=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --runs)
       [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || usage
       RUNS="$2"
+      shift 2
+      ;;
+    --resume)
+      [[ $# -ge 2 && -n "$2" ]] || usage
+      RESUME="$2"
       shift 2
       ;;
     --once) # internal: exactly one run in this process
@@ -40,11 +49,23 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -n "$RESUME" ]]; then
+  ((RUNS == 1)) || { echo "refusing --resume with --runs $RUNS: a resumed run is a single run" >&2; exit 2; }
+  [[ -f "$RESUME" ]] || { echo "refusing --resume: $RESUME is not a file" >&2; exit 2; }
+  if ! grep -Eq '^RUN_COMPLETE="?1"?$' "$RESUME"; then
+    echo "refusing --resume: $RESUME is not a complete run (no RUN_COMPLETE=1; fresh-owner stopped early)" >&2
+    exit 2
+  fi
+  RESUME="$(cd "$(dirname "$RESUME")" && pwd)/$(basename "$RESUME")" # absolute: the run cd's to the repo
+fi
+
 if [[ "$ONCE" -eq 0 ]]; then
+  CHILD=(--once)
+  [[ -n "$RESUME" ]] && CHILD+=(--resume "$RESUME")
   for ((i = 1; i <= RUNS; i++)); do
     echo "=== demo run $i/$RUNS ==="
     # Each run is its own process, so `set -e` and the agent cleanup trap apply to it as a whole.
-    if ! bash "$ROOT/demo.sh" --once; then
+    if ! bash "$ROOT/demo.sh" "${CHILD[@]}"; then
       echo "FAIL: run $i/$RUNS failed; stopping"
       exit 1
     fi
@@ -88,12 +109,17 @@ step() {
   echo "--- $*"
 }
 
-step "fresh owner"
-FRESH_OUT="$(mktemp "${TMPDIR:-/tmp}/qday-fresh.XXXXXX")" # explicit template: BSD mktemp ignores TMPDIR otherwise
-pnpm -s cli fresh-owner | tee "$FRESH_OUT"
-RUN_ENV="$(sed -n 's/^RUN_ENV=//p' "$FRESH_OUT" | tail -n 1)"
-rm -f "$FRESH_OUT"
-FRESH_OUT=""
+if [[ -n "$RESUME" ]]; then
+  step "fresh owner: resumed from $RESUME (fresh-owner skipped)"
+  RUN_ENV="$RESUME"
+else
+  step "fresh owner"
+  FRESH_OUT="$(mktemp "${TMPDIR:-/tmp}/qday-fresh.XXXXXX")" # explicit template: BSD mktemp ignores TMPDIR otherwise
+  pnpm -s cli fresh-owner | tee "$FRESH_OUT"
+  RUN_ENV="$(sed -n 's/^RUN_ENV=//p' "$FRESH_OUT" | tail -n 1)"
+  rm -f "$FRESH_OUT"
+  FRESH_OUT=""
+fi
 [[ -n "$RUN_ENV" && -f "$RUN_ENV" ]] || { echo "fresh-owner did not report a run.env" >&2; exit 1; }
 set -a
 # shellcheck disable=SC1090

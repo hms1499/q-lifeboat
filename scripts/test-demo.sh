@@ -2,7 +2,8 @@
 # Offline test of demo.sh's orchestration: a stub `pnpm` on PATH stands in for every CLI and agent step, so
 # nothing touches the chain, the network or ~/.config. Covers the pass path (--runs 2), a step failure that
 # stops --runs, the agent dying before "watching", no incident, a fresh-owner failure (temp file cleanup), the
-# FUNDER_MNEMONIC export and the agent process-group kill.
+# FUNDER_MNEMONIC export, the agent process-group kill, and --resume (skips fresh-owner; refuses an incomplete
+# run.env, a missing file and --runs > 1).
 #
 #   bash scripts/test-demo.sh
 set -euo pipefail
@@ -129,6 +130,35 @@ run_demo freshfail FAKE_FAIL=cli:fresh-owner --
 expect "exit 1" test "$RC" -eq 1
 expect "fresh-owner temp file was created under TMPDIR" tmp_used
 expect "fresh-owner temp file removed" tmp_clean
+
+no_stub_calls() { ! grep -q '\[stub\]' "$WORK/$1.out"; }
+mkdir -p "$WORK/re sumed" "$WORK/partial"
+printf 'RUN_ID="rres"\nOWNER_MNEMONIC="resumed owner words"\nSAFE_ADDR="0x5afe"\nRUN_COMPLETE="1"\n' >"$WORK/re sumed/run.env"
+printf 'RUN_ID="rpart"\nOWNER_MNEMONIC="partial owner words"\nRUN_COMPLETE="0"\n' >"$WORK/partial/run.env"
+
+echo "--resume a complete run (path with a space)"
+run_demo resume -- --resume "$WORK/re sumed/run.env"
+expect "exit 0" test "$RC" -eq 0
+expect "fresh-owner skipped" bash -c "! grep -q 'stub\] cli:fresh-owner' '$WORK/resume.out'"
+expect "setup runs as the resumed owner, FUNDER = root owner" has resume '\[stub\] cli:setup FUNDER=\[root owner words\] OWNER=\[resumed owner words\]'
+expect "attack, recovery and verdict still run" has resume '\[stub\] cli:withdraw'
+expect "PASS: run rres, PASS: 1/1 runs" bash -c "grep -q '^PASS: run rres$' '$WORK/resume.out' && grep -q '^PASS: 1/1 runs' '$WORK/resume.out'"
+expect "agent log in the resumed run dir" test -f "$WORK/re sumed/agent.log"
+expect "agent process group killed" agent_killed
+
+echo "--resume refusals"
+run_demo incomplete -- --resume "$WORK/partial/run.env"
+expect "incomplete run.env (RUN_COMPLETE=0): exit 2" test "$RC" -eq 2
+expect "says it is not a complete run" has incomplete 'not a complete run'
+expect "nothing ran" no_stub_calls incomplete
+run_demo resumeruns -- --resume "$WORK/re sumed/run.env" --runs 2
+expect "--resume with --runs 2: exit 2" test "$RC" -eq 2
+expect "says a resumed run is a single run" has resumeruns 'refusing --resume with --runs 2'
+expect "nothing ran" no_stub_calls resumeruns
+run_demo runsresume -- --runs 3 --resume "$WORK/re sumed/run.env"
+expect "--runs 3 before --resume: exit 2" test "$RC" -eq 2
+run_demo missing -- --resume "$WORK/nope/run.env"
+expect "missing run.env: exit 2, nothing ran" bash -c "[ $RC -eq 2 ] && ! grep -q 'stub\]' '$WORK/missing.out'"
 
 echo "FUNDER_MNEMONIC from .env wins over OWNER_MNEMONIC"
 printf 'OWNER_MNEMONIC="root owner words"\nFUNDER_MNEMONIC="funder words"\nGUARDIAN_ADDRESS="0x1"\n' >"$WORK/.env"
