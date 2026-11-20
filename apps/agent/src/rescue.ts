@@ -1,8 +1,9 @@
 import { vaultAbi, type RescueRecord } from "@qday/core";
 import { chain, publicClient } from "@qday/core/chain";
-import { encodeFunctionData, keccak256, parseAbi, parseEventLogs, type Hex, type Log } from "viem";
+import { encodeFunctionData, keccak256, parseAbi, parseEventLogs, type Hex, type Log, type PublicClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { AgentConfig } from "./config";
+import { createBatchClient } from "./rpc";
 import type { WindowKeeper } from "./window";
 
 export type RescueResult = RescueRecord;
@@ -38,9 +39,12 @@ export type RescueDeps = {
   readBalance(token: Hex): Promise<bigint>;
   /** Owner's allowance to the vault. */
   readAllowance(token: Hex): Promise<bigint>;
-  /** Runs once, only when something will be sent (makes sure the guardian's EVM window is usable). */
-  prepare(): Promise<void>;
-  /** The guardian account's next EVM nonce (pending block). */
+  /**
+   * Runs once, only when something will be sent (makes sure the guardian's EVM window is usable). Resolves true
+   * when it sent a tx from the guardian account (opened a window), so the nonce read in parallel is stale.
+   */
+  prepare(): Promise<boolean>;
+  /** The guardian account's next EVM nonce (pending block). Read alongside the balance/allowance reads. */
   fetchNonce(): Promise<number>;
   /** Sign locally with the guardian account, so the hash is known before sending. */
   signTx(tx: RescueTx): Promise<{ hash: Hex; raw: Hex }>;
@@ -86,7 +90,9 @@ function triggerFirst(tokens: Hex[], trigger?: Hex): Hex[] {
  * Rescue every token the vault can actually pull (min of balance and allowance > 0), one `vault.rescue(token)`
  * tx per token from the guardian account, sent back to back with sequential nonces, then wait for all receipts.
  * `trigger` is the token of the transfer that started the rescue: it gets the first nonce and is sent first.
- * Nothing is prepared or sent when there is nothing to rescue. A failure (read, send, receipt) is reported per
+ * The nonce read starts in the same turn as the balance/allowance reads (one round trip for all of them with a
+ * batching transport); it is redone only when `prepare` opened a window. Nothing is prepared or sent when there
+ * is nothing to rescue (the nonce result is then ignored). A failure (read, send, receipt) is reported per
  * token, never thrown, so the other tokens are still rescued and the incident record is always produced.
  * Results are in send order (trigger token first, then config order). `amount` is what the vault's `Rescued`
  * logs in that receipt say it moved; `expected` is the pre-read estimate.
@@ -95,7 +101,7 @@ export async function rescueAll(deps: RescueDeps, trigger?: Hex): Promise<Rescue
   const log = deps.log ?? (() => {});
   const now = deps.now ?? (() => new Date());
   type Slot = { token: Hex; expected: bigint; readError?: string };
-  const slots: Slot[] = await Promise.all(
+  const slotsRead = Promise.all(
     triggerFirst(deps.tokens, trigger).map(async (token): Promise<Slot> => {
       try {
         const [balance, allowance] = await Promise.all([deps.readBalance(token), deps.readAllowance(token)]);
@@ -105,6 +111,12 @@ export async function rescueAll(deps: RescueDeps, trigger?: Hex): Promise<Rescue
       }
     }),
   );
+  // Started after the reads were issued, in the same turn; settled so an unused failure is never unhandled.
+  const nonceRead = deps.fetchNonce().then(
+    (n) => ({ ok: true as const, n }),
+    (e: unknown) => ({ ok: false as const, e }),
+  );
+  const slots = await slotsRead;
   const kept = slots.filter((s) => s.readError || s.expected > 0n);
   const failed = (s: Slot, error: string, hash = ""): RescueResult => ({ token: s.token, hash, amount: 0n, expected: s.expected, success: false, error });
   const planned = kept.filter((s) => !s.readError);
@@ -112,8 +124,13 @@ export async function rescueAll(deps: RescueDeps, trigger?: Hex): Promise<Rescue
 
   let nonce: number;
   try {
-    await deps.prepare();
-    nonce = await deps.fetchNonce();
+    if (await deps.prepare()) {
+      nonce = await deps.fetchNonce(); // the window open used a nonce after the parallel read
+    } else {
+      const read = await nonceRead;
+      if (!read.ok) throw read.e;
+      nonce = read.n;
+    }
   } catch (e) {
     return kept.map((s) => failed(s, s.readError ?? message(e)));
   }
@@ -169,24 +186,26 @@ const RECEIPT_TIMEOUT_MS = 60_000;
 const RECEIPT_POLL_MS = 500;
 
 /**
- * Wire `rescueAll` to diana: viem reads, plain EVM txs signed by the guardian account (GAS_MNEMONIC), inside the
- * guardian's own window (checked only when the cached status is not usable; a sent tx invalidates the cache).
+ * Wire `rescueAll` to diana: the balance, allowance and nonce reads go out as ONE batched request (`reads`, see
+ * rpc.ts), then plain EVM txs signed by the guardian account (GAS_MNEMONIC) inside the guardian's own window
+ * (checked only when the cached status is not usable; a sent tx invalidates the cache).
  */
 export function productionDeps(
   cfg: AgentConfig,
   keeper: Pick<WindowKeeper, "ensureIfStale" | "invalidate">,
   log?: (line: string) => void,
+  reads: Pick<PublicClient, "readContract" | "getTransactionCount"> = createBatchClient(),
 ): RescueDeps {
   const account = privateKeyToAccount(cfg.gas.privateKey as Hex);
   return {
     vault: cfg.vault,
     tokens: Object.values(cfg.tokens),
     readBalance: (token) =>
-      publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [cfg.owner] }),
+      reads.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [cfg.owner] }),
     readAllowance: (token) =>
-      publicClient.readContract({ address: token, abi: erc20Abi, functionName: "allowance", args: [cfg.owner, cfg.vault] }),
+      reads.readContract({ address: token, abi: erc20Abi, functionName: "allowance", args: [cfg.owner, cfg.vault] }),
     prepare: () => keeper.ensureIfStale(),
-    fetchNonce: () => publicClient.getTransactionCount({ address: account.address, blockTag: "pending" }),
+    fetchNonce: () => reads.getTransactionCount({ address: account.address, blockTag: "pending" }),
     signTx: async (tx) => {
       const raw = await account.signTransaction({ ...tx, type: "eip1559", chainId: chain.id, value: 0n });
       return { hash: keccak256(raw), raw };

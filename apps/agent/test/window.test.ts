@@ -133,6 +133,18 @@ describe("createWindowKeeper", () => {
     expect(readStatus).toHaveBeenCalledTimes(1);
   });
 
+  it("ensure() and ensureIfStale() resolve true only when they opened a window (the guardian's nonce moved)", async () => {
+    const ok = keeper([healthy, healthy]);
+    expect(await ok.k.ensure()).toBe(false);
+    expect(await ok.k.ensureIfStale()).toBe(false); // cached, no read
+    ok.k.invalidate();
+    expect(await ok.k.ensureIfStale()).toBe(false); // read, healthy, no open
+
+    const dead = keeper([{ ...healthy, live: false }, healthy]);
+    expect(await dead.k.ensureIfStale()).toBe(true);
+    expect(dead.open).toHaveBeenCalledTimes(1);
+  });
+
   it("ensureIfStale() reads again with no cache, after invalidate(), or when the cache is unusable", async () => {
     const fresh = keeper([]);
     await fresh.k.ensureIfStale();
