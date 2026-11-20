@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+/// QoreChain precompiles (active on the qorechain-diana testnet).
+interface IQorePQC {
+    /// ML-DSA-87 (FIPS 204) verification.
+    function pqcVerify(bytes calldata pubkey, bytes calldata signature, bytes calldata message)
+        external view returns (bool valid);
+
+    /// The ML-DSA-87 key an account registered on chain.
+    function pqcKeyStatus(address account)
+        external view returns (bool registered, uint8 algorithmId, bytes memory pubkey, bool possessionProven);
+}
+
+/// @title GuardianVault
+/// @notice Q-Day Guardian vault. The agent calls `rescue` to pull an account's ERC20 balance
+/// (up to the allowance the owner granted) into this vault. Funds can only leave through
+/// `withdraw`, which needs an ML-DSA-87 signature from the owner's registered post-quantum key.
+/// A leaked ECDSA key alone cannot move anything out of the vault.
+///
+/// Pattern adapted from qorechain/build-before-qday workshop-2 QDayVault.
+contract GuardianVault {
+    IQorePQC internal constant PQC_VERIFY = IQorePQC(0x0000000000000000000000000000000000000a01);
+    IQorePQC internal constant PQC_KEYS = IQorePQC(0x0000000000000000000000000000000000000a02);
+
+    /// The account whose registered ML-DSA-87 key authorises withdrawals. No setters.
+    address public immutable owner;
+    /// Increases with every withdrawal, so a signature works once.
+    uint256 public nonce;
+
+    event Deposited(uint256 amount);
+    event Rescued(address indexed token, uint256 amount);
+    event Withdrawn(address indexed to, address indexed token, uint256 amount, uint256 nonce);
+
+    error KeyNotRegistered();
+    error KeyNotProven();
+    error BadSignature();
+    error TransferFailed();
+
+    constructor(address owner_) {
+        owner = owner_;
+    }
+
+    /// Fund the vault with QOR.
+    function deposit() external payable {
+        emit Deposited(msg.value);
+    }
+
+    /// Pull min(balance, allowance) of `token` from the owner into the vault.
+    /// Callable by anyone: funds only ever move owner -> vault. Never reverts on a zero amount.
+    function rescue(address token) external {
+        uint256 balance = IERC20(token).balanceOf(owner);
+        uint256 allowed = IERC20(token).allowance(owner, address(this));
+        uint256 amount = balance < allowed ? balance : allowed;
+        if (amount > 0) {
+            _safeTransferFrom(token, owner, address(this), amount);
+        }
+        emit Rescued(token, amount);
+    }
+
+    /// The exact bytes the owner's ML-DSA key signs for a withdrawal. `token == address(0)` means QOR.
+    function withdrawalMessage(address to, address token, uint256 amount, uint256 n)
+        public view returns (bytes memory)
+    {
+        return abi.encodePacked("QDAY-GUARDIAN-V1", block.chainid, address(this), to, token, amount, n);
+    }
+
+    /// Anyone may submit; the ML-DSA-87 signature is what authorises.
+    function withdraw(address to, address token, uint256 amount, bytes calldata mldsaSig) external {
+        (bool registered,, bytes memory pubkey, bool proven) = PQC_KEYS.pqcKeyStatus(owner);
+        if (!registered || pubkey.length == 0) revert KeyNotRegistered();
+        if (!proven) revert KeyNotProven();
+
+        uint256 n = nonce;
+        if (!PQC_VERIFY.pqcVerify(pubkey, mldsaSig, withdrawalMessage(to, token, amount, n))) {
+            revert BadSignature();
+        }
+
+        // Effects before any external call.
+        nonce = n + 1;
+        emit Withdrawn(to, token, amount, n);
+
+        if (token == address(0)) {
+            (bool ok,) = to.call{value: amount}("");
+            if (!ok) revert TransferFailed();
+        } else {
+            _safeTransfer(token, to, amount);
+        }
+    }
+
+    function _safeTransfer(address token, address to, uint256 amount) internal {
+        (bool ok, bytes memory ret) = token.call(abi.encodeCall(IERC20.transfer, (to, amount)));
+        if (!ok || (ret.length != 0 && !abi.decode(ret, (bool)))) revert TransferFailed();
+    }
+
+    function _safeTransferFrom(address token, address from, address to, uint256 amount) internal {
+        (bool ok, bytes memory ret) = token.call(abi.encodeCall(IERC20.transferFrom, (from, to, amount)));
+        if (!ok || (ret.length != 0 && !abi.decode(ret, (bool)))) revert TransferFailed();
+    }
+}
+
+interface IERC20 {
+    function balanceOf(address account) external view returns (uint256);
+    function allowance(address owner, address spender) external view returns (uint256);
+    function transfer(address to, uint256 amount) external returns (bool);
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+}

@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+/// Test double for the QoreChain PQC precompiles (0x...0a01 verify, 0x...0a02 key status).
+/// Etched at both addresses; state is set through the setters because etched code has empty storage.
+contract MockPqc {
+    bool public registered;
+    bool public proven;
+    bool public forceVerify;
+    bytes public key;
+
+    function setRegistered(bool v) external {
+        registered = v;
+    }
+
+    function setProven(bool v) external {
+        proven = v;
+    }
+
+    function setKey(bytes calldata k) external {
+        key = k;
+    }
+
+    /// When true, pqcVerify returns true for any input.
+    function setForceVerify(bool v) external {
+        forceVerify = v;
+    }
+
+    /// The signature this mock accepts for (pubkey, message).
+    function expectedSig(bytes memory pubkey, bytes memory message) public pure returns (bytes memory) {
+        return abi.encodePacked(keccak256(abi.encodePacked("ok", pubkey, message)));
+    }
+
+    function pqcKeyStatus(address)
+        external
+        view
+        returns (bool, uint8, bytes memory, bool)
+    {
+        return (registered, 1, registered ? key : bytes(""), proven);
+    }
+
+    function pqcVerify(bytes calldata pubkey, bytes calldata sig, bytes calldata message)
+        external
+        view
+        returns (bool)
+    {
+        if (forceVerify) return true;
+        return keccak256(sig) == keccak256(expectedSig(pubkey, message));
+    }
+}
