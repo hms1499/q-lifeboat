@@ -100,14 +100,16 @@ As built: `git init` skipped (repo existed). `MockPqc.pqcVerify` accepts `keccak
   - `withdrawalMessage(p: { chainId: bigint; vault: Hex; to: Hex; token: Hex; amount: bigint; nonce: bigint }): Uint8Array`.
   - `RESCUE_SELECTOR: Hex`, `vaultAbi`.
 
-- [ ] **Step 1:** Write the test vector, with the same fixed inputs on both sides (chainId 9800, vault `0x…01`, to `0x…02`, token `0x…03`, amount `1e18`, nonce 0):
+- [x] **Step 1:** Write the test vector, with the same fixed inputs on both sides (chainId 9800, vault `0x…01`, to `0x…02`, token `0x…03`, amount `1e18`, nonce 0):
   - `MessageVector.t.sol` asserts `keccak256(withdrawalMessage(...)) == 0x<HASH>`.
   - `vaultMessage.test.ts` asserts `keccak256(withdrawalMessage(...))` gives the same `0x<HASH>`.
   - `<HASH>` is the value Solidity prints on the first run, then copied into both tests.
-- [ ] **Step 2:** Run `forge test --match-contract MessageVector` and `pnpm -F core test`. Expected: both PASS with the same hash.
+- [x] **Step 2:** Run `forge test --match-contract MessageVector` and `pnpm -F core test`. Expected: both PASS with the same hash.
 - [ ] **Step 3:** Deploy to diana with `forge script script/Deploy.s.sol --rpc-url $EVM_RPC --broadcast` (the owner opens a window first). Write `VAULT_ADDRESS` to `.env`, the README and `docs/EVIDENCE.md`.
 - [ ] **Step 4:** Run QCAI Stage 1 on dashboard.qorechain.io (Ethereum/Solidity setting). Save the report, build the findings table in `docs/AUDIT.md`, fix each finding with a test and rerun `forge test`.
 - [ ] **Step 5:** Commit.
+
+As built (Steps 1-2): vector addresses are `0x1111…`, `0x2222…`, `0x3333…` because `0x…01-03` are precompiles. Hash `0x783fcbffbc8f1ec81272b39002a0c603c86984c6f9138f874c950e790e3c31eb` (172 bytes) on both sides. `Deploy.s.sol` derives the key with `vm.deriveKey(OWNER_MNEMONIC, 0)` and only runs on chain 9800. The diana vault's owner is the Task 0 spike owner (PQC key already registered).
 
 ### Task 3: CLI setup + Guardian Signer + withdraw (Nov 24–25)
 
