@@ -46,7 +46,7 @@ cd contracts && forge build && forge test -vv && cd ..   # builds contracts/out/
 cp .env.example .env                                     # fill it in; never commit it
 ./demo.sh                                                # one end-to-end run
 ./demo.sh --runs 3                                       # three runs in a row, each from a fresh owner
-./demo.sh --resume ~/.config/qday/runs/<id>/run.env     # redo one run from a complete fresh owner
+./demo.sh --resume ~/.config/qday/runs/<id>/run.env     # redo one run (complete run.env with its agent key)
 bash scripts/test-demo.sh                                # offline check of demo.sh's flow (stub pnpm, no chain)
 ```
 
@@ -55,7 +55,9 @@ One run of `demo.sh`:
    brand-new owner, which registers its ML-DSA-87 key, deploys its own `GuardianVault(owner, guardian)` from
    `contracts/out/GuardianVault.sol/GuardianVault.json` and mints 100 fUSD. Its secrets go to
    `~/.config/qday/runs/<run id>/run.env` (0600, written before the owner is funded, `RUN_COMPLETE=1` once every
-   step succeeded), never into the repo.
+   step succeeded), never into the repo. The run also gets its own agent ed25519 key (`AGENT_ED25519_SK` in
+   run.env): diana binds an authenticator key to one account, so the root key cannot be linked to a new owner.
+   `setup`, the agent and the attack all use the per-run key because demo.sh loads run.env over the root `.env`.
 2. `pnpm cli setup`: scoped EVM window, agent link and spending rule, vault approvals.
 3. The guardian agent starts (log in the run directory) and watches the owner.
 4. `pnpm cli attack`: the leaked ECDSA key drains 3 x 10 fUSD one block apart, then (a) tries `withdraw`
