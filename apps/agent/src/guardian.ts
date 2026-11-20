@@ -5,7 +5,7 @@ export type GuardianDeps = {
   policy: Policy;
   rescue: () => Promise<RescueRecord[]>;
   /** Summarize, sign and persist. */
-  record: (facts: { trigger: OutboundTx; reason: string; rescues: RescueRecord[] }) => Promise<Incident>;
+  record: (facts: { trigger: OutboundTx; reason: string; rescues: RescueRecord[]; detectedAt: string }) => Promise<Incident>;
   publish: (incident: Incident) => void;
   log: (line: string) => void;
 };
@@ -17,9 +17,9 @@ export type GuardianDeps = {
  */
 export function createGuardian(deps: GuardianDeps) {
   let inFlight = false;
-  let queued: { tx: OutboundTx; reason: string } | null = null;
+  let queued: { tx: OutboundTx; reason: string; detectedAt: string } | null = null;
 
-  async function runOnce(tx: OutboundTx, reason: string, alwaysRecord: boolean) {
+  async function runOnce(tx: OutboundTx, reason: string, detectedAt: string, alwaysRecord: boolean) {
     let rescues: RescueRecord[] = [];
     let why = reason;
     try {
@@ -29,26 +29,37 @@ export function createGuardian(deps: GuardianDeps) {
       deps.log(`rescue error: ${why}`);
     }
     if (!alwaysRecord && rescues.length === 0) return;
-    const incident = await deps.record({ trigger: tx, reason: why, rescues });
+    const incident = await deps.record({ trigger: tx, reason: why, rescues, detectedAt });
     deps.publish(incident);
     deps.log(`incident ${incident.id}: ${rescues.filter((r) => r.success).length}/${rescues.length} rescued`);
+  }
+
+  /** A failing run (e.g. record() throws) is logged and never leaves state behind. */
+  async function guarded(tx: OutboundTx, reason: string, detectedAt: string, alwaysRecord: boolean) {
+    try {
+      await runOnce(tx, reason, detectedAt, alwaysRecord);
+    } catch (e) {
+      deps.log(`incident pipeline error: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function onTx(tx: OutboundTx): Promise<void> {
     const d = decide(tx, deps.policy);
     deps.log(`outbound ${tx.hash} to ${tx.to} amount ${tx.amount}: ${d.rescue ? "RESCUE" : "ok"} (${d.reason})`);
     if (!d.rescue) return;
+    const detectedAt = new Date().toISOString();
     if (inFlight) {
-      queued = { tx, reason: d.reason };
+      queued = { tx, reason: d.reason, detectedAt };
       return;
     }
     inFlight = true;
     try {
-      await runOnce(tx, d.reason, true);
+      await guarded(tx, d.reason, detectedAt, true);
+      // Each queued trigger is consumed exactly once, even when a run fails.
       while (queued) {
-        const next = queued;
+        const next: { tx: OutboundTx; reason: string; detectedAt: string } = queued;
         queued = null;
-        await runOnce(next.tx, next.reason, false);
+        await guarded(next.tx, next.reason, next.detectedAt, false);
       }
     } finally {
       inFlight = false;

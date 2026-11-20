@@ -48,10 +48,14 @@ export function watchOwner(opts: WatchOptions): { stop(): void } {
   let cursor: bigint | undefined;
   const seen = new Set<string>();
 
+  // Fire and forget: a slow pipeline (rescue + LLM) must never stall polling, or the guardian's
+  // single-flight guard could never see a second trigger. Failures go to onError.
   const emit = async (key: string, tx: OutboundTx) => {
     if (seen.has(key)) return;
     seen.add(key);
-    await onTx(tx);
+    void Promise.resolve()
+      .then(() => onTx(tx))
+      .catch(onError);
   };
 
   const poll = async () => {

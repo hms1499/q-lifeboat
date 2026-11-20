@@ -38,6 +38,10 @@ export async function loadAgentConfig(env: Env = process.env): Promise<AgentConf
     throw new Error(`GAS_MNEMONIC could not be used to derive an account (${e instanceof Error ? e.name : "UnknownError"})`);
   }
 
+  if (gas.evm.toLowerCase() === owner.toLowerCase()) {
+    throw new Error("GAS_MNEMONIC must be a separate account from the owner (its address equals OWNER_EVM_ADDRESS)");
+  }
+
   const allowlist = (env.ALLOWLIST ?? "")
     .split(",")
     .map((s) => s.trim())

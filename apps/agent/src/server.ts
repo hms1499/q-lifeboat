@@ -1,6 +1,7 @@
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { bigintReplacer, type Incident } from "@qday/core";
+import { type Incident } from "@qday/core";
+import { bigintReplacer } from "@qday/core/chain";
 import { readIncidents } from "./report";
 
 export type Server = { port: number; publish(incident: Incident): void; close(): Promise<void> };

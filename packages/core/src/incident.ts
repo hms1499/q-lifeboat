@@ -4,8 +4,11 @@ import { bytesToHex, hexToBytes, type Hex } from "viem";
 /** An outbound transfer from the owner account (token is the zero address for native QOR). */
 export type OutboundTx = { hash: Hex; block: bigint; token: Hex; to: Hex; amount: bigint };
 
-/** One rescue attempt: a `rescue(token)` call and its outcome. `amount` is what the agent expected to move. */
-export type RescueRecord = { token: Hex; hash: string; amount: bigint; success: boolean; error?: string };
+/**
+ * One rescue attempt. `amount` is what the vault actually moved (sum of its `Rescued` logs in the tx's
+ * block, 0 when none was found); `expected` is the agent's pre-read estimate, min(balance, allowance).
+ */
+export type RescueRecord = { token: Hex; hash: string; amount: bigint; expected: bigint; success: boolean; error?: string };
 
 export type IncidentBody = {
   id: string;
@@ -15,6 +18,8 @@ export type IncidentBody = {
   reason: string;
   rescues: RescueRecord[];
   summary: string;
+  /** Who wrote `summary`: the LLM, or the deterministic template fallback. */
+  summarySource: "llm" | "template";
 };
 
 export type Incident = IncidentBody & {

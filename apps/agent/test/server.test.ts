@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
+import { writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { appendIncident } from "../src/report";
 import { startServer, type Server } from "../src/server";
@@ -37,6 +38,16 @@ describe("server", () => {
     while (!text.includes("event: incident")) text += new TextDecoder().decode((await reader.read()).value);
     expect(text).toContain('"id":"i1"');
     ac.abort();
+  });
+
+  it("survives a truncated line in the incidents file", async () => {
+    const file = join(mkdtempSync(join(tmpdir(), "qday-")), "i.jsonl");
+    appendIncident(file, inc);
+    writeFileSync(file, '{"id":"ok"}\n{"id":"trunc');
+    srv = await startServer({ file, port: 0 });
+    const r = await fetch(`http://127.0.0.1:${srv.port}/incidents`);
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { id: string }[]).map((i) => i.id)).toEqual(["ok"]);
   });
 
   it("404s other paths and answers OPTIONS", async () => {

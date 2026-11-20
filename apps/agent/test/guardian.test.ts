@@ -7,7 +7,7 @@ const STRANGER = "0x9999999999999999999999999999999999999999" as const;
 const ZERO = "0x0000000000000000000000000000000000000000" as const;
 const policy = { vault: VAULT, allowlist: [], maxOutbound: 100n };
 const tx = (hash: string, to: `0x${string}` = STRANGER): OutboundTx => ({ hash: hash as `0x${string}`, block: 1n, token: ZERO, to, amount: 5n });
-const rec = (success = true): RescueRecord => ({ token: "0x00000000000000000000000000000000000000a1", hash: "H", amount: 1n, success });
+const rec = (success = true): RescueRecord => ({ token: "0x00000000000000000000000000000000000000a1", hash: "H", amount: 1n, expected: 1n, success });
 
 function setup(rescue: () => Promise<RescueRecord[]>) {
   const record = vi.fn(async (f: { trigger: OutboundTx; reason: string; rescues: RescueRecord[] }) => ({ ...f, id: "x" }) as unknown as Incident);
@@ -55,6 +55,31 @@ describe("guardian", () => {
     const { g, record } = setup(async () => []);
     await g.onTx(tx("0x1"));
     expect(record).toHaveBeenCalledOnce();
+  });
+
+  it("stamps detectedAt when the trigger is seen, before rescue runs", async () => {
+    const { g, record } = setup(async () => [rec()]);
+    const before = Date.now();
+    await g.onTx(tx("0x1"));
+    const at = (record.mock.calls[0][0] as unknown as { detectedAt: string }).detectedAt;
+    expect(Date.parse(at)).toBeGreaterThanOrEqual(before);
+  });
+
+  it("a failing record() does not leak a stale queued trigger into the next run", async () => {
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const rescue = vi.fn(async () => { calls++; if (calls === 1) await gate; return calls === 2 ? [] : [rec()]; });
+    const record = vi.fn(async () => { throw new Error("disk full"); });
+    const g = createGuardian({ policy, rescue, record: record as never, publish: vi.fn(), log: () => {} });
+    const first = g.onTx(tx("0x1"));
+    await Promise.resolve();
+    await g.onTx(tx("0x2")); // queued
+    release();
+    await first; // must not throw
+    expect(rescue).toHaveBeenCalledTimes(2); // first + the one queued recheck
+    await g.onTx(tx("0x3"));
+    expect(rescue).toHaveBeenCalledTimes(3); // exactly one new run, no stale replay
   });
 
   it("records a rescue error instead of throwing", async () => {

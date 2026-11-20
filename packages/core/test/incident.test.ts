@@ -21,8 +21,9 @@ const body: IncidentBody = {
     amount: 5n * 10n ** 18n,
   },
   reason: "recipient not in allowlist",
-  rescues: [{ token: T, hash: "ABCD", amount: 7n, success: true }],
+  rescues: [{ token: T, hash: "ABCD", amount: 7n, expected: 8n, success: true }],
   summary: "The agent rescued funds.",
+  summarySource: "template",
 };
 
 describe("canonicalJson", () => {

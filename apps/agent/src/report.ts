@@ -2,10 +2,11 @@ import Anthropic from "@anthropic-ai/sdk";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { bigintReplacer, canonicalJson, signIncident, type Incident, type IncidentBody, type OutboundTx, type RescueRecord } from "@qday/core";
+import { bigintReplacer } from "@qday/core/chain";
+import { canonicalJson, signIncident, type Incident, type IncidentBody, type OutboundTx, type RescueRecord } from "@qday/core";
 
 /** What happened, before the summary is written. */
-export type Facts = { trigger: OutboundTx; reason: string; rescues: RescueRecord[] };
+export type Facts = { trigger: OutboundTx; reason: string; rescues: RescueRecord[]; detectedAt?: string };
 
 export type LlmReply = { text: string; stopReason: string | null };
 /** One LLM call. It may only produce text; nothing it returns is ever acted on. */
@@ -25,16 +26,33 @@ export function templateSummary(f: Facts): string {
   return `Outbound transfer of ${f.trigger.amount} (token ${f.trigger.token}) to ${f.trigger.to} in tx ${f.trigger.hash} triggered a rescue: ${f.reason}. ${outcome}`;
 }
 
-/** Summary written by the LLM when available, the template otherwise (no LLM, error, refusal or empty text). */
-export async function summarize(f: Facts, llm?: Llm): Promise<string> {
-  if (!llm) return templateSummary(f);
+/**
+ * Summary written by the LLM when available, the template otherwise (no LLM, error, refusal or empty
+ * text). The cause of a fallback goes to `log`; the API key is never part of it.
+ */
+export async function summarize(
+  f: Facts,
+  llm?: Llm,
+  log: (line: string) => void = () => {},
+): Promise<{ text: string; source: "llm" | "template" }> {
+  const fallback = () => ({ text: templateSummary(f), source: "template" as const });
+  if (!llm) return fallback();
   try {
     const r = await llm(SYSTEM, canonicalJson(f));
     const text = r.text.trim();
-    if (r.stopReason === "refusal" || !text) return templateSummary(f);
-    return text;
-  } catch {
-    return templateSummary(f);
+    if (r.stopReason === "refusal") {
+      log("summary: LLM refusal, using template");
+      return fallback();
+    }
+    if (!text) {
+      log("summary: LLM returned empty text, using template");
+      return fallback();
+    }
+    return { text, source: "llm" };
+  } catch (e) {
+    const what = e instanceof Error ? `${e.name}: ${e.message}` : "unknown error";
+    log(`summary: LLM call failed (${what}), using template`);
+    return fallback();
   }
 }
 
@@ -57,14 +75,15 @@ export function anthropicLlm(apiKey: string): Llm {
   };
 }
 
-export function buildIncident(i: Facts & { summary: string }): IncidentBody {
+export function buildIncident(i: Facts & { summary: string; summarySource: "llm" | "template" }): IncidentBody {
   return {
     id: randomUUID(),
-    detectedAt: new Date().toISOString(),
+    detectedAt: i.detectedAt ?? new Date().toISOString(),
     trigger: i.trigger,
     reason: i.reason,
     rescues: i.rescues,
     summary: i.summary,
+    summarySource: i.summarySource,
   };
 }
 
@@ -75,21 +94,27 @@ export function appendIncident(file: string, incident: Incident): void {
 }
 
 /** Read stored incidents. Bigint fields come back as decimal strings; the signature still verifies. */
-export function readIncidents(file: string): Incident[] {
+export function readIncidents(file: string, log: (line: string) => void = () => {}): Incident[] {
   if (!existsSync(file)) return [];
-  return readFileSync(file, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((l) => JSON.parse(l) as Incident);
+  const out: Incident[] = [];
+  for (const [n, line] of readFileSync(file, "utf8").split("\n").entries()) {
+    if (!line) continue;
+    try {
+      out.push(JSON.parse(line) as Incident);
+    } catch {
+      log(`incidents: skipping malformed line ${n + 1} in ${file}`); // e.g. a write cut short by a crash
+    }
+  }
+  return out;
 }
 
 /** Summarize, build, sign and persist an incident. */
 export async function signAndRecord(
-  input: Facts & { sk: Uint8Array; llm?: Llm },
+  input: Facts & { sk: Uint8Array; llm?: Llm; log?: (line: string) => void },
   file: string,
 ): Promise<Incident> {
-  const summary = await summarize(input, input.llm);
-  const signed = signIncident(buildIncident({ ...input, summary }), input.sk);
+  const { text, source } = await summarize(input, input.llm, input.log);
+  const signed = signIncident(buildIncident({ ...input, summary: text, summarySource: source }), input.sk);
   appendIncident(file, signed);
   return signed;
 }

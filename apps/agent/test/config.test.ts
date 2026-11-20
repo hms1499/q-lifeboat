@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { loadAgentConfig } from "../src/config";
 
 const base = {
-  OWNER_EVM_ADDRESS: "0x9858EfFD232B4033E47d90003D41EC34EcaEdA94",
+  OWNER_EVM_ADDRESS: "0x7777777777777777777777777777777777777777",
   VAULT_ADDRESS: "0x17d867860a0A0Ff528dF655439ff59176b061B3C",
   FUSD_ADDRESS: "0x1111111111111111111111111111111111111111",
   FETH_ADDRESS: "0x2222222222222222222222222222222222222222",
@@ -46,6 +46,13 @@ describe("loadAgentConfig", () => {
     await expect(loadAgentConfig({ ...base, ALLOWLIST: "nope" })).rejects.toThrow(/ALLOWLIST/);
     await expect(loadAgentConfig({ ...base, MAX_OUTBOUND: "1.5" })).rejects.toThrow(/MAX_OUTBOUND/);
     await expect(loadAgentConfig({ ...base, AGENT_PORT: "x" })).rejects.toThrow(/AGENT_PORT/);
+  });
+
+  it("refuses a gas mnemonic that is the owner account", async () => {
+    // The base mnemonic derives 0x9858...; pointing the owner at it must fail, case-insensitively.
+    const owner = "0x9858EfFD232B4033E47d90003D41EC34EcaEdA94";
+    await expect(loadAgentConfig({ ...base, OWNER_EVM_ADDRESS: owner })).rejects.toThrow(/GAS_MNEMONIC.*owner/i);
+    await expect(loadAgentConfig({ ...base, OWNER_EVM_ADDRESS: owner.toLowerCase() })).rejects.toThrow(/GAS_MNEMONIC.*owner/i);
   });
 
   it("does not echo a bad gas mnemonic", async () => {

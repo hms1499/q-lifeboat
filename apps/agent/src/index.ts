@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { publicClient } from "@qday/core";
+import { publicClient } from "@qday/core/chain";
 import { loadAgentConfig } from "./config";
 import { createGuardian } from "./guardian";
 import { anthropicLlm, signAndRecord } from "./report";
@@ -21,7 +21,7 @@ async function main() {
   const guardian = createGuardian({
     policy: { vault: cfg.vault, allowlist: cfg.allowlist, maxOutbound: cfg.maxOutbound },
     rescue: () => rescueAll(deps),
-    record: (facts) => signAndRecord({ ...facts, sk: cfg.agentKey.sk, llm }, file),
+    record: (facts) => signAndRecord({ ...facts, sk: cfg.agentKey.sk, llm, log }, file),
     publish: server.publish,
     log,
   });
@@ -30,7 +30,8 @@ async function main() {
     client: publicClient,
     owner: cfg.owner,
     tokens: Object.values(cfg.tokens),
-    onTx: (tx) => guardian.onTx(tx).catch((e) => log(`handler error: ${e instanceof Error ? e.message : String(e)}`)),
+    // Not awaited: the watcher keeps polling while a rescue runs (see watch.ts).
+    onTx: (tx) => void guardian.onTx(tx).catch((e) => log(`handler error: ${e instanceof Error ? e.message : String(e)}`)),
     onError: (e) => log(`watch error: ${e instanceof Error ? e.message : String(e)}`),
   });
 

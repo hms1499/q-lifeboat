@@ -46,4 +46,42 @@ describe("watchOwner polling", () => {
     w.stop();
     expect(seen).toHaveLength(2); // one ERC-20 log + one QOR tx, no duplicates
   });
+
+  it("does not wait for a slow onTx: polling keeps going", async () => {
+    let tip = 10n;
+    const logAt = (n: bigint, h: string) => ({ address: TOKEN, transactionHash: h, blockNumber: n, logIndex: 0, args: { from: OWNER, to: OTHER, value: 5n } });
+    const client = {
+      getBlockNumber: async () => tip,
+      getLogs: async ({ fromBlock }: { fromBlock: bigint }) => [logAt(fromBlock, `0x${fromBlock}`)],
+      getBlock: async () => ({ transactions: [] }),
+    };
+    const seen: bigint[] = [];
+    const w = watchOwner({
+      client: client as never, owner: OWNER, tokens: [TOKEN], pollMs: 5,
+      onTx: (t) => { seen.push(t.block); return new Promise<void>(() => {}); }, // never resolves
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    tip = 11n;
+    await new Promise((r) => setTimeout(r, 30));
+    tip = 12n;
+    await new Promise((r) => setTimeout(r, 30));
+    w.stop();
+    expect(seen).toEqual([11n, 12n]);
+  });
+
+  it("routes a rejecting onTx to onError instead of stalling", async () => {
+    let tip = 10n;
+    const client = {
+      getBlockNumber: async () => tip,
+      getLogs: async () => [{ address: TOKEN, transactionHash: H, blockNumber: 11n, logIndex: 0, args: { from: OWNER, to: OTHER, value: 5n } }],
+      getBlock: async () => ({ transactions: [] }),
+    };
+    const errors: unknown[] = [];
+    const w = watchOwner({ client: client as never, owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: async () => { throw new Error("boom"); }, onError: (e) => void errors.push(e) });
+    await new Promise((r) => setTimeout(r, 15));
+    tip = 11n;
+    await new Promise((r) => setTimeout(r, 30));
+    w.stop();
+    expect(errors).toHaveLength(1);
+  });
 });
