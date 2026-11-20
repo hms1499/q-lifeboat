@@ -4,8 +4,8 @@
 #   ./demo.sh            one run
 #   ./demo.sh --runs 3   three runs in a row, each from a FRESH owner; stops at the first FAIL
 #   ./demo.sh --resume ~/.config/qday/runs/<run id>/run.env
-#                        one run that reuses that COMPLETE run (RUN_COMPLETE=1) instead of a fresh owner,
-#                        e.g. after a later step failed; every other step is the same
+#                        one run that reuses that COMPLETE run (RUN_COMPLETE=1, with its per-run
+#                        AGENT_ED25519_SK) instead of a fresh owner, e.g. after a later step failed
 #
 # One run: fresh owner (funded by FUNDER_MNEMONIC, default OWNER_MNEMONIC; own ML-DSA key, own vault,
 # 100 fUSD) -> setup (scoped window + agent link + approvals) -> start the agent -> attack with the
@@ -54,6 +54,11 @@ if [[ -n "$RESUME" ]]; then
   [[ -f "$RESUME" ]] || { echo "refusing --resume: $RESUME is not a file" >&2; exit 2; }
   if ! grep -Eq '^RUN_COMPLETE="?1"?$' "$RESUME"; then
     echo "refusing --resume: $RESUME is not a complete run (no RUN_COMPLETE=1; fresh-owner stopped early)" >&2
+    exit 2
+  fi
+  if ! grep -Eq '^AGENT_ED25519_SK="?(0x)?[0-9a-fA-F]{64}"?$' "$RESUME"; then
+    echo "refusing --resume: $RESUME has no AGENT_ED25519_SK. An agent key can be bound to ONE account only, so each" >&2
+    echo "run needs the per-run key fresh-owner writes (older runs lack it): start a fresh run instead" >&2
     exit 2
   fi
   RESUME="$(cd "$(dirname "$RESUME")" && pwd)/$(basename "$RESUME")" # absolute: the run cd's to the repo
@@ -123,7 +128,7 @@ fi
 [[ -n "$RUN_ENV" && -f "$RUN_ENV" ]] || { echo "fresh-owner did not report a run.env" >&2; exit 1; }
 set -a
 # shellcheck disable=SC1090
-. "$RUN_ENV" # the fresh owner, its vault, ATTACKER_ADDR, SAFE_ADDR, RUN_ID override the root .env
+. "$RUN_ENV" # the fresh owner, its vault, its own AGENT_ED25519_SK, ATTACKER_ADDR, SAFE_ADDR, RUN_ID override the root .env
 set +a
 RUN_DIR="$(dirname "$RUN_ENV")"
 # The recovery withdraw is sent by the owner from its scoped window (8 of its 10 txs), never by a

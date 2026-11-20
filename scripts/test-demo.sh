@@ -3,7 +3,7 @@
 # nothing touches the chain, the network or ~/.config. Covers the pass path (--runs 2), a step failure that
 # stops --runs, the agent dying before "watching", no incident, a fresh-owner failure (temp file cleanup), the
 # FUNDER_MNEMONIC export, the agent process-group kill, and --resume (skips fresh-owner; refuses an incomplete
-# run.env, a missing file and --runs > 1).
+# run.env, a run.env without the per-run AGENT_ED25519_SK, a missing file and --runs > 1).
 #
 #   bash scripts/test-demo.sh
 set -euo pipefail
@@ -27,7 +27,7 @@ what="$1"
 shift
 [[ "$what" == cli ]] && { what="cli:$1"; shift; }
 [[ "$what" == cli:demo-check && "${1:-}" == --wait ]] && what="cli:demo-check:wait"
-echo "[stub] $what FUNDER=[${FUNDER_MNEMONIC-unset}] OWNER=[${OWNER_MNEMONIC-unset}] RELAYER=[${RELAYER_MNEMONIC-unset}]" >&2
+echo "[stub] $what FUNDER=[${FUNDER_MNEMONIC-unset}] OWNER=[${OWNER_MNEMONIC-unset}] RELAYER=[${RELAYER_MNEMONIC-unset}] AGENT_SK=[${AGENT_ED25519_SK:+set}]" >&2
 # demo.sh's fresh-owner temp file must exist under TMPDIR while fresh-owner runs.
 [[ "$what" == cli:fresh-owner ]] && ls "${TMPDIR:-/nonexistent}" >>"$W/tmp.log" 2>/dev/null
 if [[ "${FAKE_FAIL:-}" == "$what" ]]; then
@@ -38,7 +38,7 @@ case "$what" in
   cli:fresh-owner)
     id="r$$"
     mkdir -p "$W/runs/$id"
-    printf 'RUN_ID="%s"\nOWNER_MNEMONIC="fresh owner words"\nSAFE_ADDR="0x5afe"\nRUN_COMPLETE="1"\n' "$id" >"$W/runs/$id/run.env"
+    printf 'RUN_ID="%s"\nOWNER_MNEMONIC="fresh owner words"\nAGENT_ED25519_SK="%s"\nSAFE_ADDR="0x5afe"\nRUN_COMPLETE="1"\n' "$id" "$(printf 'a%.0s' $(seq 64))" >"$W/runs/$id/run.env"
     echo "RUN_ENV=$W/runs/$id/run.env"
     ;;
   agent)
@@ -133,7 +133,10 @@ expect "fresh-owner temp file removed" tmp_clean
 
 no_stub_calls() { ! grep -q '\[stub\]' "$WORK/$1.out"; }
 mkdir -p "$WORK/re sumed" "$WORK/partial"
-printf 'RUN_ID="rres"\nOWNER_MNEMONIC="resumed owner words"\nSAFE_ADDR="0x5afe"\nRUN_COMPLETE="1"\n' >"$WORK/re sumed/run.env"
+FAKE_SK="$(printf '7%.0s' $(seq 64))" # a fake 64-hex agent key
+printf 'RUN_ID="rres"\nOWNER_MNEMONIC="resumed owner words"\nAGENT_ED25519_SK="%s"\nSAFE_ADDR="0x5afe"\nRUN_COMPLETE="1"\n' "$FAKE_SK" >"$WORK/re sumed/run.env"
+mkdir -p "$WORK/nokey"
+printf 'RUN_ID="rold"\nOWNER_MNEMONIC="nokey owner words"\nSAFE_ADDR="0x5afe"\nRUN_COMPLETE="1"\n' >"$WORK/nokey/run.env"
 printf 'RUN_ID="rpart"\nOWNER_MNEMONIC="partial owner words"\nRUN_COMPLETE="0"\n' >"$WORK/partial/run.env"
 
 echo "--resume a complete run (path with a space)"
@@ -151,6 +154,12 @@ run_demo incomplete -- --resume "$WORK/partial/run.env"
 expect "incomplete run.env (RUN_COMPLETE=0): exit 2" test "$RC" -eq 2
 expect "says it is not a complete run" has incomplete 'not a complete run'
 expect "nothing ran" no_stub_calls incomplete
+run_demo nokey -- --resume "$WORK/nokey/run.env"
+expect "complete run.env without AGENT_ED25519_SK: exit 2" test "$RC" -eq 2
+expect "says why (an agent key binds to one account)" has nokey 'no AGENT_ED25519_SK.*bound to ONE account'
+expect "nothing ran" no_stub_calls nokey
+expect "prints no secret" bash -c "! grep -q 'nokey owner words' '$WORK/nokey.out'"
+expect "resumed run passes the per-run agent key to setup" has resume '\[stub\] cli:setup .*AGENT_SK=\[set\]'
 run_demo resumeruns -- --resume "$WORK/re sumed/run.env" --runs 2
 expect "--resume with --runs 2: exit 2" test "$RC" -eq 2
 expect "says a resumed run is a single run" has resumeruns 'refusing --resume with --runs 2'
