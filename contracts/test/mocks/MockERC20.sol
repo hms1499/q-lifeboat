@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.28;
 
 /// Minimal standard ERC20 for tests.
 contract MockERC20 {
@@ -46,5 +46,12 @@ contract MockERC20 {
         balanceOf[from] -= amount;
         balanceOf[to] += amount;
         emit Transfer(from, to, amount);
+    }
+}
+
+/// Token whose transfer reports failure by returning false.
+contract FalseToken {
+    function transfer(address, uint256) external pure returns (bool) {
+        return false;
     }
 }

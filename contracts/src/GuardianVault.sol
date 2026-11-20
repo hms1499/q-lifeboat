@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity 0.8.28;
 
 /// QoreChain precompiles (active on the qorechain-diana testnet).
 interface IQorePQC {
@@ -36,8 +36,10 @@ contract GuardianVault {
     error KeyNotProven();
     error BadSignature();
     error TransferFailed();
+    error ZeroOwner();
 
     constructor(address owner_) {
+        if (owner_ == address(0)) revert ZeroOwner();
         owner = owner_;
     }
 
@@ -88,14 +90,22 @@ contract GuardianVault {
         }
     }
 
+    /// A call counts as successful if it did not revert and returned `true`, or returned nothing
+    /// from an address that actually has code (an EOA/empty address would "succeed" silently).
+    function _succeeded(address token, bool ok, bytes memory ret) private view returns (bool) {
+        if (!ok) return false;
+        if (ret.length == 0) return token.code.length != 0;
+        return abi.decode(ret, (bool));
+    }
+
     function _safeTransfer(address token, address to, uint256 amount) internal {
         (bool ok, bytes memory ret) = token.call(abi.encodeCall(IERC20.transfer, (to, amount)));
-        if (!ok || (ret.length != 0 && !abi.decode(ret, (bool)))) revert TransferFailed();
+        if (!_succeeded(token, ok, ret)) revert TransferFailed();
     }
 
     function _safeTransferFrom(address token, address from, address to, uint256 amount) internal {
         (bool ok, bytes memory ret) = token.call(abi.encodeCall(IERC20.transferFrom, (from, to, amount)));
-        if (!ok || (ret.length != 0 && !abi.decode(ret, (bool)))) revert TransferFailed();
+        if (!_succeeded(token, ok, ret)) revert TransferFailed();
     }
 }
 

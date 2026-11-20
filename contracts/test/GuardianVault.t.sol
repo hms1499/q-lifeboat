@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {GuardianVault} from "../src/GuardianVault.sol";
 import {MockPqc} from "./mocks/MockPqc.sol";
-import {MockERC20} from "./mocks/MockERC20.sol";
+import {MockERC20, FalseToken} from "./mocks/MockERC20.sol";
 
 /// Recipient whose receive() records the vault nonce it observes mid-withdrawal.
 contract NonceProbe {
@@ -17,6 +17,13 @@ contract NonceProbe {
 
     receive() external payable {
         seen = vault.nonce();
+    }
+}
+
+/// Recipient that rejects QOR.
+contract Rejecter {
+    receive() external payable {
+        revert("no");
     }
 }
 
@@ -207,5 +214,79 @@ contract GuardianVaultTest is Test {
 
         assertEq(probe.seen(), 1, "nonce already bumped when funds arrive");
         assertEq(address(probe).balance, 1 ether);
+    }
+
+    // ---- binding ----
+
+    function test_signatureBoundToVault() public {
+        _fundQor(2 ether);
+        GuardianVault vaultB = new GuardianVault(owner);
+        vm.deal(address(vaultB), 2 ether);
+        bytes memory sigA = _sig(recipient, address(0), 1 ether, 0);
+
+        vm.expectRevert(GuardianVault.BadSignature.selector);
+        vaultB.withdraw(recipient, address(0), 1 ether, sigA);
+    }
+
+    function test_signatureBoundToChainId() public {
+        _fundQor(2 ether);
+        bytes memory sig = _sig(recipient, address(0), 1 ether, 0);
+        vm.chainId(9800);
+
+        vm.expectRevert(GuardianVault.BadSignature.selector);
+        vault.withdraw(recipient, address(0), 1 ether, sig);
+    }
+
+    function test_withdrawalMessageLayout() public view {
+        bytes memory expected = abi.encodePacked(
+            "QDAY-GUARDIAN-V1", block.chainid, address(vault), recipient, address(token), uint256(5), uint256(3)
+        );
+        bytes memory got = vault.withdrawalMessage(recipient, address(token), 5, 3);
+        assertEq(got, expected);
+        assertEq(got.length, 172);
+    }
+
+    // ---- failure paths ----
+
+    function test_withdrawToCodelessTokenReverts() public {
+        address codeless = makeAddr("codeless");
+        bytes memory sig = _sig(recipient, codeless, 1e18, 0);
+
+        vm.expectRevert(GuardianVault.TransferFailed.selector);
+        vault.withdraw(recipient, codeless, 1e18, sig);
+        assertEq(vault.nonce(), 0);
+    }
+
+    function test_withdrawRevertsWhenRecipientRejects() public {
+        _fundQor(2 ether);
+        address rej = address(new Rejecter());
+        bytes memory sig = _sig(rej, address(0), 1 ether, 0);
+
+        vm.expectRevert(GuardianVault.TransferFailed.selector);
+        vault.withdraw(rej, address(0), 1 ether, sig);
+        assertEq(vault.nonce(), 0);
+    }
+
+    function test_withdrawRevertsWhenTokenReturnsFalse() public {
+        FalseToken bad = new FalseToken();
+        bytes memory sig = _sig(recipient, address(bad), 1e18, 0);
+
+        vm.expectRevert(GuardianVault.TransferFailed.selector);
+        vault.withdraw(recipient, address(bad), 1e18, sig);
+        assertEq(vault.nonce(), 0);
+    }
+
+    function test_rescueWithBalanceButNoAllowance() public {
+        token.mint(owner, 100e18);
+
+        vault.rescue(address(token));
+
+        assertEq(token.balanceOf(address(vault)), 0);
+        assertEq(token.balanceOf(owner), 100e18);
+    }
+
+    function test_constructorRejectsZeroOwner() public {
+        vm.expectRevert(GuardianVault.ZeroOwner.selector);
+        new GuardianVault(address(0));
     }
 }
