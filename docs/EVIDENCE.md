@@ -35,3 +35,20 @@ Current `GuardianVault` (v2, QCAI Stage 1 fixes) at `0x17d867860a0A0Ff528dF65543
 | Owner replaces the account's spending rules with the production shape: `allowedEvmCalls=["0x17d867860a0a0ff528df655439ff59176b061b3c/0x839006f2"]`, `allowedDenoms=["uqor"]` (only `MsgUpdateSpendingRules`; the key stays registered) | OK, `fetchSpendingRules` shows the single rule | `B71F68C7E428653A5DB0D8D0D5DA97B3CE58EAE958EBAFD3EACE99A00BF9E5BF` |
 | A stranger (gas wallet `0xFf82…3850`) cannot call `rescue` (QCAI #1) | Reverts `NotOwner` | `eth_call` simulation on diana, 2026-11-20 |
 | **The authenticator lane calls as the owner**: the agent's `MsgExecuteEVM` to owner-only `rescue(token)` succeeds, so `msg.sender` == owner's EVM address | `success: true`, `gasUsed` 58705; owner 100e18 → 0, vault 0 → 100e18 | `52B81C0850CD88D541CE1A3557621FB10BD5B2597A5B18F963D223A11CABE395` |
+
+## Task 3: CLI setup, Guardian Signer and withdraw (2026-11-20)
+
+Faucet test tokens (`TestToken`, public `mint`, testnet only) deployed by `DeployTokens.s.sol`:
+fUSD `0x8478737e5ac2c2cbf70aad17f459d1b8ab8a7a14`, fETH `0x0a958bba25f5fddca1b1f9cec44bdf076a8ea6c5`,
+fBTC `0xbd16bc9ffaddf241593d891844cc4281f5af903e`.
+
+| Claim | Result | Tx / check |
+|---|---|---|
+| Owner opens an unscoped 5-tx window for the token deploy | OK | `52C2A31C7E0A5945ADB51856BC0C4AFEBE4C2AC0BCDCE2EC6FC96055B4281233` |
+| Deploy fUSD / fETH / fBTC and mint 100 fUSD, 100 fETH. The 6th tx (mint fBTC) was refused: "EVM authorisation window exhausted" (5 txs used) | 5 × success | `0xd3a4d713…e000`, `0xf8d5c71b…d420`, `0xaff61942…4862`, `0x14e370ed…7764`, `0x0243c6d0…dd94` |
+| `pnpm cli setup`: ONE hybrid tx with `MsgOpenEVMWindow` (600 blocks, 10 txs, `allowedTargets=[fUSD, fETH, fBTC, vault]`) + `MsgUpdateSpendingRules` (agent key already linked). Opening a window while an exhausted one is still unexpired is accepted and replaces it | OK. `status`: window live, 10 txs, the 4 targets; rules = exactly `allowedEvmCalls=["0x17d8…1b3c/0x839006f2"]`, `allowedDenoms=["uqor"]` | `2659F7BE26FC53E7D6A47A7B7C2D79D88C8E5CCEB6A5C98389C888C055CBA818` |
+| `setup` approvals `approve(vault, max)` for fUSD / fETH / fBTC inside the scoped window | 3 × success, `allowance(owner, vault)` = 2^256-1 for all three | `0xbb22c55da83e90b83379fcde56ff2fa655d6299e0cb4a521c9a9dd32ea526416`, `0x274ed5452a0f377dda80a7567d475f5153edf9f9165e0124aca19d0abc41c32d`, `0x1a1c27145ed6555cace5b7f529f6b96595e5764f45c321b1de38969e3bd9b5c3` |
+| Mint 100 fBTC to the owner (scoped window, fBTC is a target) | Success, gasUsed 68292 | `0x2d72a32ceaf5dac8467e57ddce9e6fca59a0b1ad0a8b33ef814eb82fe36b7993` |
+| Owner calls `vault.rescue(fUSD)` with ECDSA inside the scoped window | Success; owner fUSD 100 → 0, vault 0 → 100 | `0xee41eb08a73c9a74385081196ec1001f392e3c4faf8f62798d45673dbea86534` |
+| **Guardian Signer + withdraw**: `sign-withdraw 0x5afe…c0de fUSD 1` (local `pqcSign`, 4627-byte ML-DSA-87 sig; signer checked the on-chain key is registered + proven and that the vault's `withdrawalMessage` equals the TS bytes), then `withdraw withdrawal.json` | `status success`, gasUsed 500000 (1M limit); `to` fUSD 0 → 1, vault 100 → 99, `nonce()` 0 → 1 | `0xe5068a0537100f044ee573b0f4a6bb96d83b3d369d30f60fcf5d74b0bcc7c18c` |
+| Review Focus 3 on diana: resubmitting the same `withdrawal.json` | CLI refuses before sending ("file nonce 0, vault nonce 1"); `eth_call` of the same args reverts `BadSignature()` (`0x5cd5d233`) | `eth_call` on diana, 2026-11-20 |

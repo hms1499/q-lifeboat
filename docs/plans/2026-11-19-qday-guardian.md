@@ -125,10 +125,12 @@ As built (Steps 3-4): QCAI Stage 1 scored 85/100 (MEDIUM). Fixes: `rescue` is no
   - `pnpm cli sign-withdraw <to> <token> <amount>`: writes `withdrawal.json` with `{to, token, amount, nonce, sig}`. This is the Guardian Signer; it runs locally and uses `pqcSign`.
   - `pnpm cli withdraw withdrawal.json`: any gas wallet can submit it.
 
-- [ ] **Step 1:** Write the `buildSetupRule()` test. Assert `allowedEvmCalls` has exactly one entry, `${VAULT}/${RESCUE_SELECTOR}`, and `allowedDenoms` has no `erc20/*` (so the agent can't move tokens itself).
-- [ ] **Step 2:** Implement, then run `pnpm -F cli test`. Expected: PASS.
-- [ ] **Step 3:** Run for real on diana: `setup`, check with `fetchSpendingRules` and `fetchAuthenticators`, then `sign-withdraw` and `withdraw` 1 fUSD. Expected: tx success and the `to` balance grows by 1 fUSD. Record the hash in `docs/EVIDENCE.md`.
-- [ ] **Step 4:** Commit.
+- [x] **Step 1:** Write the `buildSetupRule()` test. Assert `allowedEvmCalls` has exactly one entry, `${VAULT}/${RESCUE_SELECTOR}`, and `allowedDenoms` has no `erc20/*` (so the agent can't move tokens itself).
+- [x] **Step 2:** Implement, then run `pnpm -F cli test`. Expected: PASS.
+- [x] **Step 3:** Run for real on diana: `setup`, check with `fetchSpendingRules` and `fetchAuthenticators`, then `sign-withdraw` and `withdraw` 1 fUSD. Expected: tx success and the `to` balance grows by 1 fUSD. Record the hash in `docs/EVIDENCE.md`.
+- [x] **Step 4:** Commit.
+
+As built: fUSD/fETH/fBTC are our own `TestToken` faucet contracts (public `mint`), deployed by `DeployTokens.s.sol`; addresses come from `FUSD_ADDRESS`/`FETH_ADDRESS`/`FBTC_ADDRESS`. `setup` sends ONE hybrid tx (`openEvmWindowMsg` + link msgs, or only `MsgUpdateSpendingRules` when the agent key is linked, not revoked and not expired), then the three EVM approvals (an ECDSA tx cannot ride in the hybrid tx). Window `allowedTargets=[fUSD, fETH, fBTC, VAULT]`. `withdraw` is submitted by `RELAYER_MNEMONIC` (default: owner), which needs its own live window. The window stays open after setup (the Task 5 attack needs it); record that exposure in Task 7.
 
 ### Task 4: Guardian agent (Nov 26–27)
 

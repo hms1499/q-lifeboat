@@ -27,6 +27,7 @@ spike/            THROWAWAY Task 0 probes + workshop clone. Gitignored. Never im
 - Contracts: `cd contracts && forge test -vv`
 - TS workspaces: `pnpm -F <core|agent|cli|dashboard> test`
 - E2E: `./demo.sh` (must pass 3 runs in a row from fresh accounts)
+- CLI (diana, reads root `.env`): `pnpm cli status | setup | sign-withdraw <to> <fUSD|fETH|fBTC|QOR|0x…> <amount> | withdraw <file>`
 
 Run the real command and read its output before claiming anything passes.
 
@@ -97,6 +98,11 @@ checkboxes and the docs below are the handoff state, not the chat history.
    replaces them wholesale; the first enabled rule applies. Retarget the agent without re-registering it.
 9. From chain v3.2.8 a failed `MsgExecuteEVM` (revert, policy) burns the auth nonce and returns
    `success=false` inside a SUCCESSFUL tx. Read results with `decodeAuthenticatorExecutions`, never the tx code.
+10. `MsgOpenEVMWindow` while an earlier window is still unexpired (even exhausted) is accepted and replaces
+    it (tx `2659F7BE…`, 2026-11-20). A window with `allowedTargets` refuses contract creation, so deploys
+    need an unscoped window; size `maxTxs` for every tx a `forge script` sends (DeployTokens = 6).
+11. `EthNativeSigner` in sdk 0.14.0 has no `simulate()`: the spike's `signer.simulate?.()` was a no-op.
+    `apps/cli/src/chain.ts` uses a fixed 1.5M gas limit for hybrid txs.
 
 SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSign`, `EthNativeSigner`,
 `linkAuthenticatorMsgs`, `signAuthenticatorLinkEd25519`, `revokeAuthenticatorMsg`,
