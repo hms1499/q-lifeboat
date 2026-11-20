@@ -31,11 +31,11 @@ async function main() {
   const file = resolve(fileURLToPath(import.meta.url), "../../../../data/incidents.jsonl");
   const llm = cfg.anthropicApiKey ? anthropicLlm(cfg.anthropicApiKey) : undefined;
   const server = await startServer({ file, port: cfg.port });
-  const deps = productionDeps(cfg, windowKeeper);
+  const deps = productionDeps(cfg, windowKeeper, log);
 
   const guardian = createGuardian({
     policy: { vault: cfg.vault, allowlist: cfg.allowlist, maxOutbound: cfg.maxOutbound },
-    rescue: () => serial(() => rescueAll(deps)),
+    rescue: (trigger) => serial(() => rescueAll(deps, trigger.token)),
     record: (facts) => signAndRecord({ ...facts, sk: cfg.agentKey.sk, llm, log }, file),
     publish: server.publish,
     log,
@@ -45,13 +45,14 @@ async function main() {
     client: publicClient,
     owner: cfg.owner,
     tokens: Object.values(cfg.tokens),
+    pollMs: cfg.pollMs,
     // Not awaited: the watcher keeps polling while a rescue runs (see watch.ts).
     onTx: (tx) => void guardian.onTx(tx).catch((e) => log(`handler error: ${errorText(e)}`)),
     onError: (e) => log(`watch error: ${errorText(e)}`),
   });
 
   log(
-    `guardian ${cfg.gas.evm} watching ${cfg.owner} -> vault ${cfg.vault}; API on :${server.port}; summaries: ${llm ? "claude" : "template"}`,
+    `guardian ${cfg.gas.evm} watching ${cfg.owner} -> vault ${cfg.vault} every ${cfg.pollMs} ms; API on :${server.port}; summaries: ${llm ? "claude" : "template"}`,
   );
 }
 

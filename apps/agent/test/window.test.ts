@@ -15,28 +15,43 @@ import {
 
 const VAULT = "0x17d867860a0A0Ff528dF655439ff59176b061B3C" as const;
 const ONE_TX = evmWindowCost({ gas: RESCUE_GAS, maxFeePerGas: RESCUE_MAX_FEE_PER_GAS });
-const healthy: WindowStatus = { live: true, remainingBlocks: 500n, remainingTxs: 8n, remainingValue: ONE_TX * 8n };
+const OLD_VAULT = "0x776913Abe058941d4c8ac097EE47E29F528f71e6" as const;
+const healthy: WindowStatus = { live: true, remainingBlocks: 500n, remainingTxs: 8n, remainingValue: ONE_TX * 8n, allowedTargets: [VAULT] };
 
 describe("needsWindow", () => {
   it("is false for a healthy window", () => {
-    expect(needsWindow(healthy)).toBe(false);
-    expect(needsWindow({ ...healthy, remainingBlocks: 100n, remainingTxs: 3n, remainingValue: ONE_TX * 3n })).toBe(false);
+    expect(needsWindow(healthy, VAULT)).toBe(false);
+    expect(needsWindow({ ...healthy, remainingBlocks: 100n, remainingTxs: 3n, remainingValue: ONE_TX * 3n }, VAULT)).toBe(false);
   });
 
   it("is true when the window is not live", () => {
-    expect(needsWindow({ ...healthy, live: false })).toBe(true);
+    expect(needsWindow({ ...healthy, live: false }, VAULT)).toBe(true);
   });
 
   it("is true when fewer than 100 blocks remain", () => {
-    expect(needsWindow({ ...healthy, remainingBlocks: 99n })).toBe(true);
+    expect(needsWindow({ ...healthy, remainingBlocks: 99n }, VAULT)).toBe(true);
   });
 
   it("is true when fewer than 3 txs remain", () => {
-    expect(needsWindow({ ...healthy, remainingTxs: 2n })).toBe(true);
+    expect(needsWindow({ ...healthy, remainingTxs: 2n }, VAULT)).toBe(true);
   });
 
   it("is true when the value left cannot pay for 3 rescue txs", () => {
-    expect(needsWindow({ ...healthy, remainingValue: ONE_TX * 3n - 1n })).toBe(true);
+    expect(needsWindow({ ...healthy, remainingValue: ONE_TX * 3n - 1n }, VAULT)).toBe(true);
+  });
+});
+
+describe("needsWindow vault target", () => {
+  it("is true when the live window targets another vault (each fresh demo run deploys a new one)", () => {
+    expect(needsWindow({ ...healthy, allowedTargets: [OLD_VAULT] }, VAULT)).toBe(true);
+  });
+
+  it("is true for an unscoped window (empty targets): the guardian's window must name the vault", () => {
+    expect(needsWindow({ ...healthy, allowedTargets: [] }, VAULT)).toBe(true);
+  });
+
+  it("matches the vault case-insensitively, among other targets", () => {
+    expect(needsWindow({ ...healthy, allowedTargets: [OLD_VAULT, VAULT.toLowerCase()] }, VAULT)).toBe(false);
   });
 });
 
@@ -66,7 +81,7 @@ function keeper(statuses: WindowStatus[]) {
   const open = vi.fn(async () => "OPENHASH");
   const log = vi.fn();
   const sleep = vi.fn(async () => {});
-  return { k: createWindowKeeper({ readStatus, open, log, sleep }), readStatus, open, log, sleep };
+  return { k: createWindowKeeper({ vault: VAULT, readStatus, open, log, sleep }), readStatus, open, log, sleep };
 }
 
 describe("createWindowKeeper", () => {
@@ -83,6 +98,12 @@ describe("createWindowKeeper", () => {
     expect(open).toHaveBeenCalledTimes(1);
     expect(readStatus).toHaveBeenCalledTimes(2);
     expect(log.mock.calls.flat().join(" ")).toContain("OPENHASH");
+  });
+
+  it("ensure() opens a new window when the live one targets another vault", async () => {
+    const { k, open } = keeper([{ ...healthy, allowedTargets: [OLD_VAULT] }, healthy]);
+    await k.ensure();
+    expect(open).toHaveBeenCalledTimes(1);
   });
 
   it("ensure() throws when the window cannot be opened or is still unusable", async () => {

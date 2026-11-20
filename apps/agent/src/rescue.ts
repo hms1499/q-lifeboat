@@ -14,12 +14,22 @@ export const RESCUE_GAS = 120_000n;
  * `window.ts` sizes its budget from this same value. Diana's base fee is 100 gwei, so the cap leaves headroom.
  */
 export const RESCUE_MAX_FEE_PER_GAS = 150_000_000_000n;
-export const RESCUE_PRIORITY_FEE_PER_GAS = 12_500_000_000n;
+/**
+ * 40 gwei tip: an attacker sending with viem's default fees tips far less, so when the rescue and a drain
+ * compete for the same block, the rescue is ordered first. Base fee 100 + tip 40 = 140 gwei stays under the
+ * 150 gwei cap, and the guardian's window budget (sized from the cap, not the tip) is unchanged.
+ */
+export const RESCUE_PRIORITY_FEE_PER_GAS = 40_000_000_000n;
 
 /** The only tx the agent ever sends: `vault.rescue(token)`, no value. */
 export type RescueTx = { to: Hex; data: Hex; gas: bigint; nonce: number; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint };
 
-export type RescueReceipt = { status: "success" | "reverted"; logs: Pick<Log, "address" | "topics" | "data">[] };
+export type RescueReceipt = {
+  status: "success" | "reverted";
+  /** Block the tx landed in (logged for latency tuning). */
+  blockNumber?: bigint;
+  logs: Pick<Log, "address" | "topics" | "data">[];
+};
 
 export type RescueDeps = {
   vault: Hex;
@@ -39,6 +49,9 @@ export type RescueDeps = {
   /** Whether the node knows this tx (pending or mined). */
   isKnown(hash: Hex): Promise<boolean>;
   waitReceipt(hash: Hex): Promise<RescueReceipt>;
+  /** Timing lines (send time, receipt block) for latency tuning. Optional. */
+  log?: (line: string) => void;
+  now?: () => Date;
 };
 
 function rescueTx(vault: Hex, token: Hex, nonce: number): RescueTx {
@@ -62,18 +75,28 @@ function rescuedAmount(receipt: RescueReceipt, vault: Hex, token: Hex): bigint {
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** The trigger's token first (it is the one being drained right now), then the others in config order. */
+function triggerFirst(tokens: Hex[], trigger?: Hex): Hex[] {
+  if (!trigger) return tokens;
+  const t = trigger.toLowerCase();
+  return [...tokens.filter((x) => x.toLowerCase() === t), ...tokens.filter((x) => x.toLowerCase() !== t)];
+}
+
 /**
  * Rescue every token the vault can actually pull (min of balance and allowance > 0), one `vault.rescue(token)`
  * tx per token from the guardian account, sent back to back with sequential nonces, then wait for all receipts.
+ * `trigger` is the token of the transfer that started the rescue: it gets the first nonce and is sent first.
  * Nothing is prepared or sent when there is nothing to rescue. A failure (read, send, receipt) is reported per
  * token, never thrown, so the other tokens are still rescued and the incident record is always produced.
- * Results keep the token order. `amount` is what the vault's `Rescued` logs in that receipt say it moved;
- * `expected` is the pre-read estimate.
+ * Results are in send order (trigger token first, then config order). `amount` is what the vault's `Rescued`
+ * logs in that receipt say it moved; `expected` is the pre-read estimate.
  */
-export async function rescueAll(deps: RescueDeps): Promise<RescueResult[]> {
+export async function rescueAll(deps: RescueDeps, trigger?: Hex): Promise<RescueResult[]> {
+  const log = deps.log ?? (() => {});
+  const now = deps.now ?? (() => new Date());
   type Slot = { token: Hex; expected: bigint; readError?: string };
   const slots: Slot[] = await Promise.all(
-    deps.tokens.map(async (token): Promise<Slot> => {
+    triggerFirst(deps.tokens, trigger).map(async (token): Promise<Slot> => {
       try {
         const [balance, allowance] = await Promise.all([deps.readBalance(token), deps.readAllowance(token)]);
         return { token, expected: balance < allowance ? balance : allowance };
@@ -115,6 +138,7 @@ export async function rescueAll(deps: RescueDeps): Promise<RescueResult[]> {
       }
     }
     sent.set(p, { hash: signed.hash });
+    log(`timing: rescue ${p.token} sent ${signed.hash} at ${now().toISOString()}`);
     nonce += 1;
   }
 
@@ -125,6 +149,7 @@ export async function rescueAll(deps: RescueDeps): Promise<RescueResult[]> {
       if ("error" in s) return failed(p, s.error);
       try {
         const receipt = await deps.waitReceipt(s.hash);
+        log(`timing: rescue ${s.hash} receipt block ${receipt.blockNumber ?? "?"} status ${receipt.status}`);
         if (receipt.status !== "success") return failed(p, "rescue tx reverted", s.hash);
         return { token: p.token, expected: p.expected, amount: rescuedAmount(receipt, deps.vault, p.token), hash: s.hash, success: true };
       } catch (e) {
@@ -140,12 +165,18 @@ const erc20Abi = parseAbi([
 ]);
 
 const RECEIPT_TIMEOUT_MS = 60_000;
+/** Receipt polling interval: viem's default is the chain's block time or 4 s; a quick read keeps the incident timely. */
+const RECEIPT_POLL_MS = 500;
 
 /**
  * Wire `rescueAll` to diana: viem reads, plain EVM txs signed by the guardian account (GAS_MNEMONIC), inside the
  * guardian's own window (checked only when the cached status is not usable; a sent tx invalidates the cache).
  */
-export function productionDeps(cfg: AgentConfig, keeper: Pick<WindowKeeper, "ensureIfStale" | "invalidate">): RescueDeps {
+export function productionDeps(
+  cfg: AgentConfig,
+  keeper: Pick<WindowKeeper, "ensureIfStale" | "invalidate">,
+  log?: (line: string) => void,
+): RescueDeps {
   const account = privateKeyToAccount(cfg.gas.privateKey as Hex);
   return {
     vault: cfg.vault,
@@ -172,6 +203,7 @@ export function productionDeps(cfg: AgentConfig, keeper: Pick<WindowKeeper, "ens
         return false;
       }
     },
-    waitReceipt: (hash) => publicClient.waitForTransactionReceipt({ hash, timeout: RECEIPT_TIMEOUT_MS }),
+    waitReceipt: (hash) => publicClient.waitForTransactionReceipt({ hash, timeout: RECEIPT_TIMEOUT_MS, pollingInterval: RECEIPT_POLL_MS }),
+    log,
   };
 }

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { logToOutbound, txToOutbound, watchOwner } from "../src/watch";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_POLL_MS, logToOutbound, txToOutbound, watchOwner } from "../src/watch";
 
 const OWNER = "0xAAAAaaaaAAAAaaaaAAAAaaaaAAAAaaaaAAAAaaaa" as const;
 const TOKEN = "0x00000000000000000000000000000000000000a1" as const;
@@ -83,5 +83,28 @@ describe("watchOwner polling", () => {
     await new Promise((r) => setTimeout(r, 30));
     w.stop();
     expect(errors).toHaveLength(1);
+  });
+});
+
+describe("watchOwner pacing", () => {
+  afterEach(() => void vi.useRealTimers());
+
+  it("polls every 300 ms by default (diana blocks are ~1.4 s, so a drain is seen within ~0.3 s)", async () => {
+    expect(DEFAULT_POLL_MS).toBe(300);
+    vi.useFakeTimers();
+    let polls = 0;
+    const client = {
+      getBlockNumber: async () => { polls++; return 10n; },
+      getLogs: async () => [],
+      getBlock: async () => ({ transactions: [] }),
+    };
+    const w = watchOwner({ client: client as never, owner: OWNER, tokens: [TOKEN], onTx: () => {} });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(polls).toBe(1);
+    await vi.advanceTimersByTimeAsync(299);
+    expect(polls).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(polls).toBe(2);
+    w.stop();
   });
 });

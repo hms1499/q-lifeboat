@@ -82,6 +82,28 @@ describe("guardian", () => {
     expect(rescue).toHaveBeenCalledTimes(3); // exactly one new run, no stale replay
   });
 
+  it("passes the trigger to rescue (so its token goes first), and the queued trigger to the recheck", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const rescue = vi.fn(async (_t: OutboundTx) => { if (rescue.mock.calls.length === 1) await gate; return [rec()]; });
+    const record = vi.fn(async (f: { trigger: OutboundTx }) => ({ ...f, id: "x" }) as unknown as Incident);
+    const g = createGuardian({ policy, rescue, record: record as never, publish: vi.fn(), log: () => {} });
+    const first = g.onTx(tx("0x1"));
+    await Promise.resolve();
+    await g.onTx(tx("0x2"));
+    release();
+    await first;
+    expect(rescue.mock.calls.map(([t]) => t.hash)).toEqual(["0x1", "0x2"]);
+  });
+
+  it("logs the trigger block and the detection time of every rescue decision", async () => {
+    const lines: string[] = [];
+    const g = createGuardian({ policy, rescue: async () => [rec()], record: (async (f: object) => ({ ...f, id: "x" })) as never, publish: vi.fn(), log: (l) => void lines.push(l) });
+    await g.onTx({ ...tx("0x1"), block: 42n });
+    const timing = lines.find((l) => l.startsWith("timing: trigger"));
+    expect(timing).toMatch(/^timing: trigger 0x1 block 42 detected \d{4}-\d{2}-\d{2}T/);
+  });
+
   it("records a rescue error instead of throwing", async () => {
     const { g, record } = setup(async () => { throw new Error("rpc down"); });
     await g.onTx(tx("0x1"));

@@ -64,11 +64,22 @@ function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
   return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
 
-export type WindowStatus = Pick<EvmWindow, "live" | "remainingBlocks" | "remainingTxs" | "remainingValue">;
+export type WindowStatus = Pick<EvmWindow, "live" | "remainingBlocks" | "remainingTxs" | "remainingValue" | "allowedTargets">;
 
-/** True when the window cannot be relied on for a 3-token rescue: not live, or low on blocks, txs or value. */
-export function needsWindow(s: WindowStatus): boolean {
-  return !s.live || s.remainingBlocks < MIN_BLOCKS || s.remainingTxs < MIN_TXS || s.remainingValue < RESCUE_TX_COST * MIN_TXS;
+/**
+ * True when the window cannot be relied on for a 3-token rescue of `vault`: not live, low on blocks, txs or
+ * value, or not scoped to this vault (a window left from another vault, e.g. the previous fresh demo run, or an
+ * unscoped one: the guardian's window must name the vault so its ECDSA key can reach nothing else).
+ */
+export function needsWindow(s: WindowStatus, vault: Hex): boolean {
+  const targetsVault = s.allowedTargets.some((t) => t.toLowerCase() === vault.toLowerCase());
+  return (
+    !s.live ||
+    !targetsVault ||
+    s.remainingBlocks < MIN_BLOCKS ||
+    s.remainingTxs < MIN_TXS ||
+    s.remainingValue < RESCUE_TX_COST * MIN_TXS
+  );
 }
 
 /** `MsgOpenEVMWindow` parameters: 14400 blocks, 10 txs, budget for 10 rescue txs, the vault as the only target. */
@@ -83,6 +94,8 @@ export function buildGuardianWindowParams(guardianCosmos: string, vault: Hex) {
 }
 
 export type WindowDeps = {
+  /** The vault the window must target. */
+  vault: Hex;
   readStatus(): Promise<WindowStatus>;
   /** Broadcast `MsgOpenEVMWindow` (replaces an unexpired window); resolves with the tx hash once delivered. */
   open(): Promise<string>;
@@ -94,6 +107,7 @@ export type WindowKeeper = ReturnType<typeof createWindowKeeper>;
 
 export function createWindowKeeper(deps: WindowDeps) {
   let cached: WindowStatus | undefined;
+  const unusable = (s: WindowStatus) => needsWindow(s, deps.vault);
 
   /**
    * Read the window; if it is not usable, open ONE new window and re-read it (a few times: REST may still serve
@@ -101,18 +115,18 @@ export function createWindowKeeper(deps: WindowDeps) {
    */
   async function ensure(): Promise<void> {
     cached = await deps.readStatus();
-    if (!needsWindow(cached)) return;
+    if (!unusable(cached)) return;
     const hash = await deps.open();
     deps.log(`guardian window opened: ${hash}`);
-    cached = await pollUntil(deps.readStatus, (s) => !needsWindow(s), { tries: STATUS_POLLS, delayMs: POLL_DELAY_MS, sleep: deps.sleep });
-    if (needsWindow(cached)) throw new Error(`guardian window still not usable after opening (tx ${hash})`);
+    cached = await pollUntil(deps.readStatus, (s) => !unusable(s), { tries: STATUS_POLLS, delayMs: POLL_DELAY_MS, sleep: deps.sleep });
+    if (unusable(cached)) throw new Error(`guardian window still not usable after opening (tx ${hash})`);
   }
 
   return {
     ensure,
     /** Before a rescue: no REST read when the cached status says the window is usable. */
     async ensureIfStale(): Promise<void> {
-      if (cached && !needsWindow(cached)) return;
+      if (cached && !unusable(cached)) return;
       await ensure();
     },
     /** Forget the cached status (a tx was sent, so it no longer describes the window). */
@@ -142,6 +156,7 @@ export function createSerial() {
 export function productionWindowDeps(cfg: AgentConfig, log: (line: string) => void): WindowDeps {
   const evmNonce = () => publicClient.getTransactionCount({ address: cfg.gas.evm as Hex, blockTag: "pending" });
   return {
+    vault: cfg.vault,
     readStatus: () =>
       evmWindowStatus({
         rest: NETWORK.rest,

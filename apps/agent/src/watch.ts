@@ -36,6 +36,11 @@ export type WatchOptions = {
 };
 
 const MAX_RANGE = 50n;
+/**
+ * Diana makes a block every ~1.4 s. Polling at 300 ms sees a drain within ~0.3 s of its block, so the rescue
+ * can land in the next block or two (Task 5: rescue <= 3 blocks after the first drain). Override with POLL_MS.
+ */
+export const DEFAULT_POLL_MS = 300;
 
 /**
  * Poll for new blocks and emit every outbound transfer from the owner: ERC-20 `Transfer(from=owner)` on
@@ -43,7 +48,7 @@ const MAX_RANGE = 50n;
  * poll does not advance the cursor, so the range is retried. Items are deduplicated by hash + log index.
  */
 export function watchOwner(opts: WatchOptions): { stop(): void } {
-  const { client, owner, tokens, onTx, pollMs = 1000, onError = () => {} } = opts;
+  const { client, owner, tokens, onTx, pollMs = DEFAULT_POLL_MS, onError = () => {} } = opts;
   let stopped = false;
   let cursor: bigint | undefined;
   const seen = new Set<string>();

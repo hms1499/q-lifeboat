@@ -130,7 +130,7 @@ describe("rescueAll", () => {
     await rescueAll(deps);
     expect(RESCUE_GAS).toBe(120_000n);
     expect(RESCUE_MAX_FEE_PER_GAS).toBe(150_000_000_000n);
-    expect(RESCUE_PRIORITY_FEE_PER_GAS).toBe(12_500_000_000n);
+    expect(RESCUE_PRIORITY_FEE_PER_GAS).toBe(40_000_000_000n);
     for (const [[tx], token] of signTx.mock.calls.map((c, i) => [c, [A, B][i]] as const)) {
       expect(Object.keys(tx).sort()).toEqual(["data", "gas", "maxFeePerGas", "maxPriorityFeePerGas", "nonce", "to"]);
       expect(tx.maxFeePerGas).toBe(RESCUE_MAX_FEE_PER_GAS);
@@ -142,6 +142,49 @@ describe("rescueAll", () => {
       expect(d.functionName).toBe("rescue");
       expect((d.args as readonly string[]).map((x) => x.toLowerCase())).toEqual([token]);
     }
+  });
+
+  it("tips 40 gwei to outbid a default-fee attacker, and the 150 gwei cap still covers diana's 100 gwei base fee", () => {
+    const DIANA_BASE_FEE = 100_000_000_000n;
+    expect(RESCUE_PRIORITY_FEE_PER_GAS).toBe(40_000_000_000n);
+    expect(DIANA_BASE_FEE + RESCUE_PRIORITY_FEE_PER_GAS).toBeLessThanOrEqual(RESCUE_MAX_FEE_PER_GAS);
+  });
+
+  it("plans the trigger's token first (first nonce, first send), then the others in config order", async () => {
+    const { deps, signTx, order } = makeDeps();
+    const res = await rescueAll(deps, B);
+    expect(order).toEqual(["prepare", "nonce", `send:${B}`, `send:${A}`, `send:${C}`, "wait", "wait", "wait"]);
+    expect(signTx.mock.calls.map(([tx]) => tx.nonce)).toEqual([41, 42, 43]);
+    expect(res).toEqual([
+      { token: B, hash: hashOf(41), amount: 20n, expected: 20n, success: true },
+      { token: A, hash: hashOf(42), amount: 10n, expected: 10n, success: true },
+      { token: C, hash: hashOf(43), amount: 30n, expected: 30n, success: true },
+    ]);
+  });
+
+  it("matches the trigger token case-insensitively; a trigger outside the vault tokens (native QOR) keeps config order", async () => {
+    const upper = makeDeps();
+    await rescueAll(upper.deps, "0x00000000000000000000000000000000000000C3");
+    expect(upper.order.filter((o) => o.startsWith("send:"))).toEqual([`send:${C}`, `send:${A}`, `send:${B}`]);
+
+    const native = makeDeps();
+    await rescueAll(native.deps, "0x0000000000000000000000000000000000000000");
+    expect(native.order.filter((o) => o.startsWith("send:"))).toEqual([`send:${A}`, `send:${B}`, `send:${C}`]);
+  });
+
+  it("logs when each rescue tx was sent and the block its receipt landed in (latency tuning)", async () => {
+    const lines: string[] = [];
+    const { deps } = makeDeps({
+      balances: { [A]: 1n },
+      receipts: { [A]: { status: "success", blockNumber: 77n, logs: [rescuedLog(A, 1n)] } },
+    });
+    deps.log = (l) => void lines.push(l);
+    deps.now = () => new Date("2026-11-20T00:00:00.000Z");
+    await rescueAll(deps, A);
+    expect(lines).toEqual([
+      `timing: rescue ${A} sent ${hashOf(41)} at 2026-11-20T00:00:00.000Z`,
+      `timing: rescue ${hashOf(41)} receipt block 77 status success`,
+    ]);
   });
 
   it("reports a reverted receipt as failed with amount 0", async () => {
