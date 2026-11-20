@@ -21,24 +21,20 @@ const APPROVE_GAS = 100_000n;
 const AGENT_TTL_SECONDS = 7 * 24 * 3600;
 const EXPIRY_MARGIN_SECONDS = 60;
 
-/** Per-token cap (1000e18) on what the agent key can move per tx and per day. */
-export const RESCUE_CAP = "1000000000000000000000";
-
 /**
- * The agent's spending rule. It may call exactly `vault.rescue`. Since chain v3.2.2 a call that moves an
- * ERC-20 out of the account is refused unless the rule lists that token, so the three rescued tokens are
- * listed, each with an explicit non-zero cap (a zero or empty limit would mean NO limit).
+ * The agent key's spending rule. It may call exactly `vault.rescue` and move only native uqor, with no
+ * erc20/ denom: listing a token would let the key call that token's `transfer` directly, whatever
+ * allowedEvmCalls says (docs/EVIDENCE.md, tx CADB1412). The agent rescues from its own guardian account,
+ * so this key only signs incident reports and proves that the chain refuses direct token calls.
  */
-export function buildSetupRule(vault: string, tokens: Tokens) {
-  const denoms = [tokens.fUSD, tokens.fETH, tokens.fBTC].map((a) => `erc20/${a.toLowerCase()}`);
+export function buildSetupRule(vault: string) {
   const rule = {
     id: "guardian",
     enabled: true,
     perTxLimit: "1000000",
     dailyLimit: "3000000",
-    allowedDenoms: ["uqor", ...denoms],
+    allowedDenoms: ["uqor"],
     allowedEvmCalls: [`${vault.toLowerCase()}/${RESCUE_SELECTOR}`],
-    denomLimits: denoms.map((denom) => ({ denom, perTxLimit: RESCUE_CAP, dailyLimit: RESCUE_CAP })),
   } satisfies SpendingRuleInput;
   return rule;
 }
@@ -100,7 +96,7 @@ export async function runSetup(env: Env = process.env): Promise<void> {
     permissions: ["evm"],
     expiryUnix: Math.floor(Date.now() / 1000) + AGENT_TTL_SECONDS,
     label: "qday-guardian agent",
-    spendingRule: buildSetupRule(vault, tokens),
+    spendingRule: buildSetupRule(vault),
   });
   const existing = await fetchAuthenticators({ rest: NETWORK.rest, address: owner.cosmos });
   const linkMsgs = selectLinkMsgs(all, existing, agent.pk);
