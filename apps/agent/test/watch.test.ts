@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createPublicClient, custom } from "viem";
+import { createPublicClient, custom, encodeAbiParameters, encodeEventTopics, parseAbiItem } from "viem";
 import { chain } from "@qday/core/chain";
+import { createWatchClient } from "../src/rpc";
 import { DEFAULT_POLL_MS, logToOutbound, txToOutbound, watchOwner } from "../src/watch";
 
 const OWNER = "0xAAAAaaaaAAAAaaaaAAAAaaaaAAAAaaaaAAAAaaaa" as const;
@@ -217,6 +218,33 @@ describe("watchOwner latency and coverage (Task 5 fix round 4)", () => {
     expect(seen).toEqual(Array.from({ length: 120 }, (_, i) => 11n + BigInt(i)));
   });
 
+  it("uses bounded ranges once the known gap plus the re-read blocks exceeds 50 (range-capped node)", async () => {
+    let tip = 10n;
+    const ranges: { from: bigint; to: bigint; ok: boolean }[] = [];
+    const client = {
+      getBlockNumber: async () => tip,
+      getLogs: async ({ fromBlock, toBlock }: Range) => {
+        const to = toBlock ?? tip;
+        const ok = to - fromBlock + 1n <= 50n;
+        ranges.push({ from: fromBlock, to, ok });
+        if (!ok) throw new Error("invalid block range params");
+        return logsIn(fromBlock, to);
+      },
+      getBlock: async () => ({ transactions: [] }),
+    };
+    const seen: bigint[] = [];
+    const w = watchOwner({ client: client as never, owner: OWNER, tokens: [TOKEN], pollMs: 2, onTx: (t) => void seen.push(t.block), onError: () => {} });
+    await wait(10);
+    tip = 20n;
+    await until(() => seen.length >= 10, 300); // cursor 20
+    tip = 68n; // head - cursor = 48 <= 50, but cursor-2..68 is 51 blocks
+    await until(() => seen.length >= 58, 500);
+    w.stop();
+    expect(seen).toEqual(Array.from({ length: 58 }, (_, i) => 11n + BigInt(i)));
+    // Only the tick that discovered the gap may ask for too much; every later range fits.
+    expect(ranges.filter((r) => !r.ok).length).toBeLessThanOrEqual(1);
+  });
+
   it("logs a timing line the first time each item is seen (key, block, tip, wall time), never for a duplicate", async () => {
     let tip = 10n;
     const client = {
@@ -262,6 +290,74 @@ describe("watchOwner latency and coverage (Task 5 fix round 4)", () => {
     await wait(80);
     w.stop();
     expect(tipReads).toBeGreaterThanOrEqual(5);
+  });
+});
+
+const hex = (n: bigint) => `0x${n.toString(16)}`;
+const transferAbi = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
+/** A raw eth_getLogs entry: owner -> OTHER Transfer of TOKEN in block `n`. */
+const rawTransfer = (n: bigint) => ({
+  address: TOKEN,
+  topics: encodeEventTopics({ abi: [transferAbi], eventName: "Transfer", args: { from: OWNER.toLowerCase() as `0x${string}`, to: OTHER } }),
+  data: encodeAbiParameters([{ type: "uint256" }], [5n]),
+  blockNumber: hex(n),
+  blockHash: hashAt(n + 1000n),
+  transactionHash: hashAt(n),
+  transactionIndex: "0x0",
+  logIndex: "0x0",
+  removed: false,
+});
+type RpcItem = { id: number; method: string; params?: unknown[] };
+/** A fetch for the watcher's batching client: `answer` replies to each JSON-RPC item; every POST body is kept. */
+function rpcFetch(answer: (item: RpcItem, batch: RpcItem[]) => { result?: unknown; error?: { code: number; message: string } }) {
+  const posts: RpcItem[][] = [];
+  const fetchFn = async (_url: unknown, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    const items: RpcItem[] = Array.isArray(body) ? body : [body];
+    posts.push(items);
+    const replies = items.map((it) => ({ jsonrpc: "2.0", id: it.id, ...answer(it, items) }));
+    return new Response(JSON.stringify(Array.isArray(body) ? replies : replies[0]), { headers: { "content-type": "application/json" } });
+  };
+  return { posts, fetchFn: fetchFn as unknown as typeof fetch };
+}
+const noBlocks = { getBlock: async () => ({ transactions: [] }) };
+/** Real viem validates addresses: the mixed-case OWNER fixture is not EIP-55, so use the lowercase form here. */
+const OWNER_LC = OWNER.toLowerCase() as `0x${string}`;
+
+describe("watchOwner over the real batching client (Task 5 fix round 5)", () => {
+  it("sends exactly ONE POST per tick, carrying both eth_blockNumber and eth_getLogs", async () => {
+    const { posts, fetchFn } = rpcFetch((it) => (it.method === "eth_blockNumber" ? { result: "0xa" } : { result: [] }));
+    const w = watchOwner({ client: createWatchClient(fetchFn), blockClient: noBlocks as never, owner: OWNER_LC, tokens: [TOKEN], pollMs: 5, onTx: () => {} });
+    await wait(80);
+    w.stop();
+    expect(posts.length).toBeGreaterThanOrEqual(4);
+    expect(posts[0].map((i) => i.method)).toEqual(["eth_blockNumber"]); // start: the tip only
+    for (const p of posts.slice(1)) expect(p.map((i) => i.method).sort()).toEqual(["eth_blockNumber", "eth_getLogs"]);
+  });
+
+  it("a per-item eth_getLogs error is not retried on its own (it could reach another node) and does not move the cursor", async () => {
+    let phase: "start" | "failing" | "ok" = "start";
+    const { posts, fetchFn } = rpcFetch((it, batch) => {
+      if (it.method === "eth_blockNumber") return { result: phase === "start" ? "0xa" : "0x14" }; // 10, then 20
+      const from = BigInt((it.params![0] as { fromBlock: string }).fromBlock);
+      // A lone eth_getLogs is a retry that went to node B, which is behind and has no block 12 yet.
+      if (batch.length === 1) return { result: [] };
+      if (phase === "failing") return { error: { code: -32603, message: "internal error" } }; // retryable for viem
+      return { result: from <= 12n ? [rawTransfer(12n)] : [] };
+    });
+    const seen: bigint[] = [];
+    const w = watchOwner({
+      client: createWatchClient(fetchFn), blockClient: noBlocks as never, owner: OWNER_LC, tokens: [TOKEN], pollMs: 5,
+      onTx: (t) => void seen.push(t.block), onError: () => {},
+    });
+    await wait(20);
+    phase = "failing";
+    await wait(400); // longer than viem's retry delay
+    phase = "ok";
+    await until(() => seen.length >= 1, 300);
+    w.stop();
+    expect(posts.filter((p) => p.length === 1 && p[0].method === "eth_getLogs")).toEqual([]);
+    expect(seen).toEqual([12n]);
   });
 });
 

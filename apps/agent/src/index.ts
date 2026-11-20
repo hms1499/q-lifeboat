@@ -6,7 +6,7 @@ import { checkVaultGuardian, loadAgentConfig } from "./config";
 import { createGuardian } from "./guardian";
 import { anthropicLlm, signAndRecord } from "./report";
 import { productionDeps, rescueAll } from "./rescue";
-import { createBatchClient } from "./rpc";
+import { createWatchClient } from "./rpc";
 import { startServer } from "./server";
 import { watchOwner } from "./watch";
 import { createSerial, createWindowKeeper, productionWindowDeps, skipWhileBusy } from "./window";
@@ -44,7 +44,7 @@ async function main() {
 
   watchOwner({
     // Tip + logs in one batched request per tick; native block reads on their own client (never in that batch).
-    client: createBatchClient(),
+    client: createWatchClient(),
     blockClient: publicClient,
     owner: cfg.owner,
     tokens: Object.values(cfg.tokens),

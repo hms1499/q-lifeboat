@@ -8,6 +8,20 @@ import { createPublicClient, http } from "viem";
  * `eth_blockNumber` for 4 s on a chain with no `blockTime`, which hid new blocks from the watcher.
  * Each call creates its own batch queue, so separate clients never wait on each other's requests.
  */
-export function createBatchClient(fetchFn?: typeof fetch) {
-  return createPublicClient({ chain, cacheTime: 0, transport: http(undefined, { batch: true, ...(fetchFn ? { fetchFn } : {}) }) });
+export function createBatchClient(fetchFn?: typeof fetch, retryCount?: number) {
+  return createPublicClient({
+    chain,
+    cacheTime: 0,
+    transport: http(undefined, { batch: true, ...(fetchFn ? { fetchFn } : {}), ...(retryCount === undefined ? {} : { retryCount }) }),
+  });
+}
+
+/**
+ * The watcher's log-loop client: batching, and NO retries. The watcher moves its cursor to the tip only because
+ * one node answered both the tip and the `getLogs(from, latest)` in the same request. viem retries a failed item
+ * on its own, in a new request that may reach another node whose `latest` is lower, and the cursor would then
+ * skip the blocks between. The loop itself retries the whole tick `pollMs` later.
+ */
+export function createWatchClient(fetchFn?: typeof fetch) {
+  return createBatchClient(fetchFn, 0);
 }

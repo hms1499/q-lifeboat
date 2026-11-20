@@ -27,7 +27,7 @@ export function txToOutbound(tx: BlockTx, owner: Hex): OutboundTx | null {
 export type WatchClient = Pick<PublicClient, "getBlockNumber" | "getLogs" | "getBlock">;
 
 export type WatchOptions = {
-  /** Tip + Transfer-log reads. Pass a batching client (rpc.ts) so each tick is one HTTP request. */
+  /** Tip + Transfer-log reads. Pass `createWatchClient()` (rpc.ts): one HTTP request per tick, no per-item retry. */
   client: WatchClient;
   /** Native-QOR block reads (default `client`). A separate client keeps a slow block off the log path's batch. */
   blockClient?: Pick<PublicClient, "getBlock">;
@@ -63,7 +63,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * delays a token drain:
  * - logs: each tick reads the tip and the Transfer logs from `cursor - 2` to latest TOGETHER (one batched request,
  *   one round trip). The tip is always read from the RPC (`cacheTime: 0`; viem would otherwise cache it for 4 s
- *   on this chain). A gap of more than MAX_RANGE blocks (the agent stalled) is caught up in MAX_RANGE ranges.
+ *   on this chain). When that range would exceed MAX_RANGE (the agent stalled), it is caught up in MAX_RANGE
+ *   ranges instead. The cursor moves to the tip only when one node answered both (see createWatchClient).
  * - native: scans each block up to the highest tip the log loop has seen, one getBlock per block.
  * A failed read never advances a cursor, so nothing is skipped. Items are deduplicated by hash + log index.
  */
@@ -105,7 +106,8 @@ export function watchOwner(opts: WatchOptions): { stop(): void } {
     const lowest = start + 1n;
     const back = cursor - (REQUERY_BLOCKS - 1n);
     const from = back > lowest ? back : lowest;
-    if (head - cursor > MAX_RANGE) {
+    // The fast path reads cursor-2..latest, i.e. at least head - cursor + REQUERY_BLOCKS blocks.
+    if (head - cursor + REQUERY_BLOCKS > MAX_RANGE) {
       const to = from + MAX_RANGE - 1n;
       emitLogs(await getLogs(from, to));
       cursor = to;
