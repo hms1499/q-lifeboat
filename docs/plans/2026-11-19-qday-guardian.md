@@ -105,7 +105,7 @@ As built: `git init` skipped (repo existed). `MockPqc.pqcVerify` accepts `keccak
   - `vaultMessage.test.ts` asserts `keccak256(withdrawalMessage(...))` gives the same `0x<HASH>`.
   - `<HASH>` is the value Solidity prints on the first run, then copied into both tests.
 - [x] **Step 2:** Run `forge test --match-contract MessageVector` and `pnpm -F core test`. Expected: both PASS with the same hash.
-- [ ] **Step 3:** Deploy to diana with `forge script script/Deploy.s.sol --rpc-url $EVM_RPC --broadcast` (the owner opens a window first). Write `VAULT_ADDRESS` to `.env`, the README and `docs/EVIDENCE.md`.
+- [x] **Step 3:** Deploy to diana with `forge script script/Deploy.s.sol --rpc-url $EVM_RPC --broadcast` (the owner opens a window first). Write `VAULT_ADDRESS` to `.env`, the README and `docs/EVIDENCE.md`.
 - [ ] **Step 4:** Run QCAI Stage 1 on dashboard.qorechain.io (Ethereum/Solidity setting). Save the report, build the findings table in `docs/AUDIT.md`, fix each finding with a test and rerun `forge test`.
 - [ ] **Step 5:** Commit.
 

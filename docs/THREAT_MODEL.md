@@ -28,7 +28,7 @@ ML-DSA-87 signature for them, so a leaked ECDSA key alone cannot move native fun
 | T6 | Attacker exhausts the window's tx budget to block the rescue | Not possible: the authenticator lane works with the owner's window **closed** (verified) | |
 | T7 | False positive: Guardian sweeps on a legitimate owner transfer | Allowlist of known recipients. Funds only move into the owner's own vault | Owner pays fees and needs one ML-DSA withdrawal to undo |
 | T8 | Forged incident report on the dashboard | Reports are signed by the agent key. The dashboard checks the key is a currently linked, non-revoked authenticator on-chain | |
-| T9 | Owner's registered PQC key uses a weaker algorithm than ML-DSA-87 | `GuardianVault` ignores `algorithmId` from `pqcKeyStatus`, like the workshop vault, and trusts the chain registry | Holds only if diana registers ML-DSA-87 keys alone. Confirm the algorithm id on diana in Task 2 |
+| T9 | Owner's registered PQC key uses a weaker algorithm than ML-DSA-87 | `GuardianVault` ignores `algorithmId` from `pqcKeyStatus`, like the workshop vault, and trusts the chain registry | Holds only if diana registers ML-DSA-87 keys alone. The demo owner's key was checked on diana (2026-11-20): `algorithmId` 1 = ML-DSA-87, 2592-byte pubkey (`docs/EVIDENCE.md`). If the chain adds another algorithm, a new vault must check the id |
 | T10 | Spoofed `Rescued` events: anyone can call `rescue(anyToken)`, including a token contract they control | `rescue` only ever moves the owner's funds into the vault. Agent and dashboard count only `Rescued` events for the fUSD/fETH/fBTC allowlist | Misleading events if a consumer forgets the filter (Tasks 4 and 6) |
 
 ## Assumptions

@@ -87,7 +87,8 @@ checkboxes and the docs below are the handoff state, not the chat history.
    EVM window **closed**.
 4. Spending rules do **not** bind the owner's own ECDSA key. Against an attacker holding that key,
    the **EVM window budget is the only cap**.
-5. EVM receipts report `gasUsed` = 50% of the gas limit (deploy, withdraw), so set tight gas limits.
+5. EVM receipts report at least 50% of the gas limit as `gasUsed` (withdraw: 500000 of 1M; the vault
+   deploy: 675529 of 878187), so set tight gas limits.
 6. QoreX refuses `signArbitrary`, so ML-DSA signatures for `withdraw` come from the local Guardian
    Signer (`pqcSign`), not the wallet.
 
@@ -97,6 +98,12 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSig
 `decodeAuthenticatorExecutions`, `resolveEvmAuthDigestVersion`, `openEvmWindowMsg`,
 `closeEvmWindowMsg`, `fetchPqcStatus`. Check typings before using anything else. Working references:
 `spike/probe/probe.mjs` and `spike/workshop/workshop-2/`.
+
+## Session notes
+- Commands the user runs with `!` start in the session's current directory, which may not be the repo
+  root. Give them with absolute paths (`cd /Users/vanhuy/Desktop/Quantum && ...`).
+- Diana deploy: `cd contracts && set -a && . ../.env && set +a && forge script script/Deploy.s.sol --rpc-url diana [--broadcast]`.
+  The owner's EVM window must be open (`spike/probe`: `node probe.mjs window-open 600 3`).
 
 ## Hard rules
 - Testnet only. Never commit mnemonics, private keys or `.env`. Keys live in `spike/.keys/` or
