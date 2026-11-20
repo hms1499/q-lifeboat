@@ -132,6 +132,11 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSig
 - Diana deploy: `cd contracts && set -a && . ../.env && set +a && forge script script/Deploy.s.sol --rpc-url diana [--broadcast]`.
   The owner's EVM window must be open (`spike/probe`: `node probe.mjs window-open 600 3`).
 
+- viem's `publicClient` caches `eth_blockNumber` for 4 s when the chain has no `blockTime`. Latency-critical
+  reads (the agent's watcher) pass `cacheTime: 0` and batch tip + logs in one request (`apps/agent/src/rpc.ts`).
+- `./demo.sh --runs 3` needs ~2 QOR per run in the funder (root `OWNER_MNEMONIC`) and ~0.25 QOR per run in the
+  guardian (`GAS_MNEMONIC`). `./demo.sh --resume <run.env>` finishes a funded run whose later step failed.
+
 ## Hard rules
 - Testnet only. Never commit mnemonics, private keys or `.env`. Keys live in `spike/.keys/` or
   `~/.config/qday/`, never in the repo.

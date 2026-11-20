@@ -13,7 +13,7 @@ ML-DSA-87 signature for them, so a leaked ECDSA key alone cannot move native fun
 |---|---|---|
 | Owner ECDSA (secp256k1) | owner, **assumed leaked** | Send EVM txs while the owner's EVM window is open, up to its budget |
 | Owner ML-DSA-87 | owner, offline Guardian Signer | Open windows (hybrid), link/revoke the agent, sign vault withdrawals |
-| Agent ed25519 | Guardian agent | Signs incident reports. Linked to the owner's account with `allowedEvmCalls=[vault.rescue]`, `allowedDenoms=["uqor"]`: the chain refuses its direct token calls (tx `7E9B629F…`). It no longer performs rescues |
+| Agent ed25519 | Guardian agent | Signs incident reports. Linked to the owner's account with `allowedEvmCalls=[vault.rescue]`, `allowedDenoms=["uqor"]`: the chain refuses its direct token calls (tx `7E9B629F…`). It no longer performs rescues. The chain binds an authenticator key to ONE account (tx `422FE489…`), so each owner needs its own agent key; a report key can only ever speak for the account it is linked to |
 | Guardian ECDSA + ML-DSA-87 (`GAS_MNEMONIC`) | Guardian agent | The vault's immutable `guardian`: calls `vault.rescue(token)` as plain EVM txs inside its own EVM window (vault as the only target), which it opens with its hybrid signature. Pays its own fees. Holds no owner funds |
 
 ## Threats
