@@ -82,8 +82,9 @@ checkboxes and the docs below are the handoff state, not the chat history.
 ## Chain facts verified on diana (spike, 2026-11-19, see docs/EVIDENCE.md)
 1. `allowedEvmCalls` entries `"0x<target>/0x<selector>"` restrict a linked key to that exact function.
    Other selectors/contracts → "authenticator not permitted for this action".
-2. Token moves made *inside* an allowed call (`transferFrom` in `rescue`) are **not** counted
-   against `perTxLimit`/`dailyLimit`. Only QOR and listed `erc20/<addr>` denoms are.
+2. **Changed on 2026-11-20** (held at `52B81C08…`, refused at `8508B568…`): a token move FROM the account
+   made inside an allowed call (`transferFrom` in `rescue`) is refused unless the token is listed as
+   `erc20/<addr>` in `allowedDenoms`. The authenticator lane can no longer sweep unlisted tokens.
 3. The authenticator lane (`MsgExecuteEVM` via `buildPhantomExecuteEvm`) works with the owner's
    EVM window **closed**.
 4. Spending rules do **not** bind the owner's own ECDSA key. Against an attacker holding that key,
@@ -103,6 +104,12 @@ checkboxes and the docs below are the handoff state, not the chat history.
     need an unscoped window; size `maxTxs` for every tx a `forge script` sends (DeployTokens = 6).
 11. `EthNativeSigner` in sdk 0.14.0 has no `simulate()`: the spike's `signer.simulate?.()` was a no-op.
     `apps/cli/src/chain.ts` uses a fixed 1.5M gas limit for hybrid txs.
+12. Listing a token as `erc20/<addr>` lets the linked key call that token's `transfer`/`approve` DIRECTLY,
+    whatever `allowedEvmCalls` says (tx `CADB1412…`). `denomLimits` only caps the amount. So never list a
+    token the agent must not be able to move. With `allowedDenoms=["uqor"]` a direct token call is refused
+    (tx `7E9B629F…`).
+13. Several `MsgExecuteEVM` with auth nonces n, n+1… in ONE cosmos tx are accepted and each decodes
+    separately (tx `8508B568…`). `eth_getLogs` with an indexed-topic filter works on diana.
 
 SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSign`, `EthNativeSigner`,
 `linkAuthenticatorMsgs`, `signAuthenticatorLinkEd25519`, `revokeAuthenticatorMsg`,
