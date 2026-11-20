@@ -1,3 +1,6 @@
+import { runAttack } from "./attacker";
+import { runDemoCheck } from "./democheck";
+import { runFreshOwner } from "./fresh";
 import { runAgentMisuse } from "./misuse";
 import { runSetup } from "./setup";
 import { runSignWithdraw } from "./signer";
@@ -11,6 +14,13 @@ const USAGE = `Q-Day Guardian CLI (qorechain-diana testnet)
   pnpm cli withdraw <withdrawal.json>         submit a signed withdrawal from any funded wallet
   pnpm cli agent-misuse <token> <to> <wei>    negative gate: agent key tries token.transfer directly (must be REFUSED)
   pnpm cli status                             read-only snapshot (window, rules, keys, balances)
+
+Demo (Task 5, run by ./demo.sh):
+  pnpm cli fresh-owner                        new owner funded by FUNDER_MNEMONIC (default OWNER_MNEMONIC): ML-DSA key,
+                                              own vault, 100 fUSD; writes ~/.config/qday/runs/<id>/run.env
+  pnpm cli attack                             leaked owner ECDSA key drains 3 x 10 fUSD, then (a) forged withdraw,
+                                              (b) agent key misuse; writes attack.json in the run dir
+  pnpm cli demo-check [--wait <s>]            verdict: rescue <= 3 blocks, >= 80% kept, (a) and (b) refused
 
   <token> is a 0x address, fUSD, fETH, fBTC or QOR. <amt> is a decimal amount (18 decimals).`;
 
@@ -31,6 +41,14 @@ async function main(): Promise<number> {
     case "status":
       await runStatus();
       return 0;
+    case "fresh-owner":
+      await runFreshOwner();
+      return 0;
+    case "attack":
+      await runAttack();
+      return 0;
+    case "demo-check":
+      return runDemoCheck(args);
     default:
       console.error(USAGE);
       return 1;

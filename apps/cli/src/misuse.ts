@@ -37,22 +37,28 @@ export function misuseExitCode(executions: { success: boolean; error?: string }[
   return executions.every((x) => POLICY_REFUSAL.test(x.error ?? "")) ? 0 : 1;
 }
 
+export type MisuseOutcome = {
+  tx: string;
+  height?: number;
+  executions: { success: boolean; error?: string }[];
+  /** See `misuseExitCode`. */
+  code: 0 | 1 | 2;
+  /** The first failure's reason, or "none". */
+  reason: string;
+};
+
 /**
- * `pnpm cli agent-misuse <token> <to> <amountWei>`: on-chain negative gate. Needs OWNER_EVM_ADDRESS,
- * AGENT_ED25519_SK and GAS_MNEMONIC (the relayer); never loads OWNER_MNEMONIC.
+ * The agent key (ed25519, AGENT_ED25519_SK) tries `token.transfer(to, amount)` directly through the authenticator
+ * lane, relayed by GAS_MNEMONIC. Never loads OWNER_MNEMONIC. Broadcasts one cosmos tx.
  */
-export async function runAgentMisuse(args: string[], env: Env = process.env): Promise<number> {
-  const [token, to, amountRaw] = args;
-  if (!token || !to || !amountRaw || !ADDRESS_RE.test(token) || !ADDRESS_RE.test(to) || !/^\d+$/.test(amountRaw)) {
-    throw new Error("usage: agent-misuse <token 0x…> <to 0x…> <amountWei>");
-  }
+export async function attemptAgentMisuse(token: Hex, to: Hex, amount: bigint, env: Env = process.env): Promise<MisuseOutcome> {
   const owner = loadOwnerAddress(env);
   const gas = await loadGasAccount(env);
   const agent = loadAgentKey(env);
   const { pk } = agent;
   const wallet = agentWallet(agent);
 
-  const call = misuseCall(token as Hex, to as Hex, BigInt(amountRaw));
+  const call = misuseCall(token, to, amount);
   const { nonce } = await fetchAuthNonce({ rest: NETWORK.rest, address: owner.cosmos, pubkey: pk });
   const msg = await buildPhantomExecuteEvm({
     wallet,
@@ -71,10 +77,27 @@ export async function runAgentMisuse(args: string[], env: Env = process.env): Pr
     success: x.success,
     error: x.success ? undefined : x.reason || x.vmError || "execution failed",
   }));
-  console.log(`tx ${res.transactionHash} (height ${res.height})`);
+  return {
+    tx: res.transactionHash,
+    height: res.height,
+    executions,
+    code: misuseExitCode(executions),
+    reason: executions.find((x) => !x.success)?.error ?? "none",
+  };
+}
+
+/**
+ * `pnpm cli agent-misuse <token> <to> <amountWei>`: on-chain negative gate. Needs OWNER_EVM_ADDRESS,
+ * AGENT_ED25519_SK and GAS_MNEMONIC (the relayer); never loads OWNER_MNEMONIC.
+ */
+export async function runAgentMisuse(args: string[], env: Env = process.env): Promise<number> {
+  const [token, to, amountRaw] = args;
+  if (!token || !to || !amountRaw || !ADDRESS_RE.test(token) || !ADDRESS_RE.test(to) || !/^\d+$/.test(amountRaw)) {
+    throw new Error("usage: agent-misuse <token 0x…> <to 0x…> <amountWei>");
+  }
+  const { tx, height, executions, code, reason } = await attemptAgentMisuse(token as Hex, to as Hex, BigInt(amountRaw), env);
+  console.log(`tx ${tx} (height ${height})`);
   console.log(JSON.stringify(executions));
-  const code = misuseExitCode(executions);
-  const reason = executions.find((x) => !x.success)?.error ?? "none";
   if (code === 0) {
     console.log(`REFUSED: ${reason}`);
   } else if (code === 2) {

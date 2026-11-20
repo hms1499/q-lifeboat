@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# Q-Day Guardian end-to-end demo on qorechain-diana (Task 5).
+#
+#   ./demo.sh            one run
+#   ./demo.sh --runs 3   three runs in a row, each from a FRESH owner; stops at the first FAIL
+#
+# One run: fresh owner (funded by FUNDER_MNEMONIC, default OWNER_MNEMONIC; own ML-DSA key, own vault,
+# 100 fUSD) -> setup (scoped window + agent link + approvals) -> start the agent -> attack with the
+# leaked ECDSA key -> wait for the agent's incident -> recovery (Guardian Signer + withdraw 1 fUSD to a
+# fresh safe address) -> verdict (rescue <= 3 blocks after the first drain, >= 80% kept, (a), (b)).
+#
+# Needs the root .env (see .env.example). The funder spends ~1.5 QOR + fees per run, the guardian
+# (GAS_MNEMONIC) one window open (~0.225 QOR) + rescue gas. Secrets stay in .env and in
+# ~/.config/qday/runs/<run id>/run.env (0600); nothing is written inside the repo.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AGENT_READY_TIMEOUT=120
+INCIDENT_TIMEOUT=60
+
+usage() {
+  echo "usage: $0 [--runs N]" >&2
+  exit 2
+}
+
+RUNS=1
+ONCE=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --runs)
+      [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || usage
+      RUNS="$2"
+      shift 2
+      ;;
+    --once) # internal: exactly one run in this process
+      ONCE=1
+      shift
+      ;;
+    *) usage ;;
+  esac
+done
+
+if [[ "$ONCE" -eq 0 ]]; then
+  for ((i = 1; i <= RUNS; i++)); do
+    echo "=== demo run $i/$RUNS ==="
+    # Each run is its own process, so `set -e` and the agent cleanup trap apply to it as a whole.
+    if ! bash "$ROOT/demo.sh" --once; then
+      echo "FAIL: run $i/$RUNS failed; stopping"
+      exit 1
+    fi
+  done
+  echo "PASS: $RUNS/$RUNS runs"
+  exit 0
+fi
+
+cd "$ROOT"
+[[ -f .env ]] || { echo "FAIL: no .env in $ROOT (see .env.example)" >&2; exit 1; }
+set -a
+# shellcheck disable=SC1091
+. ./.env
+set +a
+
+AGENT_PID=""
+AGENT_LOG=""
+VERDICT=""
+cleanup() {
+  local rc=$?
+  if [[ -n "$AGENT_PID" ]] && kill -0 "$AGENT_PID" 2>/dev/null; then
+    # The agent runs in its own process group (set -m below): stop pnpm, tsx and node together.
+    kill -TERM -- "-$AGENT_PID" 2>/dev/null || kill -TERM "$AGENT_PID" 2>/dev/null || true
+    wait "$AGENT_PID" 2>/dev/null || true
+  fi
+  if [[ -z "$VERDICT" ]]; then
+    [[ -n "$AGENT_LOG" && -f "$AGENT_LOG" ]] && { echo "--- agent log (last 20 lines)"; tail -n 20 "$AGENT_LOG"; }
+    echo "FAIL: run ${RUN_ID:-?} stopped (exit $rc)"
+  fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+step() {
+  echo
+  echo "--- $*"
+}
+
+step "fresh owner"
+FRESH_OUT="$(mktemp)"
+pnpm -s cli fresh-owner | tee "$FRESH_OUT"
+RUN_ENV="$(sed -n 's/^RUN_ENV=//p' "$FRESH_OUT" | tail -n 1)"
+rm -f "$FRESH_OUT"
+[[ -n "$RUN_ENV" && -f "$RUN_ENV" ]] || { echo "fresh-owner did not report a run.env" >&2; exit 1; }
+set -a
+# shellcheck disable=SC1090
+. "$RUN_ENV" # the fresh owner, its vault, ATTACKER_ADDR, SAFE_ADDR, RUN_ID override the root .env
+set +a
+RUN_DIR="$(dirname "$RUN_ENV")"
+# The recovery withdraw is sent by the owner from its scoped window (8 of its 10 txs), never by a
+# RELAYER_MNEMONIC from .env. Set but empty, so `tsx --env-file` does not fill it back in.
+export RELAYER_MNEMONIC=""
+
+step "setup"
+pnpm -s cli setup
+
+step "agent"
+AGENT_LOG="$RUN_DIR/agent.log"
+set -m # job control: the agent gets its own process group
+pnpm -s agent >"$AGENT_LOG" 2>&1 &
+AGENT_PID=$!
+set +m
+for ((t = 0; ; t++)); do
+  grep -q "watching" "$AGENT_LOG" && break
+  kill -0 "$AGENT_PID" 2>/dev/null || { echo "the agent exited before watching" >&2; exit 1; }
+  ((t < AGENT_READY_TIMEOUT)) || { echo "the agent was not watching after ${AGENT_READY_TIMEOUT} s" >&2; exit 1; }
+  sleep 1
+done
+grep "watching" "$AGENT_LOG"
+
+step "attack"
+pnpm -s cli attack
+
+step "incident"
+pnpm -s cli demo-check --wait "$INCIDENT_TIMEOUT"
+
+step "recovery"
+pnpm -s cli sign-withdraw "$SAFE_ADDR" fUSD 1 --out "$RUN_DIR/withdrawal.json"
+pnpm -s cli withdraw "$RUN_DIR/withdrawal.json"
+
+step "verdict (run $RUN_ID, agent log $AGENT_LOG)"
+grep "timing:" "$AGENT_LOG" || true
+if pnpm -s cli demo-check; then
+  VERDICT=pass
+  echo "PASS: run $RUN_ID"
+else
+  VERDICT=fail
+  echo "FAIL: run $RUN_ID"
+  exit 1
+fi
