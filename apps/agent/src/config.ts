@@ -1,6 +1,7 @@
 import type { Hex } from "viem";
 import type { UnifiedAccount } from "@qorechain/sdk";
 import { loadAgentKey, loadGasAccount, loadOwnerAddress, loadTokens, loadVault, type TokenSymbol } from "@qday/core";
+import { DEFAULT_POLL_MS } from "./watch";
 
 type Env = Record<string, string | undefined>;
 
@@ -15,6 +16,8 @@ export type AgentConfig = {
   allowlist: Hex[];
   maxOutbound: bigint;
   port: number;
+  /** Watcher poll interval in ms (POLL_MS, default 300). */
+  pollMs: number;
   anthropicApiKey?: string;
 };
 
@@ -49,6 +52,8 @@ export async function loadAgentConfig(env: Env = process.env): Promise<AgentConf
   if (maxRaw && !/^\d+$/.test(maxRaw)) throw new Error("MAX_OUTBOUND must be a decimal integer (wei)");
   const portRaw = env.AGENT_PORT?.trim();
   if (portRaw && !/^\d+$/.test(portRaw)) throw new Error("AGENT_PORT must be a number");
+  const pollRaw = env.POLL_MS?.trim();
+  if (pollRaw && (!/^\d+$/.test(pollRaw) || Number(pollRaw) <= 0)) throw new Error("POLL_MS must be a positive number of milliseconds");
 
   return {
     owner,
@@ -59,6 +64,7 @@ export async function loadAgentConfig(env: Env = process.env): Promise<AgentConf
     allowlist,
     maxOutbound: maxRaw ? BigInt(maxRaw) : DEFAULT_MAX_OUTBOUND,
     port: portRaw ? Number(portRaw) : 8787,
+    pollMs: pollRaw ? Number(pollRaw) : DEFAULT_POLL_MS,
     anthropicApiKey: env.ANTHROPIC_API_KEY?.trim() || undefined,
   };
 }

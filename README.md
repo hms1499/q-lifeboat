@@ -38,7 +38,40 @@ rules (`allowedEvmCalls`, per-tx/daily limits, expiry) · `pqcVerify` / `pqcKeyS
 `qore pq status` · two-stage QCAI audit.
 
 ## Run it
-_Coming with Tasks 1–5. See `docs/plans/`._
+Testnet `qorechain-diana` only. Node >= 22, pnpm, Foundry.
+
+Prerequisites for `demo.sh`:
+- The funder (root `OWNER_MNEMONIC`) needs about 2 QOR per run, to fund each fresh owner.
+- The guardian (`GAS_MNEMONIC`) needs about 0.25 QOR per run, for window fees and rescue gas.
+- `GUARDIAN_ADDRESS`, `GAS_MNEMONIC` and the fUSD, fETH and fBTC token addresses must already be set in `.env`.
+
+```bash
+pnpm install
+cd contracts && forge build && forge test -vv && cd ..   # builds contracts/out/GuardianVault.sol/GuardianVault.json
+cp .env.example .env                                     # fill it in; never commit it
+./demo.sh                                                # one end-to-end run
+./demo.sh --runs 3                                       # three runs in a row, each from a fresh owner
+./demo.sh --resume ~/.config/qday/runs/<id>/run.env     # redo one run (complete run.env with its agent key)
+bash scripts/test-demo.sh                                # offline check of demo.sh's flow (stub pnpm, no chain)
+```
+
+One run of `demo.sh`:
+1. `pnpm cli fresh-owner`: the funder (`FUNDER_MNEMONIC`, default `OWNER_MNEMONIC`) sends 1.5 QOR to a
+   brand-new owner, which registers its ML-DSA-87 key, deploys its own `GuardianVault(owner, guardian)` from
+   `contracts/out/GuardianVault.sol/GuardianVault.json` and mints 100 fUSD. Its secrets go to
+   `~/.config/qday/runs/<run id>/run.env` (0600, written before the owner is funded, `RUN_COMPLETE=1` once every
+   step succeeded), never into the repo. The run also gets its own agent ed25519 key (`AGENT_ED25519_SK` in
+   run.env): diana binds an authenticator key to one account, so the root key cannot be linked to a new owner.
+   `setup`, the agent and the attack all use the per-run key because demo.sh loads run.env over the root `.env`.
+2. `pnpm cli setup`: scoped EVM window, agent link and spending rule, vault approvals.
+3. The guardian agent starts (log in the run directory) and watches the owner.
+4. `pnpm cli attack`: the leaked ECDSA key drains 3 x 10 fUSD one block apart, then (a) tries `withdraw`
+   with a forged signature and (b) makes the agent key call `fUSD.transfer` directly (relayed by the funder).
+5. The agent rescues the rest into the vault and signs an incident report.
+6. Recovery: the Guardian Signer signs (ML-DSA-87) a 1 fUSD withdrawal to a fresh safe address.
+7. `pnpm cli demo-check` prints the verdict and `demo.sh` a final `PASS`/`FAIL` line: rescue at most
+   3 blocks after the first drain, at least 80% kept, (a) reverted with `BadSignature`, (b) refused with
+   "authenticator not permitted for this action".
 
 ## Documents
 - [Threat model](docs/THREAT_MODEL.md)

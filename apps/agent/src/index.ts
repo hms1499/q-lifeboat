@@ -6,6 +6,7 @@ import { checkVaultGuardian, loadAgentConfig } from "./config";
 import { createGuardian } from "./guardian";
 import { anthropicLlm, signAndRecord } from "./report";
 import { productionDeps, rescueAll } from "./rescue";
+import { createWatchClient } from "./rpc";
 import { startServer } from "./server";
 import { watchOwner } from "./watch";
 import { createSerial, createWindowKeeper, productionWindowDeps, skipWhileBusy } from "./window";
@@ -24,34 +25,38 @@ async function main() {
   const windowKeeper = createWindowKeeper(productionWindowDeps(cfg, log));
   await serial(() => windowKeeper.ensure()); // fail loudly at startup
   // At most one periodic check is running or queued, so a slow REST node cannot pile checks up ahead of a rescue.
-  const windowTick = skipWhileBusy(() => serial(() => windowKeeper.ensure()));
+  const windowTick = skipWhileBusy(async () => void (await serial(() => windowKeeper.ensure())));
   setInterval(() => void windowTick().catch((e) => log(`window error: ${errorText(e)}`)), WINDOW_CHECK_MS);
 
   // data/ lives at the repo root (gitignored), whatever the working directory is.
   const file = resolve(fileURLToPath(import.meta.url), "../../../../data/incidents.jsonl");
   const llm = cfg.anthropicApiKey ? anthropicLlm(cfg.anthropicApiKey) : undefined;
   const server = await startServer({ file, port: cfg.port });
-  const deps = productionDeps(cfg, windowKeeper);
+  const deps = productionDeps(cfg, windowKeeper, log);
 
   const guardian = createGuardian({
     policy: { vault: cfg.vault, allowlist: cfg.allowlist, maxOutbound: cfg.maxOutbound },
-    rescue: () => serial(() => rescueAll(deps)),
+    rescue: (trigger) => serial(() => rescueAll(deps, trigger.token)),
     record: (facts) => signAndRecord({ ...facts, sk: cfg.agentKey.sk, llm, log }, file),
     publish: server.publish,
     log,
   });
 
   watchOwner({
-    client: publicClient,
+    // Tip + logs in one batched request per tick; native block reads on their own client (never in that batch).
+    client: createWatchClient(),
+    blockClient: publicClient,
     owner: cfg.owner,
     tokens: Object.values(cfg.tokens),
+    pollMs: cfg.pollMs,
     // Not awaited: the watcher keeps polling while a rescue runs (see watch.ts).
     onTx: (tx) => void guardian.onTx(tx).catch((e) => log(`handler error: ${errorText(e)}`)),
     onError: (e) => log(`watch error: ${errorText(e)}`),
+    log,
   });
 
   log(
-    `guardian ${cfg.gas.evm} watching ${cfg.owner} -> vault ${cfg.vault}; API on :${server.port}; summaries: ${llm ? "claude" : "template"}`,
+    `guardian ${cfg.gas.evm} watching ${cfg.owner} -> vault ${cfg.vault} every ${cfg.pollMs} ms; API on :${server.port}; summaries: ${llm ? "claude" : "template"}`,
   );
 }
 

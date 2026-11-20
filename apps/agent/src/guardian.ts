@@ -3,7 +3,8 @@ import { decide, type Policy } from "./rules";
 
 export type GuardianDeps = {
   policy: Policy;
-  rescue: () => Promise<RescueRecord[]>;
+  /** Rescue everything; `trigger` is the transfer that caused it (its token is rescued first). */
+  rescue: (trigger: OutboundTx) => Promise<RescueRecord[]>;
   /** Summarize, sign and persist. */
   record: (facts: { trigger: OutboundTx; reason: string; rescues: RescueRecord[]; detectedAt: string }) => Promise<Incident>;
   publish: (incident: Incident) => void;
@@ -23,7 +24,7 @@ export function createGuardian(deps: GuardianDeps) {
     let rescues: RescueRecord[] = [];
     let why = reason;
     try {
-      rescues = await deps.rescue();
+      rescues = await deps.rescue(tx);
     } catch (e) {
       why = `${reason} (rescue error: ${e instanceof Error ? e.message : String(e)})`;
       deps.log(`rescue error: ${why}`);
@@ -48,6 +49,7 @@ export function createGuardian(deps: GuardianDeps) {
     deps.log(`outbound ${tx.hash} to ${tx.to} amount ${tx.amount}: ${d.rescue ? "RESCUE" : "ok"} (${d.reason})`);
     if (!d.rescue) return;
     const detectedAt = new Date().toISOString();
+    deps.log(`timing: trigger ${tx.hash} block ${tx.block} detected ${detectedAt}`);
     if (inFlight) {
       queued = { tx, reason: d.reason, detectedAt };
       return;

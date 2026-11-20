@@ -18,6 +18,7 @@ describe("loadAgentConfig", () => {
     expect(c.port).toBe(8787);
     expect(c.allowlist).toEqual([]);
     expect(c.anthropicApiKey).toBeUndefined();
+    expect(c.pollMs).toBe(300);
     expect(c.gas.evm.toLowerCase()).toBe("0x9858effd232b4033e47d90003d41ec34ecaeda94");
   });
 
@@ -33,6 +34,13 @@ describe("loadAgentConfig", () => {
     expect(c.maxOutbound).toBe(42n);
     expect(c.port).toBe(9000);
     expect(c.anthropicApiKey).toBe("k");
+  });
+
+  it("reads the watcher poll interval from POLL_MS", async () => {
+    expect((await loadAgentConfig({ ...base, POLL_MS: "250" })).pollMs).toBe(250);
+    expect((await loadAgentConfig({ ...base, POLL_MS: " 1000 " })).pollMs).toBe(1000);
+    await expect(loadAgentConfig({ ...base, POLL_MS: "fast" })).rejects.toThrow(/POLL_MS/);
+    await expect(loadAgentConfig({ ...base, POLL_MS: "0" })).rejects.toThrow(/POLL_MS/);
   });
 
   it("never needs OWNER_MNEMONIC", async () => {

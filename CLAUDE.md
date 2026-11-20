@@ -112,6 +112,12 @@ checkboxes and the docs below are the handoff state, not the chat history.
     (tx `7E9B629F…`).
 13. Several `MsgExecuteEVM` with auth nonces n, n+1… in ONE cosmos tx are accepted and each decodes
     separately (tx `8508B568…`). `eth_getLogs` with an indexed-topic filter works on diana.
+14. An authenticator (ed25519) key can be linked to ONE account only: linking it to a second account is
+    refused with "authenticator key already bound to another account" (tx `422FE489…`, 2026-11-20). Each
+    fresh demo owner gets its own agent key (`AGENT_ED25519_SK` in its run.env).
+15. A brand-new account can register its ML-DSA-87 key with a classically signed `MsgRegisterPQCKeyV2`
+    (tx `A665D9CB…`). Until its first link, the abstractaccount REST answers HTTP 404 "account … not found"
+    for `authenticators`/spending rules (`auth_nonce` answers 200); treat that exact 404 as "none".
 
 SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSign`, `EthNativeSigner`,
 `linkAuthenticatorMsgs`, `signAuthenticatorLinkEd25519`, `revokeAuthenticatorMsg`,
@@ -125,6 +131,11 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSig
   root. Give them with absolute paths (`cd /Users/vanhuy/Desktop/Quantum && ...`).
 - Diana deploy: `cd contracts && set -a && . ../.env && set +a && forge script script/Deploy.s.sol --rpc-url diana [--broadcast]`.
   The owner's EVM window must be open (`spike/probe`: `node probe.mjs window-open 600 3`).
+
+- viem's `publicClient` caches `eth_blockNumber` for 4 s when the chain has no `blockTime`. Latency-critical
+  reads (the agent's watcher) pass `cacheTime: 0` and batch tip + logs in one request (`apps/agent/src/rpc.ts`).
+- `./demo.sh --runs 3` needs ~2 QOR per run in the funder (root `OWNER_MNEMONIC`) and ~0.25 QOR per run in the
+  guardian (`GAS_MNEMONIC`). `./demo.sh --resume <run.env>` finishes a funded run whose later step failed.
 
 ## Hard rules
 - Testnet only. Never commit mnemonics, private keys or `.env`. Keys live in `spike/.keys/` or

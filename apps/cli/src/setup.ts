@@ -1,7 +1,6 @@
-import { loadAgentKey, loadOwner, loadTokens, loadVault, NETWORK, RESCUE_SELECTOR } from "@qday/core";
+import { loadAgentKey, loadOwner, loadTokens, loadVault, NETWORK, RESCUE_SELECTOR, type TokenSymbol } from "@qday/core";
 import { evmWindowCost } from "@qorechain/evm";
 import {
-  fetchAuthenticators,
   linkAuthenticatorMsgs,
   openEvmWindowMsg,
   signAuthenticatorLinkEd25519,
@@ -10,6 +9,7 @@ import {
 } from "@qorechain/sdk";
 import { createWalletClient, erc20Abi, http, maxUint256, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { fetchOwnerAuthenticators } from "./abstractaccount";
 import { broadcast, chain, publicClient } from "./chain";
 
 type Env = Record<string, string | undefined>;
@@ -17,6 +17,8 @@ type Tokens = { fUSD: Hex; fETH: Hex; fBTC: Hex };
 
 export const WINDOW_BLOCKS = 600;
 export const WINDOW_MAX_TXS = 10;
+/** The tokens `setup` approves to the vault, one EVM tx each inside the window above. */
+export const APPROVED_TOKENS: readonly TokenSymbol[] = ["fUSD", "fETH", "fBTC"];
 const APPROVE_GAS = 100_000n;
 const AGENT_TTL_SECONDS = 7 * 24 * 3600;
 const EXPIRY_MARGIN_SECONDS = 60;
@@ -98,7 +100,8 @@ export async function runSetup(env: Env = process.env): Promise<void> {
     label: "qday-guardian agent",
     spendingRule: buildSetupRule(vault),
   });
-  const existing = await fetchAuthenticators({ rest: NETWORK.rest, address: owner.cosmos });
+  // A fresh owner has no abstractaccount record until this first link: that 404 means "no keys linked".
+  const existing = await fetchOwnerAuthenticators(owner.cosmos);
   const linkMsgs = selectLinkMsgs(all, existing, agent.pk);
 
   const window = openEvmWindowMsg(buildWindowParams(owner.cosmos, tokens, vault));
@@ -107,7 +110,8 @@ export async function runSetup(env: Env = process.env): Promise<void> {
 
   // Approvals are ECDSA EVM txs and cannot ride in the hybrid cosmos tx. They need the window opened above.
   const wallet = createWalletClient({ account: privateKeyToAccount(owner.privateKey as Hex), chain, transport: http() });
-  for (const [symbol, address] of Object.entries(tokens)) {
+  for (const symbol of APPROVED_TOKENS) {
+    const address = tokens[symbol];
     const tx = await wallet.writeContract({
       address: address as Hex,
       abi: erc20Abi,
