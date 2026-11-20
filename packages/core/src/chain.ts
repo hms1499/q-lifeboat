@@ -41,15 +41,22 @@ export interface DeliveredTx {
 /**
  * Sign (hybrid: secp256k1 + ML-DSA-87) and broadcast cosmos messages with a fixed gas limit,
  * fee 0.15 uqor per gas. Throws when the chain refuses the tx. Returns the full delivered result.
+ * `signMode: "classical"` omits the ML-DSA extension: only for the one-time, bootstrap-exempt
+ * `MsgRegisterPQCKeyV2` of an account that has no PQC key yet.
  * NOTE: a code-0 tx can still hold a failed MsgExecuteEVM; read it with decodeAuthenticatorExecutions.
  */
-export async function broadcastTx(acc: UnifiedAccount, messages: any[], memo: string): Promise<DeliveredTx> {
+export async function broadcastTx(
+  acc: UnifiedAccount,
+  messages: any[],
+  memo: string,
+  opts: { signMode?: "hybrid" | "classical" } = {},
+): Promise<DeliveredTx> {
   const a = await getJson(`/cosmos/auth/v1beta1/accounts/${acc.cosmos}`);
   const base = a?.account?.base_account ?? a?.account;
   if (!base || base.account_number === undefined || base.sequence === undefined) {
     throw new Error(`could not read account number/sequence for ${acc.cosmos} (is the account funded?)`);
   }
-  const signer = new EthNativeSigner(acc, { signMode: "hybrid", rest: NETWORK.rest });
+  const signer = new EthNativeSigner(acc, { signMode: opts.signMode ?? "hybrid", rest: NETWORK.rest });
   const transport = await StargateClient.connect(NETWORK.rpc);
   const req = {
     chainId: NETWORK.chainId,
