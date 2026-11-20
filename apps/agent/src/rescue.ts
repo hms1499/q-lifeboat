@@ -1,6 +1,6 @@
 import { vaultAbi, type RescueRecord } from "@qday/core";
 import { chain, publicClient } from "@qday/core/chain";
-import { createWalletClient, encodeFunctionData, http, parseAbi, parseEventLogs, type Hex, type Log } from "viem";
+import { encodeFunctionData, keccak256, parseAbi, parseEventLogs, type Hex, type Log } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { AgentConfig } from "./config";
 import type { WindowKeeper } from "./window";
@@ -9,9 +9,15 @@ export type RescueResult = RescueRecord;
 
 /** Gas limit of one `vault.rescue(token)` tx. The chain charges at least 50% of it; rescue used 58705 on diana. */
 export const RESCUE_GAS = 120_000n;
+/**
+ * Fee cap of every rescue tx, set explicitly: the guardian's window charges `gas x maxFeePerGas` per tx, and
+ * `window.ts` sizes its budget from this same value. Diana's base fee is 100 gwei, so the cap leaves headroom.
+ */
+export const RESCUE_MAX_FEE_PER_GAS = 150_000_000_000n;
+export const RESCUE_PRIORITY_FEE_PER_GAS = 12_500_000_000n;
 
 /** The only tx the agent ever sends: `vault.rescue(token)`, no value. */
-export type RescueTx = { to: Hex; data: Hex; gas: bigint; nonce: number };
+export type RescueTx = { to: Hex; data: Hex; gas: bigint; nonce: number; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint };
 
 export type RescueReceipt = { status: "success" | "reverted"; logs: Pick<Log, "address" | "topics" | "data">[] };
 
@@ -26,13 +32,24 @@ export type RescueDeps = {
   prepare(): Promise<void>;
   /** The guardian account's next EVM nonce (pending block). */
   fetchNonce(): Promise<number>;
-  /** Sign and send from the guardian account; resolves with the tx hash once the node accepted it. */
-  sendTx(tx: RescueTx): Promise<Hex>;
+  /** Sign locally with the guardian account, so the hash is known before sending. */
+  signTx(tx: RescueTx): Promise<{ hash: Hex; raw: Hex }>;
+  /** Submit a signed tx; resolves once the node accepted it. */
+  sendRaw(raw: Hex): Promise<void>;
+  /** Whether the node knows this tx (pending or mined). */
+  isKnown(hash: Hex): Promise<boolean>;
   waitReceipt(hash: Hex): Promise<RescueReceipt>;
 };
 
 function rescueTx(vault: Hex, token: Hex, nonce: number): RescueTx {
-  return { to: vault, data: encodeFunctionData({ abi: vaultAbi, functionName: "rescue", args: [token] }), gas: RESCUE_GAS, nonce };
+  return {
+    to: vault,
+    data: encodeFunctionData({ abi: vaultAbi, functionName: "rescue", args: [token] }),
+    gas: RESCUE_GAS,
+    nonce,
+    maxFeePerGas: RESCUE_MAX_FEE_PER_GAS,
+    maxPriorityFeePerGas: RESCUE_PRIORITY_FEE_PER_GAS,
+  };
 }
 
 /** Sum of the `Rescued(token, amount)` logs the VAULT emitted in this receipt. */
@@ -48,48 +65,70 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /**
  * Rescue every token the vault can actually pull (min of balance and allowance > 0), one `vault.rescue(token)`
  * tx per token from the guardian account, sent back to back with sequential nonces, then wait for all receipts.
- * Nothing is prepared, read or sent when there is nothing to rescue. A failure is reported per token, never
- * thrown, so the incident record is always produced. `amount` is what the vault's `Rescued` logs in that
- * receipt say it moved; `expected` is the pre-read estimate.
+ * Nothing is prepared or sent when there is nothing to rescue. A failure (read, send, receipt) is reported per
+ * token, never thrown, so the other tokens are still rescued and the incident record is always produced.
+ * Results keep the token order. `amount` is what the vault's `Rescued` logs in that receipt say it moved;
+ * `expected` is the pre-read estimate.
  */
 export async function rescueAll(deps: RescueDeps): Promise<RescueResult[]> {
-  const planned: { token: Hex; expected: bigint }[] = [];
-  for (const token of deps.tokens) {
-    const [balance, allowance] = await Promise.all([deps.readBalance(token), deps.readAllowance(token)]);
-    const expected = balance < allowance ? balance : allowance;
-    if (expected > 0n) planned.push({ token, expected });
-  }
-  if (planned.length === 0) return [];
+  type Slot = { token: Hex; expected: bigint; readError?: string };
+  const slots: Slot[] = await Promise.all(
+    deps.tokens.map(async (token): Promise<Slot> => {
+      try {
+        const [balance, allowance] = await Promise.all([deps.readBalance(token), deps.readAllowance(token)]);
+        return { token, expected: balance < allowance ? balance : allowance };
+      } catch (e) {
+        return { token, expected: 0n, readError: `read failed: ${message(e)}` };
+      }
+    }),
+  );
+  const kept = slots.filter((s) => s.readError || s.expected > 0n);
+  const failed = (s: Slot, error: string, hash = ""): RescueResult => ({ token: s.token, hash, amount: 0n, expected: s.expected, success: false, error });
+  const planned = kept.filter((s) => !s.readError);
+  if (planned.length === 0) return kept.map((s) => failed(s, s.readError!));
 
   let nonce: number;
   try {
     await deps.prepare();
     nonce = await deps.fetchNonce();
   } catch (e) {
-    return planned.map((p) => ({ ...p, amount: 0n, hash: "", success: false, error: message(e) }));
+    return kept.map((s) => failed(s, s.readError ?? message(e)));
   }
 
-  // Send all first. A nonce is consumed only by a tx the node accepted, so a failed send leaves no gap.
-  const sent: ({ hash: Hex } | { error: string })[] = [];
+  // Send all first. Each tx is signed locally, so its hash is known even when the send call fails: if the node
+  // took it anyway (a lost response), it keeps its hash and its nonce; otherwise the nonce is reused.
+  const sent = new Map<Slot, { hash: Hex } | { error: string }>(); // keyed by slot: two slots may share an address
   for (const p of planned) {
+    let signed: { hash: Hex; raw: Hex };
     try {
-      sent.push({ hash: await deps.sendTx(rescueTx(deps.vault, p.token, nonce)) });
-      nonce += 1;
+      signed = await deps.signTx(rescueTx(deps.vault, p.token, nonce));
     } catch (e) {
-      sent.push({ error: message(e) });
+      sent.set(p, { error: message(e) });
+      continue;
     }
+    try {
+      await deps.sendRaw(signed.raw);
+    } catch (e) {
+      if (!(await deps.isKnown(signed.hash).catch(() => false))) {
+        sent.set(p, { error: message(e) });
+        continue;
+      }
+    }
+    sent.set(p, { hash: signed.hash });
+    nonce += 1;
   }
 
   return Promise.all(
-    planned.map(async (p, i): Promise<RescueResult> => {
-      const s = sent[i];
-      if ("error" in s) return { ...p, amount: 0n, hash: "", success: false, error: s.error };
+    kept.map(async (p): Promise<RescueResult> => {
+      if (p.readError) return failed(p, p.readError);
+      const s = sent.get(p)!;
+      if ("error" in s) return failed(p, s.error);
       try {
         const receipt = await deps.waitReceipt(s.hash);
-        if (receipt.status !== "success") return { ...p, amount: 0n, hash: s.hash, success: false, error: "rescue tx reverted" };
-        return { ...p, amount: rescuedAmount(receipt, deps.vault, p.token), hash: s.hash, success: true };
+        if (receipt.status !== "success") return failed(p, "rescue tx reverted", s.hash);
+        return { token: p.token, expected: p.expected, amount: rescuedAmount(receipt, deps.vault, p.token), hash: s.hash, success: true };
       } catch (e) {
-        return { ...p, amount: 0n, hash: s.hash, success: false, error: message(e) };
+        return failed(p, message(e), s.hash);
       }
     }),
   );
@@ -108,7 +147,6 @@ const RECEIPT_TIMEOUT_MS = 60_000;
  */
 export function productionDeps(cfg: AgentConfig, keeper: Pick<WindowKeeper, "ensureIfStale" | "invalidate">): RescueDeps {
   const account = privateKeyToAccount(cfg.gas.privateKey as Hex);
-  const wallet = createWalletClient({ account, chain, transport: http() });
   return {
     vault: cfg.vault,
     tokens: Object.values(cfg.tokens),
@@ -118,10 +156,21 @@ export function productionDeps(cfg: AgentConfig, keeper: Pick<WindowKeeper, "ens
       publicClient.readContract({ address: token, abi: erc20Abi, functionName: "allowance", args: [cfg.owner, cfg.vault] }),
     prepare: () => keeper.ensureIfStale(),
     fetchNonce: () => publicClient.getTransactionCount({ address: account.address, blockTag: "pending" }),
-    sendTx: async (tx) => {
-      const hash = await wallet.sendTransaction({ ...tx, value: 0n });
-      keeper.invalidate();
-      return hash;
+    signTx: async (tx) => {
+      const raw = await account.signTransaction({ ...tx, type: "eip1559", chainId: chain.id, value: 0n });
+      return { hash: keccak256(raw), raw };
+    },
+    sendRaw: async (raw) => {
+      keeper.invalidate(); // even a failed send may have reached the node and used the window
+      await publicClient.sendRawTransaction({ serializedTransaction: raw });
+    },
+    isKnown: async (hash) => {
+      try {
+        await publicClient.getTransaction({ hash });
+        return true;
+      } catch {
+        return false;
+      }
     },
     waitReceipt: (hash) => publicClient.waitForTransactionReceipt({ hash, timeout: RECEIPT_TIMEOUT_MS }),
   };

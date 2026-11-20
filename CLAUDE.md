@@ -93,8 +93,10 @@ checkboxes and the docs below are the handoff state, not the chat history.
    deploy: 675529 of 878187), so set tight gas limits.
 6. QoreX refuses `signArbitrary`, so ML-DSA signatures for `withdraw` come from the local Guardian
    Signer (`pqcSign`), not the wallet.
-7. The authenticator lane executes `MsgExecuteEVM` FROM the owner's EVM address: `msg.sender` == owner,
-   so `GuardianVault.rescue` is owner-only and the agent still passes (tx `52B81C08…`, 2026-11-20).
+7. The authenticator lane executes `MsgExecuteEVM` FROM the owner's EVM address: `msg.sender` == owner
+   (tx `52B81C08…`, 2026-11-20). Since fact 2 the agent no longer rescues through that lane: `GuardianVault`
+   v3 lets the owner OR an immutable `guardian` (the agent's `GAS_MNEMONIC` account) call `rescue`, and the
+   agent sends plain EVM txs from its own window.
 8. Spending rules live on the ACCOUNT, not on a key. `MsgUpdateSpendingRules` (`linkAuthenticatorMsgs(...)[0]`)
    replaces them wholesale; the first enabled rule applies. Retarget the agent without re-registering it.
 9. From chain v3.2.8 a failed `MsgExecuteEVM` (revert, policy) burns the auth nonce and returns
@@ -131,8 +133,9 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSig
   the incident summary, with a template fallback.
 - The agent's rule is exactly `allowedEvmCalls=["<vault>/<rescue selector>"]`,
   `allowedDenoms=["uqor"]`, with no `erc20/*` denoms, so the agent can't move tokens directly.
-- `GuardianVault`: `owner` is immutable, there are no setters, the nonce is bumped before any
-  external call, and the signed message binds tag, chainId, vault, to, token, amount and nonce.
+- `GuardianVault`: `owner` and `guardian` are immutable, there are no setters, only the owner or the
+  guardian may call `rescue` (which only moves owner → vault), the nonce is bumped before any external
+  call, and the signed message binds tag, chainId, vault, to, token, amount and nonce.
 - License MIT. Credit `qorechain/build-before-qday` (workshop-2 vault + agent patterns) and every
   kit used in the README.
 - TDD: failing test first. Any message encoding change must keep the shared TS↔Solidity test vector green.

@@ -8,7 +8,7 @@ import { anthropicLlm, signAndRecord } from "./report";
 import { productionDeps, rescueAll } from "./rescue";
 import { startServer } from "./server";
 import { watchOwner } from "./watch";
-import { createSerial, createWindowKeeper, productionWindowDeps } from "./window";
+import { createSerial, createWindowKeeper, productionWindowDeps, skipWhileBusy } from "./window";
 
 const log = (line: string) => console.log(`${new Date().toISOString()} ${line}`);
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -21,9 +21,11 @@ async function main() {
 
   // Window opening and rescues both use the guardian account's nonce, so they never overlap.
   const serial = createSerial();
-  const windowKeeper = createWindowKeeper({ ...productionWindowDeps(cfg), log });
+  const windowKeeper = createWindowKeeper(productionWindowDeps(cfg, log));
   await serial(() => windowKeeper.ensure()); // fail loudly at startup
-  setInterval(() => void serial(() => windowKeeper.ensure()).catch((e) => log(`window error: ${errorText(e)}`)), WINDOW_CHECK_MS);
+  // At most one periodic check is running or queued, so a slow REST node cannot pile checks up ahead of a rescue.
+  const windowTick = skipWhileBusy(() => serial(() => windowKeeper.ensure()));
+  setInterval(() => void windowTick().catch((e) => log(`window error: ${errorText(e)}`)), WINDOW_CHECK_MS);
 
   // data/ lives at the repo root (gitignored), whatever the working directory is.
   const file = resolve(fileURLToPath(import.meta.url), "../../../../data/incidents.jsonl");
