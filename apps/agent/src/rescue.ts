@@ -1,7 +1,6 @@
 import { decodeAuthenticatorExecutions, fetchAuthNonce, buildPhantomExecuteEvm, resolveEvmAuthDigestVersion } from "@qorechain/sdk";
-import { NETWORK, vaultAbi, type RescueRecord } from "@qday/core";
+import { agentWallet, NETWORK, vaultAbi, type RescueRecord } from "@qday/core";
 import { broadcastTx, publicClient } from "@qday/core/chain";
-import { ed25519 } from "@noble/curves/ed25519";
 import { encodeFunctionData, hexToBytes, parseAbi, parseAbiItem, type Hex } from "viem";
 import type { AgentConfig } from "./config";
 
@@ -88,14 +87,8 @@ const erc20Abi = parseAbi([
 
 /** Wire `rescueAll` to diana: viem reads, the agent's ed25519 key for the authenticator lane, the gas wallet as relayer. */
 export function productionDeps(cfg: AgentConfig): RescueDeps {
-  const { sk, pk } = cfg.agentKey;
-  // The authenticator wallet shape the SDK expects (same as the spike); the key never leaves this process.
-  const wallet = {
-    publicKey: pk,
-    async signMessage(m: Uint8Array) {
-      return { signature: ed25519.sign(m, sk) };
-    },
-  };
+  const { pk } = cfg.agentKey;
+  const wallet = agentWallet(cfg.agentKey);
   return {
     tokens: Object.values(cfg.tokens),
     readBalance: (token) =>

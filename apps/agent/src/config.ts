@@ -1,6 +1,6 @@
-import { hexToBytes, type Hex } from "viem";
-import { addressesFrom20, deriveUnifiedAccount, type UnifiedAccount } from "@qorechain/sdk";
-import { loadAgentKey, loadTokens, loadVault, type TokenSymbol } from "@qday/core";
+import type { Hex } from "viem";
+import type { UnifiedAccount } from "@qorechain/sdk";
+import { loadAgentKey, loadGasAccount, loadOwnerAddress, loadTokens, loadVault, type TokenSymbol } from "@qday/core";
 
 type Env = Record<string, string | undefined>;
 
@@ -23,21 +23,8 @@ const DEFAULT_MAX_OUTBOUND = 1000n * 10n ** 18n;
 
 /** Load the agent's configuration. Deliberately never reads OWNER_MNEMONIC. */
 export async function loadAgentConfig(env: Env = process.env): Promise<AgentConfig> {
-  const ownerRaw = env.OWNER_EVM_ADDRESS?.trim();
-  if (!ownerRaw) throw new Error("OWNER_EVM_ADDRESS is not set");
-  if (!ADDRESS_RE.test(ownerRaw)) throw new Error("OWNER_EVM_ADDRESS must be a 0x-prefixed 20-byte address");
-  const owner = ownerRaw as Hex;
-
-  const mnemonic = env.GAS_MNEMONIC?.trim();
-  if (!mnemonic) throw new Error("GAS_MNEMONIC is not set");
-  let gas: UnifiedAccount;
-  try {
-    gas = await deriveUnifiedAccount(mnemonic);
-  } catch (e) {
-    // Only the error name is safe to surface; the message could contain the secret.
-    throw new Error(`GAS_MNEMONIC could not be used to derive an account (${e instanceof Error ? e.name : "UnknownError"})`);
-  }
-
+  const { evm: owner, cosmos: ownerCosmos } = loadOwnerAddress(env);
+  const gas = await loadGasAccount(env);
   if (gas.evm.toLowerCase() === owner.toLowerCase()) {
     throw new Error("GAS_MNEMONIC must be a separate account from the owner (its address equals OWNER_EVM_ADDRESS)");
   }
@@ -58,7 +45,7 @@ export async function loadAgentConfig(env: Env = process.env): Promise<AgentConf
 
   return {
     owner,
-    ownerCosmos: addressesFrom20(hexToBytes(owner)).cosmos,
+    ownerCosmos,
     vault: loadVault(env),
     tokens: loadTokens(env),
     agentKey: loadAgentKey(env),

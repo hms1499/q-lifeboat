@@ -1,11 +1,8 @@
-import { loadAgentKey, NETWORK } from "@qday/core";
+import { agentWallet, loadAgentKey, loadGasAccount, loadOwnerAddress, NETWORK } from "@qday/core";
 import { broadcastTx } from "@qday/core/chain";
-import { ed25519 } from "@noble/curves/ed25519";
 import {
-  addressesFrom20,
   buildPhantomExecuteEvm,
   decodeAuthenticatorExecutions,
-  deriveUnifiedAccount,
   fetchAuthNonce,
   resolveEvmAuthDigestVersion,
 } from "@qorechain/sdk";
@@ -26,10 +23,18 @@ export function misuseCall(token: Hex, to: Hex, amount: bigint) {
   };
 }
 
-/** 0 = the chain refused (the gate passes), 2 = the agent key moved tokens, 1 = inconclusive (no result). */
+/** Chain fact 1: a call outside `allowedEvmCalls` is refused with "authenticator not permitted for this action". */
+const POLICY_REFUSAL = /not permitted/i;
+
+/**
+ * 0 = the call policy refused it (the gate passes), 2 = the agent key moved tokens, 1 = inconclusive.
+ * Any other failure (revert, spending-limit refusal) proves nothing about `allowedEvmCalls`, so it is
+ * inconclusive rather than a pass.
+ */
 export function misuseExitCode(executions: { success: boolean; error?: string }[]): 0 | 1 | 2 {
   if (executions.length === 0) return 1;
-  return executions.some((x) => x.success) ? 2 : 0;
+  if (executions.some((x) => x.success)) return 2;
+  return executions.every((x) => POLICY_REFUSAL.test(x.error ?? "")) ? 0 : 1;
 }
 
 /**
@@ -41,25 +46,19 @@ export async function runAgentMisuse(args: string[], env: Env = process.env): Pr
   if (!token || !to || !amountRaw || !ADDRESS_RE.test(token) || !ADDRESS_RE.test(to) || !/^\d+$/.test(amountRaw)) {
     throw new Error("usage: agent-misuse <token 0x…> <to 0x…> <amountWei>");
   }
-  const ownerEvm = env.OWNER_EVM_ADDRESS?.trim();
-  if (!ownerEvm || !ADDRESS_RE.test(ownerEvm)) throw new Error("OWNER_EVM_ADDRESS must be a 0x-prefixed 20-byte address");
-  const mnemonic = env.GAS_MNEMONIC?.trim();
-  if (!mnemonic) throw new Error("GAS_MNEMONIC is not set");
-  const gas = await deriveUnifiedAccount(mnemonic).catch((e: unknown) => {
-    // Only the error name is safe to surface; the message could contain the secret.
-    throw new Error(`GAS_MNEMONIC could not be used to derive an account (${e instanceof Error ? e.name : "UnknownError"})`);
-  });
-  const ownerCosmos = addressesFrom20(hexToBytes(ownerEvm as Hex)).cosmos;
-  const { sk, pk } = loadAgentKey(env);
-  const wallet = { publicKey: pk, async signMessage(m: Uint8Array) { return { signature: ed25519.sign(m, sk) }; } };
+  const owner = loadOwnerAddress(env);
+  const gas = await loadGasAccount(env);
+  const agent = loadAgentKey(env);
+  const { pk } = agent;
+  const wallet = agentWallet(agent);
 
   const call = misuseCall(token as Hex, to as Hex, BigInt(amountRaw));
-  const { nonce } = await fetchAuthNonce({ rest: NETWORK.rest, address: ownerCosmos, pubkey: pk });
+  const { nonce } = await fetchAuthNonce({ rest: NETWORK.rest, address: owner.cosmos, pubkey: pk });
   const msg = await buildPhantomExecuteEvm({
     wallet,
     relayer: gas.cosmos,
     chainId: NETWORK.chainId,
-    account: ownerCosmos,
+    account: owner.cosmos,
     to: call.to,
     value: call.value,
     data: hexToBytes(call.data),
@@ -68,17 +67,20 @@ export async function runAgentMisuse(args: string[], env: Env = process.env): Pr
     digestVersion: await resolveEvmAuthDigestVersion({ rest: NETWORK.rest }),
   });
   const res = await broadcastTx(gas, [msg], "qday-guardian: agent misuse gate");
-  const executions = decodeAuthenticatorExecutions(res, [msg]);
+  const executions = decodeAuthenticatorExecutions(res, [msg]).map((x) => ({
+    success: x.success,
+    error: x.success ? undefined : x.reason || x.vmError || "execution failed",
+  }));
   console.log(`tx ${res.transactionHash} (height ${res.height})`);
-  console.log(JSON.stringify(executions.map((x) => ({ success: x.success, error: x.success ? undefined : x.reason || x.vmError })) ));
+  console.log(JSON.stringify(executions));
   const code = misuseExitCode(executions);
+  const reason = executions.find((x) => !x.success)?.error ?? "none";
   if (code === 0) {
-    const x = executions.find((e) => !e.success);
-    console.log(`REFUSED: ${x?.reason || x?.vmError || "execution failed"}`);
+    console.log(`REFUSED: ${reason}`);
   } else if (code === 2) {
     console.log("NOT REFUSED — agent key can move tokens directly");
   } else {
-    console.log("INCONCLUSIVE: no execution result decoded from the tx");
+    console.log(`INCONCLUSIVE: not a call-policy refusal (reason: ${reason})`);
   }
   return code;
 }

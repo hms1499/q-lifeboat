@@ -20,13 +20,19 @@ describe("misuseCall", () => {
 });
 
 describe("misuseExitCode", () => {
-  it("0 when the chain refused", () => {
-    expect(misuseExitCode([{ success: false, error: "not permitted" }])).toBe(0);
+  it("0 only when the chain refused by call policy", () => {
+    expect(misuseExitCode([{ success: false, error: "authenticator not permitted for this action" }])).toBe(0);
+    expect(misuseExitCode([{ success: false, error: "The call is Not Permitted by the rule" }])).toBe(0);
+  });
+  it("1 (inconclusive) for a revert or a spending-limit refusal: not proof the policy blocked it", () => {
+    expect(misuseExitCode([{ success: false, error: "execution reverted" }])).toBe(1);
+    expect(misuseExitCode([{ success: false, error: "amount exceeds per-tx limit 1000000000000000000000" }])).toBe(1);
+    expect(misuseExitCode([{ success: false }])).toBe(1);
   });
   it("2 when the agent key moved tokens", () => {
     expect(misuseExitCode([{ success: true }])).toBe(2);
   });
-  it("1 (inconclusive) when there is no execution result", () => {
+  it("1 when nothing was decoded", () => {
     expect(misuseExitCode([])).toBe(1);
   });
 });

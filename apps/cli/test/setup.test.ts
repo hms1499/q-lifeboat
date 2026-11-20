@@ -59,8 +59,13 @@ describe("buildSetupRule", () => {
       permissions: ["evm"], expiryUnix: 2_000_000_000, label: "t", spendingRule: rule,
     });
     const upd = msgs.find((m) => m.typeUrl.endsWith(".MsgUpdateSpendingRules"))!;
-    const r = (upd.value as { rules: { denomLimits: unknown[] }[] }).rules[0];
-    expect(r.denomLimits).toHaveLength(3);
+    const r = (upd.value as { rules: { allowedDenoms: string[]; denomLimits: { denom: string; perTxLimit: string; dailyLimit: string }[] }[] }).rules[0];
+    expect(r.allowedDenoms).toEqual(rule.allowedDenoms);
+    expect(r.denomLimits.map((l) => l.denom)).toEqual(erc20);
+    for (const l of r.denomLimits) {
+      expect(l.perTxLimit).toBe(RESCUE_CAP);
+      expect(l.dailyLimit).toBe(RESCUE_CAP);
+    }
   });
 });
 
