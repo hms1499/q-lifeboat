@@ -11,6 +11,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "cli": "pnpm -F @qday/cli cli"
+    "cli": "pnpm -F @qday/cli cli",
+    "agent": "pnpm -F @qday/agent agent"
   }
 }
