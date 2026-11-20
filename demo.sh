@@ -9,7 +9,7 @@
 # leaked ECDSA key -> wait for the agent's incident -> recovery (Guardian Signer + withdraw 1 fUSD to a
 # fresh safe address) -> verdict (rescue <= 3 blocks after the first drain, >= 80% kept, (a), (b)).
 #
-# Needs the root .env (see .env.example). The funder spends ~1.5 QOR + fees per run, the guardian
+# Needs the root .env (see .env.example). Test the orchestration offline with scripts/test-demo.sh. The funder spends ~1.5 QOR + fees per run, the guardian
 # (GAS_MNEMONIC) one window open (~0.225 QOR) + rescue gas. Secrets stay in .env and in
 # ~/.config/qday/runs/<run id>/run.env (0600); nothing is written inside the repo.
 set -euo pipefail
@@ -59,12 +59,17 @@ set -a
 # shellcheck disable=SC1091
 . ./.env
 set +a
+# The funder (default: the root .env owner) also relays attack step (b), keeping the guardian's nonce free for
+# rescues. Fixed here, before run.env replaces OWNER_MNEMONIC with the fresh owner's.
+export FUNDER_MNEMONIC="${FUNDER_MNEMONIC:-${OWNER_MNEMONIC:-}}"
 
 AGENT_PID=""
 AGENT_LOG=""
+FRESH_OUT=""
 VERDICT=""
 cleanup() {
   local rc=$?
+  [[ -n "$FRESH_OUT" ]] && rm -f "$FRESH_OUT"
   if [[ -n "$AGENT_PID" ]] && kill -0 "$AGENT_PID" 2>/dev/null; then
     # The agent runs in its own process group (set -m below): stop pnpm, tsx and node together.
     kill -TERM -- "-$AGENT_PID" 2>/dev/null || kill -TERM "$AGENT_PID" 2>/dev/null || true
@@ -84,10 +89,11 @@ step() {
 }
 
 step "fresh owner"
-FRESH_OUT="$(mktemp)"
+FRESH_OUT="$(mktemp "${TMPDIR:-/tmp}/qday-fresh.XXXXXX")" # explicit template: BSD mktemp ignores TMPDIR otherwise
 pnpm -s cli fresh-owner | tee "$FRESH_OUT"
 RUN_ENV="$(sed -n 's/^RUN_ENV=//p' "$FRESH_OUT" | tail -n 1)"
 rm -f "$FRESH_OUT"
+FRESH_OUT=""
 [[ -n "$RUN_ENV" && -f "$RUN_ENV" ]] || { echo "fresh-owner did not report a run.env" >&2; exit 1; }
 set -a
 # shellcheck disable=SC1090
