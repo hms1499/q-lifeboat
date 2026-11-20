@@ -8,8 +8,10 @@ while its EVM window is open. **Q-Day Guardian** is an AI agent that spots the d
 what is left into a `GuardianVault`, which only releases funds with the owner's **ML-DSA-87**
 (post-quantum) signature.
 
-The agent itself is boxed in by the chain. Its linked key may call **one function of one contract**
-(`GuardianVault.rescue`). Even a stolen agent key can only move the owner's funds *to safety*.
+The agent itself is boxed in. Its own account is the vault's immutable `guardian`, which may call
+**one function** (`GuardianVault.rescue`), inside an EVM window that targets only the vault. Its linked
+ed25519 key may call only `vault.rescue` and move no tokens. Even stolen agent keys can only move the
+owner's funds *to safety*.
 
 ## How it works
 
@@ -17,8 +19,8 @@ The agent itself is boxed in by the chain. Its linked key may call **one functio
  attacker (leaked ECDSA key) ──transfer──▶ owner's tokens on EVM lane
                                               │  watched every block
                                               ▼
- Guardian agent (ed25519 key, linked on-chain, allowedEvmCalls = vault.rescue only)
-        │ MsgExecuteEVM via authenticator lane
+ Guardian agent (own guardian account, EVM window scoped to the vault; ed25519 key signs reports)
+        │ vault.rescue(token): pulls owner → vault
         ▼
  GuardianVault ──withdraw only with ML-DSA-87 signature (pqcVerify 0x…a01)──▶ owner
 ```

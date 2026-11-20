@@ -157,6 +157,8 @@ As built: fUSD/fETH/fBTC are our own `TestToken` faucet contracts (public `mint`
 - [ ] **Step 4:** Implement. Run `pnpm -F agent test`. Expected: all PASS.
 - [ ] **Step 5:** Commit.
 
+As built (Task 4D, 2026-11-20): the agent no longer rescues through the authenticator lane. On diana the lane now refuses a token move from the owner's account unless the token is listed in the spending rule, and listing it lets the agent key `transfer` it directly (`docs/EVIDENCE.md` "Task 4"). `GuardianVault` (v3, not yet deployed) takes `(owner, guardian)`: `rescue` is callable by the owner or the immutable `guardian` (`NotAuthorized` otherwise), with an unchanged body and message vector; `Deploy.s.sol` reads `GUARDIAN_ADDRESS`. The agent's `GAS_MNEMONIC` account is the guardian: `rescueAll` sends one plain EVM `vault.rescue(token)` tx per token (sequential pending nonces, 120k gas) and reads success and the moved amount from each receipt's `Rescued` logs; `window.ts` keeps the guardian's own EVM window (600 blocks, 10 txs, vault as the only target) open with its hybrid signature. At startup the agent checks the vault's `guardian()`. The owner's spending rule is back to `allowedDenoms=["uqor"]`, `allowedEvmCalls=[vault.rescue]`: the ed25519 key signs incidents and `pnpm cli agent-misuse` proves the chain refuses its direct token calls (Task 5 (b)).
+
 ### Task 5: Attacker + end-to-end `demo.sh` (Nov 28)
 
 **Files:**
