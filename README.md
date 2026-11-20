@@ -42,20 +42,23 @@ Testnet `qorechain-diana` only. Node >= 22, pnpm, Foundry.
 
 ```bash
 pnpm install
-cd contracts && forge build && forge test -vv && cd ..   # demo.sh deploys contracts/out/GuardianVault.json
+cd contracts && forge build && forge test -vv && cd ..   # builds contracts/out/GuardianVault.sol/GuardianVault.json
 cp .env.example .env                                     # fill it in; never commit it
 ./demo.sh                                                # one end-to-end run
 ./demo.sh --runs 3                                       # three runs in a row, each from a fresh owner
+bash scripts/test-demo.sh                                # offline check of demo.sh's flow (stub pnpm, no chain)
 ```
 
 One run of `demo.sh`:
 1. `pnpm cli fresh-owner`: the funder (`FUNDER_MNEMONIC`, default `OWNER_MNEMONIC`) sends 1.5 QOR to a
-   brand-new owner, which registers its ML-DSA-87 key, deploys its own `GuardianVault(owner, guardian)` and
-   mints 100 fUSD. Its secrets go to `~/.config/qday/runs/<run id>/run.env` (0600), never into the repo.
+   brand-new owner, which registers its ML-DSA-87 key, deploys its own `GuardianVault(owner, guardian)` from
+   `contracts/out/GuardianVault.sol/GuardianVault.json` and mints 100 fUSD. Its secrets go to
+   `~/.config/qday/runs/<run id>/run.env` (0600, written before the owner is funded, `RUN_COMPLETE=1` once every
+   step succeeded), never into the repo.
 2. `pnpm cli setup`: scoped EVM window, agent link and spending rule, vault approvals.
 3. The guardian agent starts (log in the run directory) and watches the owner.
 4. `pnpm cli attack`: the leaked ECDSA key drains 3 x 10 fUSD one block apart, then (a) tries `withdraw`
-   with a forged signature and (b) makes the agent key call `fUSD.transfer` directly.
+   with a forged signature and (b) makes the agent key call `fUSD.transfer` directly (relayed by the funder).
 5. The agent rescues the rest into the vault and signs an incident report.
 6. Recovery: the Guardian Signer signs (ML-DSA-87) a 1 fUSD withdrawal to a fresh safe address.
 7. `pnpm cli demo-check` prints the verdict and `demo.sh` a final `PASS`/`FAIL` line: rescue at most
