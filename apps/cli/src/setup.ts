@@ -21,18 +21,24 @@ const APPROVE_GAS = 100_000n;
 const AGENT_TTL_SECONDS = 7 * 24 * 3600;
 const EXPIRY_MARGIN_SECONDS = 60;
 
+/** Per-token cap (1000e18) on what the agent key can move per tx and per day. */
+export const RESCUE_CAP = "1000000000000000000000";
+
 /**
- * The agent's spending rule. It may call exactly `vault.rescue` and move only native uqor, with no
- * erc20/ denom, so the agent cannot move tokens directly.
+ * The agent's spending rule. It may call exactly `vault.rescue`. Since chain v3.2.2 a call that moves an
+ * ERC-20 out of the account is refused unless the rule lists that token, so the three rescued tokens are
+ * listed, each with an explicit non-zero cap (a zero or empty limit would mean NO limit).
  */
-export function buildSetupRule(vault: string) {
+export function buildSetupRule(vault: string, tokens: Tokens) {
+  const denoms = [tokens.fUSD, tokens.fETH, tokens.fBTC].map((a) => `erc20/${a.toLowerCase()}`);
   const rule = {
     id: "guardian",
     enabled: true,
     perTxLimit: "1000000",
     dailyLimit: "3000000",
-    allowedDenoms: ["uqor"],
+    allowedDenoms: ["uqor", ...denoms],
     allowedEvmCalls: [`${vault.toLowerCase()}/${RESCUE_SELECTOR}`],
+    denomLimits: denoms.map((denom) => ({ denom, perTxLimit: RESCUE_CAP, dailyLimit: RESCUE_CAP })),
   } satisfies SpendingRuleInput;
   return rule;
 }
@@ -94,7 +100,7 @@ export async function runSetup(env: Env = process.env): Promise<void> {
     permissions: ["evm"],
     expiryUnix: Math.floor(Date.now() / 1000) + AGENT_TTL_SECONDS,
     label: "qday-guardian agent",
-    spendingRule: buildSetupRule(vault),
+    spendingRule: buildSetupRule(vault, tokens),
   });
   const existing = await fetchAuthenticators({ rest: NETWORK.rest, address: owner.cosmos });
   const linkMsgs = selectLinkMsgs(all, existing, agent.pk);

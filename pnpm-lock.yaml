@@ -41,6 +41,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@noble/curves':
+        specifier: ^1.9.0
+        version: 1.9.7
       '@qday/core':
         specifier: workspace:*
         version: link:../../packages/core

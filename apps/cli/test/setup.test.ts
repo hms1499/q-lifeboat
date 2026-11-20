@@ -1,7 +1,8 @@
 import { RESCUE_SELECTOR } from "@qday/core";
 import { evmWindowCost } from "@qorechain/evm";
+import { linkAuthenticatorMsgs, signAuthenticatorLinkEd25519, ruleBoundsEveryDenom, validateEvmDenom, validateSpendingRules } from "@qorechain/sdk";
 import { describe, expect, it } from "vitest";
-import { buildSetupRule, buildWindowParams, selectLinkMsgs } from "../src/setup";
+import { buildSetupRule, buildWindowParams, RESCUE_CAP, selectLinkMsgs } from "../src/setup";
 
 const VAULT = "0x17d867860a0A0Ff528dF655439ff59176b061B3C";
 const TOKENS = {
@@ -11,22 +12,55 @@ const TOKENS = {
 } as const;
 
 describe("buildSetupRule", () => {
-  const rule = buildSetupRule(VAULT);
+  const MIXED = {
+    fUSD: "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa",
+    fETH: "0xBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBb",
+    fBTC: "0xCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCc",
+  } as const;
+  const rule = buildSetupRule(VAULT, MIXED);
+  const erc20 = Object.values(MIXED).map((a) => `erc20/${a.toLowerCase()}`);
 
   it("allows exactly one EVM call: vault.rescue", () => {
     expect(rule.allowedEvmCalls).toEqual([`${VAULT.toLowerCase()}/${RESCUE_SELECTOR}`]);
   });
 
-  it("allows only uqor, never an erc20/ denom", () => {
-    expect(rule.allowedDenoms).toEqual(["uqor"]);
-    expect(rule.allowedDenoms.some((d) => d.startsWith("erc20/"))).toBe(false);
+  it("allows uqor plus exactly the three configured tokens (lowercase, no wildcard)", () => {
+    expect(rule.allowedDenoms).toEqual(["uqor", ...erc20]);
+    expect(rule.allowedDenoms.filter((d) => d.startsWith("erc20/"))).toHaveLength(3);
+    expect(rule.allowedDenoms.some((d) => d.includes("*"))).toBe(false);
   });
 
-  it("is enabled, named guardian and bounded", () => {
+  it("caps every token at RESCUE_CAP per tx and per day, never zero or empty", () => {
+    expect(RESCUE_CAP).toBe("1000000000000000000000");
+    expect(rule.denomLimits.map((l) => l.denom)).toEqual(erc20);
+    for (const l of rule.denomLimits) {
+      expect(l.perTxLimit).toBe(RESCUE_CAP);
+      expect(l.dailyLimit).toBe(RESCUE_CAP);
+    }
+  });
+
+  it("is enabled, named guardian and bounded in uqor", () => {
     expect(rule.id).toBe("guardian");
     expect(rule.enabled).toBe(true);
     expect(rule.perTxLimit).toBe("1000000");
     expect(rule.dailyLimit).toBe("3000000");
+  });
+
+  it("is accepted by the SDK validators", () => {
+    expect(() => validateSpendingRules([rule])).not.toThrow();
+    for (const d of rule.allowedDenoms) expect(() => validateEvmDenom(d)).not.toThrow();
+    expect(ruleBoundsEveryDenom(rule)).toBe(true);
+  });
+
+  it("survives the SDK link message builder with the denom limits intact", () => {
+    const proof = signAuthenticatorLinkEd25519({ chainId: "qorechain-diana", account: "qor1owner", privateKey: new Uint8Array(32).fill(7) });
+    const msgs = linkAuthenticatorMsgs({
+      owner: "qor1owner", chainId: "qorechain-diana", ...proof,
+      permissions: ["evm"], expiryUnix: 2_000_000_000, label: "t", spendingRule: rule,
+    });
+    const upd = msgs.find((m) => m.typeUrl.endsWith(".MsgUpdateSpendingRules"))!;
+    const r = (upd.value as { rules: { denomLimits: unknown[] }[] }).rules[0];
+    expect(r.denomLimits).toHaveLength(3);
   });
 });
 

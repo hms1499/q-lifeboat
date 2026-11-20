@@ -1,3 +1,4 @@
+import { runAgentMisuse } from "./misuse";
 import { runSetup } from "./setup";
 import { runSignWithdraw } from "./signer";
 import { runStatus } from "./status";
@@ -8,6 +9,7 @@ const USAGE = `Q-Day Guardian CLI (qorechain-diana testnet)
   pnpm cli setup                              open the EVM window, link the agent, approve the vault
   pnpm cli sign-withdraw <to> <token> <amt>   Guardian Signer: write withdrawal.json (--out <file>)
   pnpm cli withdraw <withdrawal.json>         submit a signed withdrawal from any funded wallet
+  pnpm cli agent-misuse <token> <to> <wei>    negative gate: agent key tries token.transfer directly (must be REFUSED)
   pnpm cli status                             read-only snapshot (window, rules, keys, balances)
 
   <token> is a 0x address, fUSD, fETH, fBTC or QOR. <amt> is a decimal amount (18 decimals).`;
@@ -24,6 +26,8 @@ async function main(): Promise<number> {
     case "withdraw":
       await runWithdraw(args);
       return 0;
+    case "agent-misuse":
+      return runAgentMisuse(args);
     case "status":
       await runStatus();
       return 0;
