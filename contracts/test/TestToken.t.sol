@@ -92,7 +92,7 @@ contract TestTokenTest is Test {
         assertEq(token.allowance(alice, bob), type(uint256).max);
     }
 
-    /// rescue pulls the owner's balance into the vault; withdraw then pays it out under a (mock) ML-DSA signature.
+    /// The guardian's rescue pulls the owner's balance into the vault; withdraw then pays it out under a (mock) ML-DSA signature.
     function test_rescueThenWithdrawRoundTrip() public {
         bytes memory pubkey = hex"c0ffee";
         MockPqc impl = new MockPqc();
@@ -105,12 +105,13 @@ contract TestTokenTest is Test {
         MockPqc(PQC_KEYS).setProven(true);
         MockPqc(PQC_KEYS).setKey(pubkey);
 
-        GuardianVault vault = new GuardianVault(alice);
+        address guardian = makeAddr("guardian");
+        GuardianVault vault = new GuardianVault(alice, guardian);
         token.mint(alice, 100e18);
         vm.prank(alice);
         token.approve(address(vault), type(uint256).max);
 
-        vm.prank(alice);
+        vm.prank(guardian);
         vault.rescue(address(token));
         assertEq(token.balanceOf(address(vault)), 100e18);
         assertEq(token.balanceOf(alice), 0);

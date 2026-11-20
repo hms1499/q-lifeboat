@@ -13,10 +13,17 @@ interface IQorePQC {
 }
 
 /// @title GuardianVault
-/// @notice Q-Day Guardian vault. The agent calls `rescue` to pull an account's ERC20 balance
-/// (up to the allowance the owner granted) into this vault. Funds can only leave through
+/// @notice Q-Day Guardian vault. The Guardian agent calls `rescue` to pull an account's ERC20
+/// balance (up to the allowance the owner granted) into this vault. Funds can only leave through
 /// `withdraw`, which needs an ML-DSA-87 signature from the owner's registered post-quantum key.
 /// A leaked ECDSA key alone cannot move anything out of the vault.
+///
+/// `rescue` may be called by the owner or by an immutable `guardian` (the agent's own EVM
+/// account). The agent can no longer rescue through the QoreChain authenticator lane: on diana the
+/// lane now refuses a token move from the account unless the token is listed in the key's spending
+/// rule (tx 8508B568…), and listing it lets the key `transfer` the token directly (tx CADB1412…).
+/// See docs/EVIDENCE.md "Task 4". The guardian has no other power: `rescue` only moves funds
+/// owner -> vault, and `withdraw` still needs the owner's ML-DSA-87 signature.
 ///
 /// Pattern adapted from qorechain/build-before-qday workshop-2 QDayVault.
 contract GuardianVault {
@@ -25,6 +32,8 @@ contract GuardianVault {
 
     /// The account whose registered ML-DSA-87 key authorises withdrawals. No setters.
     address public immutable owner;
+    /// The Guardian agent's EVM account. It may call `rescue` and nothing else. No setters.
+    address public immutable guardian;
     /// Increases with every withdrawal, so a signature works once.
     uint256 public nonce;
 
@@ -37,11 +46,14 @@ contract GuardianVault {
     error BadSignature();
     error TransferFailed();
     error ZeroOwner();
-    error NotOwner();
+    error ZeroGuardian();
+    error NotAuthorized();
 
-    constructor(address owner_) {
+    constructor(address owner_, address guardian_) {
         if (owner_ == address(0)) revert ZeroOwner();
+        if (guardian_ == address(0)) revert ZeroGuardian();
         owner = owner_;
+        guardian = guardian_;
     }
 
     /// Fund the vault with QOR.
@@ -50,12 +62,11 @@ contract GuardianVault {
     }
 
     /// Pull min(balance, allowance) of `token` from the owner into the vault.
-    /// Owner-only. The Guardian agent calls this through the QoreChain authenticator lane
-    /// (`MsgExecuteEVM`), which executes the call FROM the owner's EVM address, so msg.sender is
-    /// the owner. A third party can therefore not sweep the owner's approved tokens (griefing)
-    /// or emit `Rescued`. Funds only ever move owner -> vault. Never reverts on a zero amount.
+    /// Owner or guardian only, so a third party can not sweep the owner's approved tokens
+    /// (griefing) or emit `Rescued`. Funds only ever move owner -> vault, whoever calls.
+    /// Never reverts on a zero amount.
     function rescue(address token) external {
-        if (msg.sender != owner) revert NotOwner();
+        if (msg.sender != owner && msg.sender != guardian) revert NotAuthorized();
         uint256 balance = IERC20(token).balanceOf(owner);
         uint256 allowed = IERC20(token).allowance(owner, address(this));
         uint256 amount = balance < allowed ? balance : allowed;

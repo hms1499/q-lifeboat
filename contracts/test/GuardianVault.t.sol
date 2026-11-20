@@ -40,6 +40,7 @@ contract GuardianVaultTest is Test {
     address owner = makeAddr("owner");
     address recipient = makeAddr("recipient");
     address stranger = makeAddr("stranger");
+    address guardian = makeAddr("guardian");
     bytes pubkey = hex"c0ffee";
 
     function setUp() public {
@@ -54,7 +55,7 @@ contract GuardianVaultTest is Test {
         MockPqc(PQC_KEYS).setProven(true);
         MockPqc(PQC_KEYS).setKey(pubkey);
 
-        vault = new GuardianVault(owner);
+        vault = new GuardianVault(owner, guardian);
         token = new MockERC20();
         other = new MockERC20();
     }
@@ -102,14 +103,51 @@ contract GuardianVaultTest is Test {
         assertEq(token.balanceOf(owner), 60e18);
     }
 
-    function test_rescueRevertsForNonOwner() public {
+    function test_guardianCanRescue() public {
+        token.mint(owner, 100e18);
+        token.mint(guardian, 5e18);
+        vm.prank(owner);
+        token.approve(address(vault), type(uint256).max);
+
+        vm.expectEmit(true, false, false, true);
+        emit GuardianVault.Rescued(address(token), 100e18);
+        vm.prank(guardian);
+        vault.rescue(address(token));
+
+        assertEq(token.balanceOf(address(vault)), 100e18, "owner -> vault");
+        assertEq(token.balanceOf(owner), 0);
+        assertEq(token.balanceOf(guardian), 5e18, "guardian gains nothing");
+    }
+
+    function test_guardianGetterReturnsConstructorValue() public view {
+        assertEq(vault.guardian(), guardian);
+        assertEq(vault.owner(), owner);
+    }
+
+    function test_guardianCannotWithdrawWithoutSignature() public {
+        _fundQor(2 ether);
+        token.mint(address(vault), 10e18);
+
+        vm.startPrank(guardian);
+        vm.expectRevert(GuardianVault.BadSignature.selector);
+        vault.withdraw(guardian, address(0), 1 ether, hex"deadbeef");
+        vm.expectRevert(GuardianVault.BadSignature.selector);
+        vault.withdraw(guardian, address(token), 10e18, hex"deadbeef");
+        vm.stopPrank();
+
+        assertEq(address(vault).balance, 2 ether);
+        assertEq(token.balanceOf(address(vault)), 10e18);
+        assertEq(vault.nonce(), 0);
+    }
+
+    function test_rescueRevertsForStranger() public {
         token.mint(owner, 100e18);
         token.mint(stranger, 7e18);
         vm.prank(owner);
         token.approve(address(vault), type(uint256).max);
 
         vm.prank(stranger);
-        vm.expectRevert(GuardianVault.NotOwner.selector);
+        vm.expectRevert(GuardianVault.NotAuthorized.selector);
         vault.rescue(address(token));
 
         assertEq(token.balanceOf(stranger), 7e18, "caller untouched");
@@ -223,7 +261,7 @@ contract GuardianVaultTest is Test {
 
     function test_signatureBoundToVault() public {
         _fundQor(2 ether);
-        GuardianVault vaultB = new GuardianVault(owner);
+        GuardianVault vaultB = new GuardianVault(owner, guardian);
         vm.deal(address(vaultB), 2 ether);
         bytes memory sigA = _sig(recipient, address(0), 1 ether, 0);
 
@@ -288,7 +326,12 @@ contract GuardianVaultTest is Test {
 
     function test_constructorRejectsZeroOwner() public {
         vm.expectRevert(GuardianVault.ZeroOwner.selector);
-        new GuardianVault(address(0));
+        new GuardianVault(address(0), guardian);
+    }
+
+    function test_constructorRejectsZeroGuardian() public {
+        vm.expectRevert(GuardianVault.ZeroGuardian.selector);
+        new GuardianVault(owner, address(0));
     }
 
     // ---- token return-value semantics ----
