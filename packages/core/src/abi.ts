@@ -201,6 +201,11 @@ export const vaultAbi = [
   },
   {
     "type": "error",
+    "name": "NotOwner",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "TransferFailed",
     "inputs": []
   },

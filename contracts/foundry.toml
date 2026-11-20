@@ -12,3 +12,7 @@ remappings = ["forge-std/=lib/forge-std/src/"]
 # Public QoreChain diana testnet EVM endpoint.
 [rpc_endpoints]
 diana = "https://evm-testnet.qore.host"
+
+[lint]
+# `owner` is part of the public ABI (`owner()`), so the immutable cannot be renamed to OWNER.
+exclude_lints = ["screaming-snake-case-immutable"]
