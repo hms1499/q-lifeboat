@@ -13,3 +13,4 @@ contracts/broadcast/
 dist/
 data/
 .DS_Store
+withdrawal*.json

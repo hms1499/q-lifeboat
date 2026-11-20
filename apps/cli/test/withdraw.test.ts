@@ -1,3 +1,4 @@
+import { ML_DSA_87_SIGNATURE_LENGTH } from "@qorechain/sdk";
 import { describe, expect, it } from "vitest";
 import { checkWithdrawalFile, parseWithdrawalFile } from "../src/withdraw";
 
@@ -8,7 +9,7 @@ const good = {
   token: "0x1111111111111111111111111111111111111111",
   amount: "1000000000000000000",
   nonce: "3",
-  sig: "0xabcd",
+  sig: `0x${"ab".repeat(ML_DSA_87_SIGNATURE_LENGTH)}`,
 };
 
 describe("parseWithdrawalFile", () => {
@@ -16,7 +17,7 @@ describe("parseWithdrawalFile", () => {
     const w = parseWithdrawalFile(JSON.stringify(good));
     expect(w.amount).toBe(10n ** 18n);
     expect(w.nonce).toBe(3n);
-    expect(w.sig).toBe("0xabcd");
+    expect(w.sig).toBe(good.sig);
   });
   it("rejects invalid JSON", () => {
     expect(() => parseWithdrawalFile("{")).toThrow(/JSON/);
@@ -29,6 +30,13 @@ describe("parseWithdrawalFile", () => {
   it("rejects a malformed address and a non-decimal amount", () => {
     expect(() => parseWithdrawalFile(JSON.stringify({ ...good, to: "0x12" }))).toThrow(/to/);
     expect(() => parseWithdrawalFile(JSON.stringify({ ...good, amount: "1.5" }))).toThrow(/amount/);
+  });
+});
+
+describe("signature length", () => {
+  it("rejects a signature of the wrong length", () => {
+    expect(() => parseWithdrawalFile(JSON.stringify({ ...good, sig: "0xabcd" }))).toThrow(/sig/);
+    expect(() => parseWithdrawalFile(JSON.stringify({ ...good, sig: `${good.sig}00` }))).toThrow(/sig/);
   });
 });
 

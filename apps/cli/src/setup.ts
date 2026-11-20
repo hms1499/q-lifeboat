@@ -19,20 +19,22 @@ export const WINDOW_BLOCKS = 600;
 export const WINDOW_MAX_TXS = 10;
 const APPROVE_GAS = 100_000n;
 const AGENT_TTL_SECONDS = 7 * 24 * 3600;
+const EXPIRY_MARGIN_SECONDS = 60;
 
 /**
  * The agent's spending rule. It may call exactly `vault.rescue` and move only native uqor, with no
  * erc20/ denom, so the agent cannot move tokens directly.
  */
 export function buildSetupRule(vault: string) {
-  return {
+  const rule = {
     id: "guardian",
     enabled: true,
     perTxLimit: "1000000",
     dailyLimit: "3000000",
     allowedDenoms: ["uqor"],
     allowedEvmCalls: [`${vault.toLowerCase()}/${RESCUE_SELECTOR}`],
-  };
+  } satisfies SpendingRuleInput;
+  return rule;
 }
 
 /** Parameters of the EVM window the owner opens: scoped to the three tokens and the vault. */
@@ -54,14 +56,21 @@ const norm = (hex: string) => hex.replace(/^0x/i, "").toLowerCase();
  * When the agent key is already linked and not revoked, only the rules update is needed (rules live on the
  * account, not on the key).
  */
-export function selectLinkMsgs<T>(
+export function selectLinkMsgs<T extends { typeUrl: string }>(
   allMsgs: T[],
-  authenticators: Pick<AuthenticatorView, "pubkeyHex" | "revoked">[],
+  authenticators: Pick<AuthenticatorView, "pubkeyHex" | "revoked" | "expiryUnix">[],
   agentPk: Uint8Array,
+  nowUnix: number = Math.floor(Date.now() / 1000),
 ): T[] {
   const want = norm(toHex(agentPk));
-  const linked = authenticators.some((a) => !a.revoked && norm(a.pubkeyHex) === want);
-  return linked ? [allMsgs[0]] : allMsgs;
+  // An expired key is not usable, so it counts as not linked (margin avoids expiring mid-demo).
+  const linked = authenticators.some(
+    (a) => !a.revoked && norm(a.pubkeyHex) === want && a.expiryUnix > BigInt(nowUnix + EXPIRY_MARGIN_SECONDS),
+  );
+  if (!linked) return allMsgs;
+  const rules = allMsgs.find((m) => m.typeUrl.endsWith(".MsgUpdateSpendingRules"));
+  if (!rules) throw new Error("linkAuthenticatorMsgs returned no MsgUpdateSpendingRules message");
+  return [rules];
 }
 
 /** `pnpm cli setup`: hybrid tx (window + link), then token approvals. */
@@ -70,6 +79,12 @@ export async function runSetup(env: Env = process.env): Promise<void> {
   const vault = loadVault(env);
   const tokens = loadTokens(env);
   const agent = loadAgentKey(env);
+
+  // Fail before broadcasting anything if a configured token address has no contract code.
+  for (const [symbol, address] of Object.entries(tokens)) {
+    const code = await publicClient.getCode({ address: address as Hex });
+    if (!code || code === "0x") throw new Error(`${symbol} (${address}) has no contract code on diana`);
+  }
 
   const proof = signAuthenticatorLinkEd25519({ chainId: NETWORK.chainId, account: owner.cosmos, privateKey: agent.sk });
   const all = linkAuthenticatorMsgs({
@@ -81,7 +96,7 @@ export async function runSetup(env: Env = process.env): Promise<void> {
     label: "qday-guardian agent",
     spendingRule: buildSetupRule(vault),
   });
-  const existing = await fetchAuthenticators({ rest: NETWORK.rest, address: owner.cosmos }).catch(() => []);
+  const existing = await fetchAuthenticators({ rest: NETWORK.rest, address: owner.cosmos });
   const linkMsgs = selectLinkMsgs(all, existing, agent.pk);
 
   const window = openEvmWindowMsg(buildWindowParams(owner.cosmos, tokens, vault));

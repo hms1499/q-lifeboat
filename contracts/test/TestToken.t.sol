@@ -49,7 +49,7 @@ contract TestTokenTest is Test {
     function test_transferRevertsOnInsufficientBalance() public {
         token.mint(alice, 1e18);
         vm.prank(alice);
-        vm.expectRevert();
+        vm.expectRevert("TestToken: balance");
         token.transfer(bob, 2e18);
     }
 
@@ -70,7 +70,7 @@ contract TestTokenTest is Test {
         vm.prank(alice);
         token.approve(bob, 1e18);
         vm.prank(bob);
-        vm.expectRevert();
+        vm.expectRevert("TestToken: allowance");
         token.transferFrom(alice, carol, 2e18);
     }
 
@@ -79,7 +79,7 @@ contract TestTokenTest is Test {
         vm.prank(alice);
         token.approve(bob, 5e18);
         vm.prank(bob);
-        vm.expectRevert();
+        vm.expectRevert("TestToken: balance");
         token.transferFrom(alice, carol, 2e18);
     }
 

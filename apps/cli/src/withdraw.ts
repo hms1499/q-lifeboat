@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { loadOwner, loadVault, vaultAbi } from "@qday/core";
-import { deriveUnifiedAccount } from "@qorechain/sdk";
+import { deriveUnifiedAccount, ML_DSA_87_SIGNATURE_LENGTH } from "@qorechain/sdk";
 import { createWalletClient, erc20Abi, formatUnits, http, isAddress, zeroAddress, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { chain, publicClient } from "./chain";
+import { resolveUserPath } from "./paths";
 
 type Env = Record<string, string | undefined>;
 
@@ -42,7 +43,9 @@ export function parseWithdrawalFile(text: string): ParsedWithdrawal {
     return BigInt(v);
   };
   const sig = str("sig");
-  if (!/^0x([0-9a-fA-F]{2})+$/.test(sig)) throw new Error('withdrawal file: "sig" must be 0x hex');
+  if (!/^0x([0-9a-fA-F]{2})+$/.test(sig) || (sig.length - 2) / 2 !== ML_DSA_87_SIGNATURE_LENGTH) {
+    throw new Error(`withdrawal file: "sig" must be 0x hex of exactly ${ML_DSA_87_SIGNATURE_LENGTH} bytes`);
+  }
   return { vault: addr("vault"), to: addr("to"), token: addr("token"), amount: dec("amount"), nonce: dec("nonce"), sig: sig as Hex };
 }
 
@@ -67,7 +70,7 @@ async function balanceOf(token: Hex, who: Hex): Promise<bigint> {
 export async function runWithdraw(args: string[], env: Env = process.env): Promise<void> {
   const file = args[0];
   if (!file) throw new Error("usage: withdraw <withdrawal.json>");
-  const w = parseWithdrawalFile(readFileSync(file, "utf8"));
+  const w = parseWithdrawalFile(readFileSync(resolveUserPath(file), "utf8"));
   const vault = loadVault(env);
 
   const relayerMnemonic = env.RELAYER_MNEMONIC?.trim();

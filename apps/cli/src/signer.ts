@@ -1,8 +1,9 @@
 import { writeFileSync } from "node:fs";
 import { loadOwner, loadTokens, loadVault, NETWORK, vaultAbi, withdrawalMessage } from "@qday/core";
-import { fetchPqcStatus, pqcSign, pqcStatusPublicKey, pqcVerify } from "@qorechain/sdk";
+import { fetchPqcStatus, pqcSign, pqcStatusPublicKey, pqcVerify, type PqcStatus } from "@qorechain/sdk";
 import { bytesToHex, hexToBytes, isAddress, parseUnits, zeroAddress, type Hex } from "viem";
 import { publicClient } from "./chain";
+import { resolveUserPath } from "./paths";
 
 type Env = Record<string, string | undefined>;
 
@@ -54,11 +55,27 @@ export function buildWithdrawal(
   };
 }
 
+/**
+ * Refuse to sign unless the chain knows the key: registered, proven by possession (the vault reverts
+ * KeyNotProven otherwise) and equal to the key derived from OWNER_MNEMONIC.
+ */
+export function assertRegisteredKey(status: PqcStatus, localPublicKey: Uint8Array): void {
+  if (!status.registered) throw new Error("the owner has no PQC key registered on-chain");
+  if (status.possessionProven !== true) {
+    throw new Error("the owner's PQC key has no proof of possession on-chain; the vault would reject withdrawals");
+  }
+  const onChain = pqcStatusPublicKey(status);
+  if (!onChain) throw new Error("the chain returned no public key for the owner's PQC registration");
+  if (bytesToHex(onChain) !== bytesToHex(localPublicKey)) {
+    throw new Error("the on-chain PQC key differs from the key derived from OWNER_MNEMONIC; refusing to sign");
+  }
+}
+
 /** `pnpm cli sign-withdraw <to> <token> <amount> [--out file]`: the local Guardian Signer. */
 export async function runSignWithdraw(args: string[], env: Env = process.env): Promise<void> {
   const outIdx = args.indexOf("--out");
-  const out = outIdx >= 0 ? args[outIdx + 1] : "withdrawal.json";
-  if (outIdx >= 0 && !out) throw new Error("--out needs a file path");
+  if (outIdx >= 0 && !args[outIdx + 1]) throw new Error("--out needs a file path");
+  const out = resolveUserPath(outIdx >= 0 ? args[outIdx + 1] : "withdrawal.json");
   const pos = args.filter((_, i) => outIdx < 0 || (i !== outIdx && i !== outIdx + 1));
   if (pos.length !== 3) throw new Error("usage: sign-withdraw <to> <token> <amount> [--out file]");
   const [toArg, tokenArg, amountArg] = pos;
@@ -69,15 +86,23 @@ export async function runSignWithdraw(args: string[], env: Env = process.env): P
   const token = resolveToken(tokenArg, loadTokens(env));
   const amount = parseAmount(amountArg);
 
-  // Refuse to sign with a key the chain does not know: such a signature could never be verified.
-  const status = await fetchPqcStatus({ rest: NETWORK.rest, address: owner.cosmos });
-  const registered = pqcStatusPublicKey(status);
-  if (!status.registered || !registered) throw new Error("the owner has no PQC key registered on-chain");
-  if (bytesToHex(registered) !== bytesToHex(owner.pqc.publicKey)) {
-    throw new Error("the on-chain PQC key differs from the key derived from OWNER_MNEMONIC; refusing to sign");
-  }
+  // Refuse to sign with a key the chain would not accept.
+  assertRegisteredKey(await fetchPqcStatus({ rest: NETWORK.rest, address: owner.cosmos }), owner.pqc.publicKey);
 
   const nonce = await publicClient.readContract({ address: vault, abi: vaultAbi, functionName: "nonce" });
+
+  // Live check that the TS message encoding equals the deployed vault's own encoding.
+  const expected = withdrawalMessage({ chainId: BigInt(NETWORK.evmChainId), vault, to: toArg as Hex, token, amount, nonce });
+  const onChainMsg = await publicClient.readContract({
+    address: vault,
+    abi: vaultAbi,
+    functionName: "withdrawalMessage",
+    args: [toArg as Hex, token, amount, nonce],
+  });
+  if (onChainMsg.toLowerCase() !== bytesToHex(expected)) {
+    throw new Error("withdrawal message mismatch between this CLI and the deployed vault; refusing to sign");
+  }
+
   const w = buildWithdrawal({ vault, to: toArg as Hex, token, amount, nonce }, owner.pqc.secretKey);
 
   const msg = withdrawalMessage({ chainId: BigInt(NETWORK.evmChainId), vault, to: w.to, token, amount, nonce });

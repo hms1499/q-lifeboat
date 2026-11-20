@@ -35,13 +35,16 @@ const HYBRID_GAS_LIMIT = 1_500_000;
  */
 export async function broadcast(acc: UnifiedAccount, messages: any[], memo: string): Promise<string> {
   const a = await getJson(`/cosmos/auth/v1beta1/accounts/${acc.cosmos}`);
-  const base = a?.account?.base_account ?? a?.account ?? {};
+  const base = a?.account?.base_account ?? a?.account;
+  if (!base || base.account_number === undefined || base.sequence === undefined) {
+    throw new Error(`could not read account number/sequence for ${acc.cosmos} (is the account funded?)`);
+  }
   const signer = new EthNativeSigner(acc, { signMode: "hybrid", rest: NETWORK.rest });
   const transport = await StargateClient.connect(NETWORK.rpc);
   const req = {
     chainId: NETWORK.chainId,
-    accountNumber: BigInt(base.account_number ?? 0),
-    sequence: BigInt(base.sequence ?? 0),
+    accountNumber: BigInt(base.account_number),
+    sequence: BigInt(base.sequence),
     memo,
     messages,
   };
