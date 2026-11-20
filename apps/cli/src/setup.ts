@@ -1,7 +1,6 @@
 import { loadAgentKey, loadOwner, loadTokens, loadVault, NETWORK, RESCUE_SELECTOR, type TokenSymbol } from "@qday/core";
 import { evmWindowCost } from "@qorechain/evm";
 import {
-  fetchAuthenticators,
   linkAuthenticatorMsgs,
   openEvmWindowMsg,
   signAuthenticatorLinkEd25519,
@@ -10,6 +9,7 @@ import {
 } from "@qorechain/sdk";
 import { createWalletClient, erc20Abi, http, maxUint256, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { fetchOwnerAuthenticators } from "./abstractaccount";
 import { broadcast, chain, publicClient } from "./chain";
 
 type Env = Record<string, string | undefined>;
@@ -100,7 +100,8 @@ export async function runSetup(env: Env = process.env): Promise<void> {
     label: "qday-guardian agent",
     spendingRule: buildSetupRule(vault),
   });
-  const existing = await fetchAuthenticators({ rest: NETWORK.rest, address: owner.cosmos });
+  // A fresh owner has no abstractaccount record until this first link: that 404 means "no keys linked".
+  const existing = await fetchOwnerAuthenticators(owner.cosmos);
   const linkMsgs = selectLinkMsgs(all, existing, agent.pk);
 
   const window = openEvmWindowMsg(buildWindowParams(owner.cosmos, tokens, vault));

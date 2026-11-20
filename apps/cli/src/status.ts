@@ -1,7 +1,8 @@
 import { loadOwner, loadTokens, loadVault, NETWORK, vaultAbi } from "@qday/core";
 import { evmWindowStatus } from "@qorechain/evm";
-import { fetchAuthenticators, fetchPqcStatus, fetchSpendingRules } from "@qorechain/sdk";
+import { fetchPqcStatus } from "@qorechain/sdk";
 import { erc20Abi, formatUnits, type Hex } from "viem";
+import { fetchOwnerAuthenticators, fetchOwnerSpendingRules } from "./abstractaccount";
 import { bigintReplacer, publicClient, uqorBalance } from "./chain";
 
 type Env = Record<string, string | undefined>;
@@ -17,8 +18,8 @@ export async function runStatus(env: Env = process.env): Promise<void> {
   show("vault", vault);
   show("pqc", await fetchPqcStatus({ rest: NETWORK.rest, address: owner.cosmos }).then((s) => ({ registered: s.registered, possessionProven: s.possessionProven })).catch((e: Error) => e.message));
   show("window", await evmWindowStatus({ rest: NETWORK.rest, address: owner.evm }).catch((e: Error) => e.message));
-  show("rules", await fetchSpendingRules({ rest: NETWORK.rest, address: owner.cosmos }).catch((e: Error) => e.message));
-  show("authenticators", await fetchAuthenticators({ rest: NETWORK.rest, address: owner.cosmos }).catch((e: Error) => e.message));
+  show("rules", await fetchOwnerSpendingRules(owner.cosmos).catch((e: Error) => e.message));
+  show("authenticators", await fetchOwnerAuthenticators(owner.cosmos).catch((e: Error) => e.message));
   show("vault nonce", String(await publicClient.readContract({ address: vault, abi: vaultAbi, functionName: "nonce" })));
 
   const holders: [string, Hex, string][] = [["owner", owner.evm as Hex, owner.cosmos], ["vault", vault, ""]];
