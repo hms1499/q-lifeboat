@@ -37,6 +37,7 @@ contract GuardianVault {
     error BadSignature();
     error TransferFailed();
     error ZeroOwner();
+    error NotOwner();
 
     constructor(address owner_) {
         if (owner_ == address(0)) revert ZeroOwner();
@@ -49,8 +50,12 @@ contract GuardianVault {
     }
 
     /// Pull min(balance, allowance) of `token` from the owner into the vault.
-    /// Callable by anyone: funds only ever move owner -> vault. Never reverts on a zero amount.
+    /// Owner-only. The Guardian agent calls this through the QoreChain authenticator lane
+    /// (`MsgExecuteEVM`), which executes the call FROM the owner's EVM address, so msg.sender is
+    /// the owner. A third party can therefore not sweep the owner's approved tokens (griefing)
+    /// or emit `Rescued`. Funds only ever move owner -> vault. Never reverts on a zero amount.
     function rescue(address token) external {
+        if (msg.sender != owner) revert NotOwner();
         uint256 balance = IERC20(token).balanceOf(owner);
         uint256 allowed = IERC20(token).allowance(owner, address(this));
         uint256 amount = balance < allowed ? balance : allowed;
@@ -90,12 +95,14 @@ contract GuardianVault {
         }
     }
 
-    /// A call counts as successful if it did not revert and returned `true`, or returned nothing
-    /// from an address that actually has code (an EOA/empty address would "succeed" silently).
+    /// SafeERC20 semantics: a call succeeded if it did not revert and either returned nothing
+    /// from an address that has code (an EOA/empty address would "succeed" silently), or returned
+    /// at least one word whose first word is exactly 1. Any other return data is a failure.
     function _succeeded(address token, bool ok, bytes memory ret) private view returns (bool) {
         if (!ok) return false;
         if (ret.length == 0) return token.code.length != 0;
-        return abi.decode(ret, (bool));
+        if (ret.length < 32) return false;
+        return abi.decode(ret, (uint256)) == 1;
     }
 
     function _safeTransfer(address token, address to, uint256 amount) internal {

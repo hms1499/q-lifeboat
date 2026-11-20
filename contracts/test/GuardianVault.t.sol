@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {GuardianVault} from "../src/GuardianVault.sol";
 import {MockPqc} from "./mocks/MockPqc.sol";
 import {MockERC20, FalseToken} from "./mocks/MockERC20.sol";
+import {NoReturnToken, RawReturnToken} from "./mocks/MockBadTokens.sol";
 
 /// Recipient whose receive() records the vault nonce it observes mid-withdrawal.
 contract NonceProbe {
@@ -74,6 +75,7 @@ contract GuardianVaultTest is Test {
         vm.prank(owner);
         token.approve(address(vault), type(uint256).max);
 
+        vm.prank(owner);
         vault.rescue(address(token));
 
         assertEq(token.balanceOf(address(vault)), 100e18);
@@ -83,6 +85,7 @@ contract GuardianVaultTest is Test {
     function test_rescueZeroBalanceDoesNotRevert() public {
         vm.expectEmit(true, false, false, true);
         emit GuardianVault.Rescued(address(token), 0);
+        vm.prank(owner);
         vault.rescue(address(token));
         assertEq(token.balanceOf(address(vault)), 0);
     }
@@ -92,25 +95,26 @@ contract GuardianVaultTest is Test {
         vm.prank(owner);
         token.approve(address(vault), 40e18);
 
+        vm.prank(owner);
         vault.rescue(address(token));
 
         assertEq(token.balanceOf(address(vault)), 40e18);
         assertEq(token.balanceOf(owner), 60e18);
     }
 
-    function test_rescueCallableByAnyone() public {
+    function test_rescueRevertsForNonOwner() public {
         token.mint(owner, 100e18);
         token.mint(stranger, 7e18);
         vm.prank(owner);
         token.approve(address(vault), type(uint256).max);
 
         vm.prank(stranger);
+        vm.expectRevert(GuardianVault.NotOwner.selector);
         vault.rescue(address(token));
 
         assertEq(token.balanceOf(stranger), 7e18, "caller untouched");
-        assertEq(token.balanceOf(owner), 0);
-        assertEq(token.balanceOf(address(vault)), 100e18);
-        assertEq(token.balanceOf(recipient), 0);
+        assertEq(token.balanceOf(owner), 100e18, "owner untouched");
+        assertEq(token.balanceOf(address(vault)), 0);
     }
 
     // ---- deposit ----
@@ -154,7 +158,6 @@ contract GuardianVaultTest is Test {
         bytes memory bad = hex"deadbeef";
         vm.expectRevert(GuardianVault.BadSignature.selector);
         vault.withdraw(recipient, address(0), 1 ether, bad);
-        assertEq(vault.nonce(), 0);
     }
 
     function test_signatureWorksOnce() public {
@@ -254,7 +257,6 @@ contract GuardianVaultTest is Test {
 
         vm.expectRevert(GuardianVault.TransferFailed.selector);
         vault.withdraw(recipient, codeless, 1e18, sig);
-        assertEq(vault.nonce(), 0);
     }
 
     function test_withdrawRevertsWhenRecipientRejects() public {
@@ -264,7 +266,6 @@ contract GuardianVaultTest is Test {
 
         vm.expectRevert(GuardianVault.TransferFailed.selector);
         vault.withdraw(rej, address(0), 1 ether, sig);
-        assertEq(vault.nonce(), 0);
     }
 
     function test_withdrawRevertsWhenTokenReturnsFalse() public {
@@ -273,12 +274,12 @@ contract GuardianVaultTest is Test {
 
         vm.expectRevert(GuardianVault.TransferFailed.selector);
         vault.withdraw(recipient, address(bad), 1e18, sig);
-        assertEq(vault.nonce(), 0);
     }
 
     function test_rescueWithBalanceButNoAllowance() public {
         token.mint(owner, 100e18);
 
+        vm.prank(owner);
         vault.rescue(address(token));
 
         assertEq(token.balanceOf(address(vault)), 0);
@@ -288,5 +289,48 @@ contract GuardianVaultTest is Test {
     function test_constructorRejectsZeroOwner() public {
         vm.expectRevert(GuardianVault.ZeroOwner.selector);
         new GuardianVault(address(0));
+    }
+
+    // ---- token return-value semantics ----
+
+    function test_noReturnTokenWorksForRescueAndWithdraw() public {
+        NoReturnToken usdt = new NoReturnToken();
+        usdt.mint(owner, 100e18);
+        vm.prank(owner);
+        usdt.approve(address(vault), type(uint256).max);
+
+        vm.prank(owner);
+        vault.rescue(address(usdt));
+        assertEq(usdt.balanceOf(address(vault)), 100e18);
+        assertEq(usdt.balanceOf(owner), 0);
+
+        bytes memory sig = _sig(recipient, address(usdt), 40e18, 0);
+        vault.withdraw(recipient, address(usdt), 40e18, sig);
+        assertEq(usdt.balanceOf(recipient), 40e18);
+        assertEq(usdt.balanceOf(address(vault)), 60e18);
+    }
+
+    function _badReturns() internal returns (RawReturnToken[3] memory t) {
+        t[0] = new RawReturnToken(abi.encode(false)); // returns false
+        t[1] = new RawReturnToken(hex"01"); // 1-byte return
+        t[2] = new RawReturnToken(abi.encode(uint256(2))); // word 2, not a bool
+    }
+
+    function test_badReturnTokensRevertTransferFailedOnRescue() public {
+        RawReturnToken[3] memory bad = _badReturns();
+        for (uint256 i; i < bad.length; ++i) {
+            vm.prank(owner);
+            vm.expectRevert(GuardianVault.TransferFailed.selector);
+            vault.rescue(address(bad[i]));
+        }
+    }
+
+    function test_badReturnTokensRevertTransferFailedOnWithdraw() public {
+        RawReturnToken[3] memory bad = _badReturns();
+        for (uint256 i; i < bad.length; ++i) {
+            bytes memory sig = _sig(recipient, address(bad[i]), 1e18, 0);
+            vm.expectRevert(GuardianVault.TransferFailed.selector);
+            vault.withdraw(recipient, address(bad[i]), 1e18, sig);
+        }
     }
 }
