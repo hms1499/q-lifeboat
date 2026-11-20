@@ -20,7 +20,7 @@ Agent rule under test: `allowedEvmCalls = ["0x3f674746ffcdc3adeee2377accd5a2e706
 
 ## Project contracts
 
-Current `GuardianVault` (v2, QCAI Stage 1 fixes) at `0x17d867860a0A0Ff528dF655439ff59176b061B3C`. v1 at `0x8A11587A08F509781c0ce190EeaD715e4d81b0A5` is retired (empty, pre-audit bytecode). Owner `0xE871748C0922745Ad94d065a388e95eC420A67EB` (`qor1apchfrqfyf694k2dqedr3r54a3pq5eltmjxxpv`).
+Current `GuardianVault` is v3 (owner + immutable guardian, Task 4D) at `0x776913Abe058941d4c8ac097EE47E29F528f71e6`. v2 (QCAI Stage 1 fixes) at `0x17d867860a0A0Ff528dF655439ff59176b061B3C` is retired. v1 at `0x8A11587A08F509781c0ce190EeaD715e4d81b0A5` is retired (empty, pre-audit bytecode). Owner `0xE871748C0922745Ad94d065a388e95eC420A67EB` (`qor1apchfrqfyf694k2dqedr3r54a3pq5eltmjxxpv`).
 
 | Claim | Result | Tx / check |
 |---|---|---|
@@ -64,3 +64,5 @@ fBTC `0xbd16bc9ffaddf241593d891844cc4281f5af903e`.
 | **Listing a token lets the linked key move it directly.** `pnpm cli agent-misuse fETH 0x…dEaD 1e18` (agent key calls `fETH.transfer`, not the vault) | `success=true`, owner fETH 99 → 98. `allowedEvmCalls` does not restrict transfers of listed tokens | `CADB1412182E060C3C951959EE155D6E7CF1E5314F413668A8B9A017DE270AC8` |
 | Rule reverted to `allowedDenoms=["uqor"]` (closes the hole) | OK | `48078F2C7963FFDAF74D66DE22D6EA07852EB019B0F2E00E35379A00ADC80FF2` |
 | Demo step 4(b): with the uqor-only rule the agent key calling `fETH.transfer` directly is refused: "a linked key with a spending rule may call <token> with data only if the rule lists the call in allowed_evm_calls (or lists the token as "erc20/<token>" for a token transfer or approval): authenticator not permitted for this action" | `success=false`, `agent-misuse` prints REFUSED | `7E9B629F2A8508848A350AF05AD63A36661F11D83A4A87EEE1D8B6FC497D0DDF` |
+| Owner opens an unscoped 3-tx EVM window for the v3 deploy | OK | `E04CD6B63C94560D07289ECEFDCBACF142B0FE618A9BE3B8DE7A2CB875F5FD16` |
+| `GuardianVault` v3 deployed by `Deploy.s.sol` with `GUARDIAN_ADDRESS` = the agent's `GAS_MNEMONIC` account (`0xFf82cAD6638a38d7009D0d5DfB757136B0C03850`, `qor1l7pv44nr3gudwqyap4wlkat3x6cvqwzsvtm0pt`, ML-DSA key registered) | Success, block 10421573, gasUsed 725168 of 942718. Vault `0x776913Abe058941d4c8ac097EE47E29F528f71e6`; `cast call` gives `owner()` = owner, `guardian()` = guardian | `0x77f4eea0e461cf17110d10656cc94eaad5c34afc75342bfee30c3df2e9846a71` |

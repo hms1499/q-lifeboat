@@ -49,7 +49,9 @@ _Coming with Tasks 1–5. See `docs/plans/`._
 ## Deployed (diana)
 | Contract / account | Address |
 |---|---|
-| GuardianVault (v2, after QCAI Stage 1) | [`0x17d867860a0A0Ff528dF655439ff59176b061B3C`](https://explore.qore.network/address/0x17d867860a0A0Ff528dF655439ff59176b061B3C) |
+| GuardianVault (v3, owner + immutable guardian) | [`0x776913Abe058941d4c8ac097EE47E29F528f71e6`](https://explore.qore.network/address/0x776913Abe058941d4c8ac097EE47E29F528f71e6) |
+| Guardian (agent account, may call `rescue`) | `0xFf82cAD6638a38d7009D0d5DfB757136B0C03850` |
+| GuardianVault v2 (retired) | `0x17d867860a0A0Ff528dF655439ff59176b061B3C` |
 | fUSD / fETH / fBTC (faucet test tokens, public `mint`) | `0x8478737e5ac2c2cbf70aad17f459d1b8ab8a7a14` / `0x0a958bba25f5fddca1b1f9cec44bdf076a8ea6c5` / `0xbd16bc9ffaddf241593d891844cc4281f5af903e` |
 | Owner (ML-DSA-87 guardian) | `0xE871748C0922745Ad94d065a388e95eC420A67EB` / `qor1apchfrqfyf694k2dqedr3r54a3pq5eltmjxxpv` |
 
