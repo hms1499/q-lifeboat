@@ -232,3 +232,15 @@ describe("skipWhileBusy", () => {
     expect(task).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("createWindowKeeper.status (Task 6C /health)", () => {
+  it("is undefined before any read, then the last status read; invalidate() does not clear it", async () => {
+    const dead = { ...healthy, live: false };
+    const { k } = keeper([dead, healthy]);
+    expect(k.status()).toBeUndefined();
+    await k.ensure(); // reads dead, opens, reads healthy
+    expect(k.status()).toEqual(healthy);
+    k.invalidate();
+    expect(k.status()).toEqual(healthy);
+  });
+});

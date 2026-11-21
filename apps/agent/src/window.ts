@@ -107,7 +107,10 @@ export type WindowKeeper = ReturnType<typeof createWindowKeeper>;
 
 export function createWindowKeeper(deps: WindowDeps) {
   let cached: WindowStatus | undefined;
+  /** The last status read, for /health. Unlike `cached`, invalidate() keeps it. */
+  let lastRead: WindowStatus | undefined;
   const unusable = (s: WindowStatus) => needsWindow(s, deps.vault);
+  const read = async () => (lastRead = await deps.readStatus());
 
   /**
    * Read the window; if it is not usable, open ONE new window and re-read it (a few times: REST may still serve
@@ -115,11 +118,11 @@ export function createWindowKeeper(deps: WindowDeps) {
    * is a tx from the guardian account, so a nonce read before it is stale.
    */
   async function ensure(): Promise<boolean> {
-    cached = await deps.readStatus();
+    cached = await read();
     if (!unusable(cached)) return false;
     const hash = await deps.open();
     deps.log(`guardian window opened: ${hash}`);
-    cached = await pollUntil(deps.readStatus, (s) => !unusable(s), { tries: STATUS_POLLS, delayMs: POLL_DELAY_MS, sleep: deps.sleep });
+    cached = await pollUntil(read, (s) => !unusable(s), { tries: STATUS_POLLS, delayMs: POLL_DELAY_MS, sleep: deps.sleep });
     if (unusable(cached)) throw new Error(`guardian window still not usable after opening (tx ${hash})`);
     return true;
   }
@@ -130,6 +133,10 @@ export function createWindowKeeper(deps: WindowDeps) {
     async ensureIfStale(): Promise<boolean> {
       if (cached && !unusable(cached)) return false;
       return ensure();
+    },
+    /** The last window status read (undefined before the first read). No REST call. */
+    status(): WindowStatus | undefined {
+      return lastRead;
     },
     /** Forget the cached status (a tx was sent, so it no longer describes the window). */
     invalidate(): void {

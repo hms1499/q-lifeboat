@@ -535,3 +535,29 @@ describe("watchOwner pacing", () => {
     w.stop();
   });
 });
+
+describe("watchOwner onTip (Task 6C /health)", () => {
+  it("reports the start tip and each advance of the head, never a lower tip, and survives a throwing onTip", async () => {
+    const tips = [10n, 10n, 12n, 11n, 13n];
+    let i = 0;
+    const client = {
+      getBlockNumber: async () => tips[Math.min(i++, tips.length - 1)],
+      getLogs: async () => [],
+      getBlock: async () => ({ transactions: [] }),
+    };
+    const seen: bigint[] = [];
+    const errors: unknown[] = [];
+    let polls = 0;
+    const w = watchOwner({
+      client: transfersOnly(client), owner: OWNER, tokens: [TOKEN], pollMs: 2,
+      onTx: () => {},
+      onTip: (b) => { seen.push(b); polls++; if (polls === 1) throw new Error("tip handler bug"); },
+      onError: (e) => void errors.push(e),
+    });
+    const deadline = Date.now() + 500;
+    while (seen.at(-1) !== 13n && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+    w.stop();
+    expect(seen).toEqual([10n, 12n, 13n]);
+    expect(errors.some((e) => e instanceof Error && e.message === "tip handler bug")).toBe(true);
+  });
+});
