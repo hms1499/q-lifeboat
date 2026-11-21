@@ -1,0 +1,111 @@
+import { loadOwner, loadTokens, loadVault, NETWORK, vaultAbi } from "@qday/core";
+import { evmWindowCost, evmWindowStatus, MAX_EVM_WINDOW_BLOCKS, MAX_EVM_WINDOW_TXS } from "@qorechain/evm";
+import { closeEvmWindowMsg, openEvmWindowMsg } from "@qorechain/sdk";
+import type { Hex } from "viem";
+import { broadcast, publicClient } from "./chain";
+
+type Env = Record<string, string | undefined>;
+type Tokens = { fUSD: string; fETH: string; fBTC: string };
+
+/** ~42 min at 1.4 s blocks: room to click MetaMask txs by hand (600 blocks ran out mid-session). */
+export const OWNER_WINDOW_BLOCKS = 1800;
+/** A recover withdraw, a manual rescue, an approve or a guardian top-up each take one. */
+export const OWNER_WINDOW_TXS = 5;
+/** Same per-tx budget as `setup`: a 3M-gas tx at 112.5 gwei. */
+const PER_TX_GAS = 3_000_000n;
+const PER_TX_MAX_FEE = 112_500_000_000n;
+
+/** `expect`: the owner the caller means (the dashboard's watched owner); the command refuses any other account. */
+export type WindowArgs = { action: "open"; blocks: number; txs: number; expect?: string } | { action: "close"; expect?: string };
+
+const USAGE = "usage: window open [--blocks N] [--txs N] [--expect 0xOWNER] | window close [--expect 0xOWNER]";
+
+function readInt(name: string, raw: string | undefined, max: bigint): number {
+  if (raw === undefined || !/^\d+$/.test(raw)) throw new Error(`${name} needs a positive integer (${USAGE})`);
+  const n = BigInt(raw);
+  if (n < 1n || n > max) throw new Error(`${name} must be between 1 and ${max}`);
+  return Number(n);
+}
+
+/** `window open [--blocks N] [--txs N] [--expect 0x…]` or `window close [--expect 0x…]`. Throws on anything else. */
+export function parseWindowArgs(args: string[]): WindowArgs {
+  const [action, ...rest] = args;
+  if (action !== "open" && action !== "close") throw new Error(USAGE);
+  let blocks: number | undefined;
+  let txs: number | undefined;
+  let expect: string | undefined;
+  for (let i = 0; i < rest.length; i += 2) {
+    const flag = rest[i];
+    if (flag === "--expect" && expect === undefined) {
+      const v = rest[i + 1];
+      if (v === undefined || !/^0x[0-9a-fA-F]{40}$/.test(v)) throw new Error(`--expect needs the owner's 0x address (${USAGE})`);
+      expect = v;
+    } else if (action === "open" && flag === "--blocks" && blocks === undefined) blocks = readInt("--blocks", rest[i + 1], MAX_EVM_WINDOW_BLOCKS);
+    else if (action === "open" && flag === "--txs" && txs === undefined) txs = readInt("--txs", rest[i + 1], MAX_EVM_WINDOW_TXS);
+    else throw new Error(`unexpected "${flag}" (${USAGE})`);
+  }
+  if (action === "close") return { action: "close", expect };
+  return { action: "open", blocks: blocks ?? OWNER_WINDOW_BLOCKS, txs: txs ?? OWNER_WINDOW_TXS, expect };
+}
+
+/**
+ * Refuse, before anything is signed, when OWNER_MNEMONIC is not the owner the caller means. The root .env owner is not
+ * a demo.sh run's fresh owner: without this, `window close` could close another account's window and report success.
+ */
+export function checkExpectedOwner(derived: string, expect: string | undefined): void {
+  if (expect !== undefined && expect.toLowerCase() !== derived.toLowerCase()) {
+    throw new Error(
+      `--expect ${expect} but OWNER_MNEMONIC is ${derived}: refusing to sign. For a demo.sh owner, load its env first: ` +
+        "(set -a && . ~/.config/qday/runs/<run id>/run.env && set +a && pnpm cli window …)",
+    );
+  }
+}
+
+/**
+ * The owner's hand-driven window: scoped to the three tokens, the vault and the guardian. A withdraw, a manual rescue
+ * and an approve fit. `maxValue` covers fees only: against a leaked ECDSA key the window budget is the only cap (chain
+ * fact 4), so it carries no value headroom, and a QOR top-up of the guardian does NOT fit yet. The guardian target is
+ * there for 6E, which will add the value budget a top-up needs.
+ */
+export function buildOwnerWindowParams(ownerCosmos: string, tokens: Tokens, vault: string, guardian: string, size: { blocks: number; txs: number }) {
+  const allowedTargets = [tokens.fUSD, tokens.fETH, tokens.fBTC, vault, guardian];
+  const seen = new Set(allowedTargets.map((t) => t.toLowerCase()));
+  if (seen.size !== allowedTargets.length) throw new Error(`window targets contain a duplicate address: ${allowedTargets.join(", ")}`);
+  const perTx = evmWindowCost({ gas: PER_TX_GAS, maxFeePerGas: PER_TX_MAX_FEE });
+  return {
+    sender: ownerCosmos,
+    blocks: size.blocks,
+    maxTxs: size.txs,
+    maxValue: (perTx * BigInt(size.txs)).toString(),
+    allowedTargets,
+  };
+}
+
+/** `pnpm cli window open|close`: a hybrid-signed tx from the OWNER_MNEMONIC account. Prints the tx hash. */
+export async function runWindow(args: string[], env: Env = process.env): Promise<void> {
+  const parsed = parseWindowArgs(args);
+  const owner = await loadOwner(env);
+  checkExpectedOwner(owner.evm, parsed.expect);
+  console.log(`owner ${owner.evm} (${owner.cosmos})`);
+
+  if (parsed.action === "close") {
+    const hash = await broadcast(owner, [closeEvmWindowMsg(owner.cosmos)], "qday: close owner window");
+    console.log(`window close: ${hash}`);
+  } else {
+    const vault = loadVault(env);
+    const tokens = loadTokens(env);
+    // The vault's immutable guardian, read on chain: the env may not name it (a demo run.env).
+    const guardian = (await publicClient.readContract({ address: vault, abi: vaultAbi, functionName: "guardian" })) as Hex;
+    const params = buildOwnerWindowParams(owner.cosmos, tokens, vault, guardian, parsed);
+    const hash = await broadcast(owner, [openEvmWindowMsg(params)], "qday: open owner window");
+    console.log(`window open (${params.blocks} blocks, ${params.maxTxs} txs, targets fUSD fETH fBTC vault guardian): ${hash}`);
+  }
+
+  // Informational only: the tx above already succeeded, so a REST hiccup here must not turn it into an error.
+  try {
+    const w = await evmWindowStatus({ rest: NETWORK.rest, address: owner.cosmos });
+    console.log(w.live ? `owner window live: ${w.remainingBlocks} blocks, ${w.remainingTxs} txs left` : "owner window closed");
+  } catch (e) {
+    console.log(`owner window status unavailable: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}

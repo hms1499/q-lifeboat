@@ -14,6 +14,8 @@ export type ServerOptions = {
   host?: string;
   /** GET /health body (cached values only). */
   health?: () => unknown;
+  /** GET /config body: the watched owner, vault, guardian and token addresses (public, never a key). */
+  config?: () => unknown;
   /** GET/PUT /policy. */
   policy?: { get(): PolicyFile; set(input: unknown): PolicyFile };
   /** Origins allowed to read and write /policy from a browser (the dashboard). */
@@ -73,8 +75,8 @@ function readBody(req: IncomingMessage, limit: number): Promise<string | null> {
 }
 
 /**
- * HTTP API on loopback: GET /incidents (JSON array), GET /events (SSE, one `incident` event each), GET /health, and
- * GET/PUT /policy (the trusted list). Only PUT /policy writes, and only behind `checkPolicyWrite`.
+ * HTTP API on loopback: GET /incidents (JSON array), GET /events (SSE, one `incident` event each), GET /health,
+ * GET /config (public addresses for the dashboard) and GET/PUT /policy (the trusted list). Only PUT /policy writes, and only behind `checkPolicyWrite`.
  */
 export async function startServer(opts: ServerOptions): Promise<Server> {
   const host = opts.host ?? "127.0.0.1";
@@ -153,6 +155,8 @@ export async function startServer(opts: ServerOptions): Promise<Server> {
       json(res, 200, CORS, readIncidents(opts.file));
     } else if (req.method === "GET" && path === "/health" && opts.health) {
       json(res, 200, CORS, opts.health());
+    } else if (req.method === "GET" && path === "/config" && opts.config) {
+      json(res, 200, CORS, opts.config());
     } else if (req.method === "GET" && path === "/events") {
       res.writeHead(200, { ...CORS, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
       res.write(": connected\n\n");

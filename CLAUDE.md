@@ -128,6 +128,9 @@ checkboxes and the docs below are the handoff state, not the chat history.
     `vault.rescue` `0xb4119a4c…`). With no window, EVERY account is refused at broadcast ("no open EVM
     authorisation window"), no hash and no gas. `wallet_addEthereumChain` for 9800 works. Hybrid txs (window,
     link) still need the CLI.
+18. diana's REST (`api-testnet.qore.host`) sends NO CORS headers (OPTIONS → 501), even for Origin
+    `https://dashboard.qorechain.io`; the EVM RPC sends `Access-Control-Allow-Origin: *` (2026-11-21). Browser code
+    reads REST through the dashboard's same-origin Vite proxy `/qore-rest` (dev and preview).
 
 SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSign`, `EthNativeSigner`,
 `linkAuthenticatorMsgs`, `signAuthenticatorLinkEd25519`, `revokeAuthenticatorMsg`,
@@ -145,14 +148,18 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSig
 - viem's `publicClient` caches `eth_blockNumber` for 4 s when the chain has no `blockTime`. Latency-critical
   reads (the agent's watcher) pass `cacheTime: 0` and batch tip + logs in one request (`apps/agent/src/rpc.ts`).
 - Owner windows of 600 blocks last ~14 min (1.4 s blocks): when the builder clicks MetaMask txs by hand, open
-  1800 blocks. `spike/probe`: `node probe.mjs window-open 1800 5`.
+  1800 blocks (`pnpm cli window open` defaults to 1800 blocks, 5 txs).
 - `FUNDER_MNEMONIC` in root `.env` is the builder's 175-QOR wallet (`qor14zxae5…`, `0xa88D…`): its SDK-derived ML-DSA
   key matches the registered one, so the CLI signs hybrid for it. `spike/probe/fund.mjs check|send` moves QOR.
 - `./demo.sh --runs 3` needs ~2 QOR per run in the funder (root `OWNER_MNEMONIC`) and ~0.25 QOR per run in the
   guardian (`GAS_MNEMONIC`). `./demo.sh --resume <run.env>` finishes a funded run whose later step failed.
 
+- Owner EVM window from the CLI (Task 6D): `pnpm cli window open [--blocks N] [--txs N] [--expect <0x owner>]` and
+  `pnpm cli window close [--expect <0x owner>]` sign for `OWNER_MNEMONIC`; for a demo owner load its run.env first.
+  Dashboard: `pnpm -F dashboard dev` (127.0.0.1:5173) against the agent on :8787 (`GET /config`). `./demo.sh` starts
+  its own agent on :8787: do not run `pnpm agent` alongside it.
 - Agent alerts (Task 6C): `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` in root `.env` (the builder's bot; chat id from
-  `getUpdates`). The agent's API on :8787 serves `/incidents`, `/events`, `/health` and `/policy` (policy in
+  `getUpdates`). The agent's API on :8787 serves `/incidents`, `/events`, `/health`, `/config` and `/policy` (policy in
   `data/policy-<owner>.json`, writes from loopback + dashboard origin only). Demo run logs in `~/.config/qday/runs/`
   are not readable from this session: ask the builder for what they show.
 

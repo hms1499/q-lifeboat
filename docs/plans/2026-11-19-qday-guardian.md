@@ -236,16 +236,20 @@ Work in `spike/`, never import from it.
   the JSON content type, since any web page can reach 127.0.0.1.
 - [x] **Step 4:** Review (fresh context) against Review Focus 6 and 8, then commit.
 
-#### Task 6D: Dashboard core: Overview, Incidents, Recover
+#### Task 6D: Dashboard core: Overview, Incidents, Recover, DONE 2026-11-21
 
 **Files:** `apps/dashboard/` (Vite React TS): `src/screens/Overview.tsx`, `Incidents.tsx`, `Recover.tsx`, `src/lib/verify.ts`, `src/lib/verify.test.ts`.
 **Consumes:** the agent's `/events`, `/incidents`, `/health`, `/policy`; `evmWindowStatus`, `fetchSpendingRules`, `fetchAuthenticators`, `verifyIncident` from core.
 
-- [ ] **Step 1:** Write `verify.test.ts`: `test_rejectsValidSigFromUnlinkedKey`. The pubkey must be in `fetchAuthenticators` and not revoked (Review Focus 5).
-- [ ] **Step 2:** Implement the three screens per the mockup: exposure banner ("Close EVM window now" shows the CLI command: `MsgCloseEVMWindow` is a hybrid tx, 6A gate), protected assets, Guardian health and gas tank, outgoing activity; incident list (sorted by `detectedAt`: since 6C incidents can be appended out of order; a trigger with no `kind` is a transfer) and detail with chain checks; Recover (load `withdrawal.json`, check, submit through MetaMask inside an owner window).
-- [ ] **Step 3:** Run `pnpm -F dashboard test && pnpm -F dashboard build`. Expected: PASS and the build succeeds.
-- [ ] **Step 4:** Run `demo.sh` with the dashboard open. Expected: the incident appears within ≤ 5 seconds and shows ✓.
-- [ ] **Step 5:** Commit.
+- [x] **Step 1:** Write `verify.test.ts`: `test_rejectsValidSigFromUnlinkedKey`. The pubkey must be in `fetchAuthenticators` and not revoked (Review Focus 5).
+- [x] **Step 2:** Implement the three screens per the mockup: exposure banner ("Close EVM window now" shows the CLI command: `MsgCloseEVMWindow` is a hybrid tx, 6A gate), protected assets, Guardian health and gas tank, outgoing activity; incident list (sorted by `detectedAt`: since 6C incidents can be appended out of order; a trigger with no `kind` is a transfer) and detail with chain checks; Recover (load `withdrawal.json`, check, submit through MetaMask inside an owner window).
+- [x] **Step 3:** Run `pnpm -F dashboard test && pnpm -F dashboard build`. Expected: PASS and the build succeeds.
+- [x] **Step 4:** Run `demo.sh` with the dashboard open. Expected: the incident appears within ≤ 5 seconds and shows ✓.
+- [x] **Step 5:** Commit.
+  Approved departures (Explore): diana REST has no CORS, so browser REST reads go through a Vite `/qore-rest` proxy;
+  the agent serves `GET /config` (public addresses), checked on chain against `vault.owner()`/`guardian()`; new
+  `pnpm cli window open|close [--expect <owner>]`; no `@qorechain/react`. Review round 1: a ✓ is bound to the report's
+  id + sig and the config it was verified under. Diana: report ✓ 4.0 s after detection; Recover withdraw `0xf21e3904…`.
 
 #### Task 6E: Dashboard: Rules, Rescue now, gas tank top-up
 

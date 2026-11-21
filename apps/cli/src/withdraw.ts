@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { loadOwner, loadVault, vaultAbi } from "@qday/core";
+import { loadOwner, loadVault, vaultAbi, WITHDRAW_GAS } from "@qday/core";
 import { deriveUnifiedAccount, ML_DSA_87_SIGNATURE_LENGTH } from "@qorechain/sdk";
 import { createWalletClient, erc20Abi, formatUnits, http, isAddress, zeroAddress, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -16,8 +16,6 @@ export interface ParsedWithdrawal {
   nonce: bigint;
   sig: Hex;
 }
-
-const WITHDRAW_GAS = 1_000_000n;
 
 /** Validate the shape of a withdrawal.json and return typed values. */
 export function parseWithdrawalFile(text: string): ParsedWithdrawal {

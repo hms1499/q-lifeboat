@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { vaultAbi } from "@qday/core";
 import { publicClient } from "@qday/core/chain";
 import type { Hex } from "viem";
-import { checkVaultGuardian, loadAgentConfig } from "./config";
+import { checkVaultGuardian, loadAgentConfig, publicConfig } from "./config";
 import { createGuardian } from "./guardian";
 import { createHealth } from "./health";
 import { createNotifier } from "./notify";
@@ -61,7 +61,16 @@ async function main() {
   gasTick();
   setInterval(gasTick, GAS_CHECK_MS).unref();
 
-  const server = await startServer({ file, port: cfg.port, health: health.snapshot, policy: policyStore, dashboardOrigins: cfg.dashboardOrigins, log });
+  const pub = publicConfig(cfg);
+  const server = await startServer({
+    file,
+    port: cfg.port,
+    health: health.snapshot,
+    config: () => pub,
+    policy: policyStore,
+    dashboardOrigins: cfg.dashboardOrigins,
+    log,
+  });
   const deps = productionDeps(cfg, windowKeeper, log);
 
   const guardian = createGuardian({
