@@ -54,15 +54,17 @@ export function createGuardian(deps: GuardianDeps) {
   async function runOnce(tx: OutboundTx, reason: string, detectedAt: string, alwaysRecord: boolean) {
     let rescues: RescueRecord[] = [];
     let why = reason;
+    let error: string | undefined;
     try {
       rescues = await deps.rescue(tx);
     } catch (e) {
-      why = `${reason} (rescue error: ${errorText(e)})`;
+      error = errorText(e);
+      why = `${reason} (rescue error: ${error})`;
       deps.log(`rescue error: ${why}`);
     }
     if (!alwaysRecord && rescues.length === 0) return;
     report({ trigger: tx, reason: why, rescues, detectedAt }, (i) => `incident ${i.id}: ${rescues.filter((r) => r.success).length}/${rescues.length} rescued`);
-    notify({ type: "rescue", trigger: tx, reason: why, rescues, detectedAt });
+    notify({ type: "rescue", trigger: tx, reason: why, rescues, detectedAt, ...(error === undefined ? {} : { error }) });
   }
 
   /** A failing run is logged and never leaves state behind. */

@@ -33,6 +33,14 @@ describe("formatAlert", () => {
     expect(t).toMatch(/0xr2.*FAILED/);
   });
 
+  it("headlines RESCUE FAILED with the error when the rescue itself errored (never 'nothing to move')", () => {
+    const t = formatAlert({ ...rescue, rescues: [], error: "guardian window still not usable after opening" });
+    expect(t).toMatch(/^Q-Day Guardian: RESCUE FAILED/);
+    expect(t).toContain("guardian window still not usable after opening");
+    expect(t).not.toMatch(/nothing to move/);
+    expect(formatAlert(rescue)).not.toMatch(/FAILED:/);
+  });
+
   it("formats an alert-only incident and a low gas balance", () => {
     expect(formatAlert(alert)).toMatch(/ALERT/);
     expect(formatAlert(alert)).toContain("vault allowance lowered to 0");

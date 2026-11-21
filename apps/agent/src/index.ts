@@ -48,6 +48,7 @@ async function main() {
   const notifier = createNotifier({ telegram: cfg.telegram, webhookUrl: cfg.webhookUrl, log });
   const health = createHealth({
     guardian: cfg.gas.evm as Hex,
+    vault: cfg.vault,
     gasLowWei: cfg.gasLowWei,
     readBalance: () => publicClient.getBalance({ address: cfg.gas.evm as Hex }),
     readWindow: windowKeeper.status,
@@ -60,7 +61,7 @@ async function main() {
   gasTick();
   setInterval(gasTick, GAS_CHECK_MS).unref();
 
-  const server = await startServer({ file, port: cfg.port, health: health.snapshot, policy: policyStore, dashboardOrigins: cfg.dashboardOrigins });
+  const server = await startServer({ file, port: cfg.port, health: health.snapshot, policy: policyStore, dashboardOrigins: cfg.dashboardOrigins, log });
   const deps = productionDeps(cfg, windowKeeper, log);
 
   const guardian = createGuardian({

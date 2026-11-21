@@ -537,7 +537,10 @@ describe("watchOwner pacing", () => {
 });
 
 describe("watchOwner onTip (Task 6C /health)", () => {
+  afterEach(() => void vi.useRealTimers());
+
   it("reports the start tip and each advance of the head, never a lower tip, and survives a throwing onTip", async () => {
+    vi.useFakeTimers();
     const tips = [10n, 10n, 12n, 11n, 13n];
     let i = 0;
     const client = {
@@ -547,15 +550,15 @@ describe("watchOwner onTip (Task 6C /health)", () => {
     };
     const seen: bigint[] = [];
     const errors: unknown[] = [];
-    let polls = 0;
     const w = watchOwner({
       client: transfersOnly(client), owner: OWNER, tokens: [TOKEN], pollMs: 2,
       onTx: () => {},
-      onTip: (b) => { seen.push(b); polls++; if (polls === 1) throw new Error("tip handler bug"); },
+      onTip: (b) => { seen.push(b); if (seen.length === 1) throw new Error("tip handler bug"); },
       onError: (e) => void errors.push(e),
     });
-    const deadline = Date.now() + 500;
-    while (seen.at(-1) !== 13n && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+    await vi.advanceTimersByTimeAsync(0); // the start tip
+    expect(seen).toEqual([10n]);
+    for (let t = 0; t < 6; t++) await vi.advanceTimersByTimeAsync(2); // ticks read 10, 12, 11, 13, 13...
     w.stop();
     expect(seen).toEqual([10n, 12n, 13n]);
     expect(errors.some((e) => e instanceof Error && e.message === "tip handler bug")).toBe(true);

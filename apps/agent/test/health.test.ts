@@ -6,7 +6,8 @@ import type { WindowStatus } from "../src/window";
 const GUARDIAN = "0x9858EfFD232B4033E47d90003D41EC34EcaEdA94" as const;
 const VAULT = "0x17d867860a0A0Ff528dF655439ff59176b061B3C" as const;
 const QOR = 10n ** 18n;
-const live: WindowStatus = { live: true, remainingBlocks: 500n, remainingTxs: 8n, remainingValue: 1000n, allowedTargets: [VAULT] };
+/** Usable for needsWindow: live, scoped to VAULT, >= 100 blocks, >= 3 txs, budget for 3 rescue txs (1 QOR is plenty). */
+const live: WindowStatus = { live: true, remainingBlocks: 500n, remainingTxs: 8n, remainingValue: QOR, allowedTargets: [VAULT] };
 
 function setup(balances: (bigint | Error)[], window: WindowStatus | null = live) {
   const queue = [...balances];
@@ -15,6 +16,7 @@ function setup(balances: (bigint | Error)[], window: WindowStatus | null = live)
   const lines: string[] = [];
   const h = createHealth({
     guardian: GUARDIAN,
+    vault: VAULT,
     gasLowWei: QOR / 2n,
     readBalance: async () => {
       const b = queue.shift();
@@ -59,7 +61,7 @@ describe("health", () => {
     expect(h.snapshot().gas.balance).toBe(QOR);
 
     const bad = createHealth({
-      guardian: GUARDIAN, gasLowWei: QOR, readBalance: async () => 1n, readWindow: () => live,
+      guardian: GUARDIAN, vault: VAULT, gasLowWei: QOR, readBalance: async () => 1n, readWindow: () => live,
       channels: { telegram: false, webhook: false }, notify: () => { throw new Error("boom"); }, log: () => {}, startedAt: "s",
     });
     await expect(bad.checkGas()).resolves.toBeUndefined();
@@ -72,7 +74,7 @@ describe("health", () => {
       startedAt: "2026-11-21T09:59:00.000Z",
       lastBlock: null,
       lastBlockAt: null,
-      window: { live: true, remainingBlocks: 500n, remainingTxs: 8n, remainingValue: 1000n },
+      window: { live: true, remainingBlocks: 500n, remainingTxs: 8n, remainingValue: QOR },
       gas: { guardian: GUARDIAN, balance: null, threshold: QOR / 2n, low: false },
       alerts: { telegram: true, webhook: false },
     });
@@ -97,5 +99,15 @@ describe("health", () => {
     dead.h.setTip(1n);
     await dead.h.checkGas();
     expect(dead.h.snapshot()).toMatchObject({ ok: false, window: { live: false } });
+  });
+
+  it("snapshot: a live window the keeper considers unusable (needsWindow) is not ok", async () => {
+    const OTHER_VAULT = "0x776913Abe058941d4c8ac097EE47E29F528f71e6" as const;
+    for (const w of [{ ...live, allowedTargets: [OTHER_VAULT] }, { ...live, remainingTxs: 2n }, { ...live, remainingBlocks: 99n }]) {
+      const s = setup([QOR], w);
+      s.h.setTip(1n);
+      await s.h.checkGas();
+      expect(s.h.snapshot()).toMatchObject({ ok: false, window: { live: true } });
+    }
   });
 });

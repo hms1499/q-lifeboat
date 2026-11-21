@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { type Incident } from "@qday/core";
 import { bigintReplacer } from "@qday/core/chain";
-import type { PolicyFile } from "./policy";
+import { parsePolicy, type PolicyFile } from "./policy";
 import { readIncidents } from "./report";
 
 export type Server = { port: number; address: string; publish(incident: Incident): void; close(): Promise<void> };
@@ -18,6 +18,8 @@ export type ServerOptions = {
   policy?: { get(): PolicyFile; set(input: unknown): PolicyFile };
   /** Origins allowed to read and write /policy from a browser (the dashboard). */
   dashboardOrigins?: string[];
+  /** Server-side failures (e.g. a policy write that hit EACCES); their details never go into a response. */
+  log?: (line: string) => void;
 };
 
 const CORS = { "Access-Control-Allow-Origin": "*" };
@@ -26,6 +28,11 @@ const MAX_POLICY_BODY = 64 * 1024;
 
 const isLoopbackPeer = (a: string | undefined) =>
   !!a && (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(a) || a === "::1" || /^::ffff:127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/i.test(a));
+
+/** The Host header must name this loopback server; a DNS-rebinding page sends its own hostname instead. */
+export function isLocalHost(host: string | undefined, port: number): boolean {
+  return !!host && [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`].includes(host.toLowerCase());
+}
 
 export type PolicyWriteRequest = { remoteAddress?: string; host?: string; origin?: string; contentType?: string };
 
@@ -39,20 +46,21 @@ export function checkPolicyWrite(
   opts: { port: number; origins: string[] },
 ): { status: number; error: string } | null {
   if (!isLoopbackPeer(req.remoteAddress)) return { status: 403, error: "policy writes are accepted from loopback only" };
-  const hosts = [`127.0.0.1:${opts.port}`, `localhost:${opts.port}`, `[::1]:${opts.port}`];
-  if (!req.host || !hosts.includes(req.host.toLowerCase())) return { status: 403, error: "unexpected Host header" };
+  if (!isLocalHost(req.host, opts.port)) return { status: 403, error: "unexpected Host header" };
   if (req.origin !== undefined && !opts.origins.includes(req.origin)) return { status: 403, error: "origin not allowed" };
   const type = (req.contentType ?? "").split(";")[0].trim().toLowerCase();
   if (type !== "application/json") return { status: 415, error: "Content-Type must be application/json" };
   return null;
 }
 
-/** Read a body of at most `limit` bytes; null when it is larger (the rest is drained, not buffered). */
+/**
+ * Read a body of at most `limit` bytes; null when a streamed (chunked) body turns out larger (the rest is drained, not
+ * buffered). A body DECLARED too large never gets here: it is refused before reading.
+ */
 function readBody(req: IncomingMessage, limit: number): Promise<string | null> {
   return new Promise((resolve, reject) => {
-    const declared = Number(req.headers["content-length"] ?? 0);
     let size = 0;
-    let tooBig = declared > limit;
+    let tooBig = false;
     const chunks: Buffer[] = [];
     req.on("data", (c: Buffer) => {
       size += c.length;
@@ -72,6 +80,7 @@ export async function startServer(opts: ServerOptions): Promise<Server> {
   const host = opts.host ?? "127.0.0.1";
   if (!LOOPBACK_HOSTS.includes(host)) throw new Error(`the agent API binds loopback only (127.0.0.1, ::1, localhost), not "${host}"`);
   const origins = opts.dashboardOrigins ?? [];
+  const log = opts.log ?? (() => {});
   let boundPort = opts.port;
   const clients = new Set<ServerResponse>();
 
@@ -91,18 +100,28 @@ export async function startServer(opts: ServerOptions): Promise<Server> {
       req.resume();
       return json(res, refused.status, cors, { error: refused.error });
     }
-    const body = await readBody(req, MAX_POLICY_BODY);
-    if (body === null) return json(res, 413, cors, { error: `body larger than ${MAX_POLICY_BODY} bytes` });
-    let input: unknown;
-    try {
-      input = JSON.parse(body);
-    } catch {
-      return json(res, 400, cors, { error: "body is not valid JSON" });
+    const tooBig = { error: `body larger than ${MAX_POLICY_BODY} bytes` };
+    if (Number(req.headers["content-length"]) > MAX_POLICY_BODY) {
+      // Answer at once and close: never read (or drain) a body declared too large.
+      res.writeHead(413, { ...cors, "Content-Type": "application/json", Connection: "close" });
+      res.end(JSON.stringify(tooBig), () => req.destroy());
+      return;
     }
+    const body = await readBody(req, MAX_POLICY_BODY);
+    if (body === null) return json(res, 413, cors, tooBig);
+    let parsed: PolicyFile;
     try {
-      return json(res, 200, cors, policy.set(input));
+      parsed = parsePolicy(JSON.parse(body));
     } catch (e) {
-      return json(res, 400, cors, { error: e instanceof Error ? e.message : String(e) });
+      const error = e instanceof SyntaxError ? "body is not valid JSON" : e instanceof Error ? e.message : String(e);
+      return json(res, 400, cors, { error });
+    }
+    // Validated: a failure from here on is the server's (disk full, permissions), not the request's.
+    try {
+      return json(res, 200, cors, policy.set(parsed));
+    } catch (e) {
+      log(`policy write failed: ${e instanceof Error ? e.message : String(e)}`);
+      return json(res, 500, cors, { error: "could not save the policy" });
     }
   }
 
@@ -110,14 +129,19 @@ export async function startServer(opts: ServerOptions): Promise<Server> {
     const path = (req.url ?? "").split("?")[0];
     if (path === "/policy") {
       const cors = policyCors(req.headers.origin);
-      if (req.method === "OPTIONS") {
+      if (!isLocalHost(req.headers.host, boundPort)) {
+        // Every method: a DNS-rebinding page must not even read the trusted list.
+        req.resume();
+        json(res, 403, cors, { error: "unexpected Host header" });
+      } else if (req.method === "OPTIONS") {
         res.writeHead(204, { ...cors, "Access-Control-Allow-Methods": "GET, PUT, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }).end();
       } else if (!opts.policy) {
         res.writeHead(404, cors).end();
       } else if (req.method === "GET") {
         json(res, 200, cors, opts.policy.get());
       } else if (req.method === "PUT") {
-        putPolicy(req, res, cors, opts.policy).catch(() => {
+        putPolicy(req, res, cors, opts.policy).catch((e) => {
+          log(`PUT /policy error: ${e instanceof Error ? e.message : String(e)}`);
           if (!res.headersSent) json(res, 500, cors, { error: "internal error" });
         });
       } else {

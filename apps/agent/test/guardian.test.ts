@@ -251,6 +251,20 @@ describe("guardian (Task 6C: policy reload, report and notify off the rescue pat
     expect(notify.mock.calls[1][0].type).toBe("rescue");
   });
 
+  it("a rescue that throws notifies type rescue with the error set (no rescues)", async () => {
+    const notify = vi.fn(async (_e: AlertEvent) => {});
+    const g = createGuardian({
+      policy, rescue: async () => { throw new Error("window open failed"); },
+      record: (async (f: object) => ({ ...f, id: "x" })) as never, publish: vi.fn(), notify, log: () => {},
+    });
+    await g.onTx(tx("0x1"));
+    expect(notify).toHaveBeenCalledOnce();
+    expect(notify.mock.calls[0][0]).toMatchObject({ type: "rescue", rescues: [], error: "window open failed" });
+    const ok = vi.fn(async (_e: AlertEvent) => {});
+    await createGuardian({ policy, rescue: async () => [rec()], record: (async (f: object) => ({ ...f, id: "x" })) as never, publish: vi.fn(), notify: ok, log: () => {} }).onTx(tx("0x2"));
+    expect(ok.mock.calls[0][0]).not.toHaveProperty("error");
+  });
+
   it("reads the policy on every trigger", async () => {
     const getter = vi.fn(policy);
     const g = createGuardian({ policy: getter, rescue: async () => [], record: (async (f: object) => ({ ...f, id: "x" })) as never, publish: vi.fn(), log: () => {} });

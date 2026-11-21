@@ -4,7 +4,8 @@ import { bigintReplacer } from "@qday/core/chain";
 
 /** What the owner is told about. Carries no keys or secrets. */
 export type AlertEvent =
-  | { type: "rescue"; trigger: OutboundTx; reason: string; rescues: RescueRecord[]; detectedAt: string }
+  /** `error`: rescue() itself failed (e.g. the guardian window could not be opened), so `rescues` may be empty. */
+  | { type: "rescue"; trigger: OutboundTx; reason: string; rescues: RescueRecord[]; detectedAt: string; error?: string }
   | { type: "alert"; trigger: OutboundTx; reason: string; detectedAt: string }
   | { type: "gas-low"; guardian: Hex; balance: bigint; threshold: bigint };
 
@@ -30,11 +31,15 @@ export function formatAlert(e: AlertEvent): string {
     (r) =>
       `- token ${r.token}: moved ${r.amount} (expected ${r.expected}), tx ${r.hash} ${r.success ? "OK" : `FAILED${r.error ? ` (${r.error})` : ""}`}`,
   );
+  const headline = e.error
+    ? `Q-Day Guardian: RESCUE FAILED: ${e.error}`
+    : `Q-Day Guardian: RESCUE, ${ok}/${e.rescues.length} rescue tx(s) succeeded`;
+  const none = e.error ? "Rescues: none sent" : "Rescues: none (nothing to move)";
   return [
-    `Q-Day Guardian: RESCUE, ${ok}/${e.rescues.length} rescue tx(s) succeeded`,
+    headline,
     describeTrigger(e.trigger),
     `Reason: ${e.reason}`,
-    ...(lines.length ? ["Rescues:", ...lines] : ["Rescues: none (nothing to move)"]),
+    ...(lines.length ? ["Rescues:", ...lines] : [none]),
     `Detected: ${e.detectedAt}`,
   ].join("\n");
 }

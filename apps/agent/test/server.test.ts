@@ -192,6 +192,60 @@ describe("server: PUT /policy write checks", () => {
     expect((await raw(srv.port, "GET", "/incidents")).headers["access-control-allow-origin"]).toBe("*");
   });
 
+  it("every /policy method checks the Host header (DNS rebinding cannot read the trusted list either)", async () => {
+    const { file, store } = policySetup();
+    srv = await startServer({ file, port: 0, policy: store, dashboardOrigins: [DASH] });
+    const evil = { Host: `evil.example:${srv.port}` };
+    const get = await raw(srv.port, "GET", "/policy", evil);
+    expect(get.status).toBe(403);
+    expect(get.body).not.toContain(A.slice(2));
+    expect((await raw(srv.port, "OPTIONS", "/policy", { ...evil, Origin: DASH })).status).toBe(403);
+    expect((await raw(srv.port, "GET", "/policy", { Host: `localhost:${srv.port}` })).status).toBe(200);
+    expect((await raw(srv.port, "GET", "/policy", { Host: `[::1]:${srv.port}` })).status).toBe(200);
+  });
+
+  it("a server-side write failure answers 500 with a generic message (no paths); validation errors stay 400", async () => {
+    const { file, store } = policySetup();
+    const lines: string[] = [];
+    const failing = {
+      get: store.get,
+      set: () => { throw new Error("EACCES: permission denied, open '/home/owner/data/.policy-0xabc.json.123.tmp'"); },
+    };
+    srv = await startServer({ file, port: 0, policy: failing, dashboardOrigins: [DASH], log: (l) => void lines.push(l) });
+    const json = { "Content-Type": "application/json" };
+    const r = await raw(srv.port, "PUT", "/policy", json, JSON.stringify({ trusted: [], maxOutbound: "1" }));
+    expect(r.status).toBe(500);
+    expect(r.body).not.toContain("/home");
+    expect(r.body).not.toContain("EACCES");
+    expect(JSON.parse(r.body).error).toEqual(expect.any(String));
+    expect(lines.some((l) => l.includes("EACCES"))).toBe(true); // the cause is logged on the agent side
+    const bad = await raw(srv.port, "PUT", "/policy", json, JSON.stringify({ trusted: [], maxOutbound: 1 }));
+    expect(bad.status).toBe(400);
+    expect(JSON.parse(bad.body).error).toMatch(/maxOutbound/);
+  });
+
+  it("answers 413 at once on a declared Content-Length over 64 KiB, without waiting for the body, and closes", async () => {
+    const { file, policyFile, store } = policySetup();
+    srv = await startServer({ file, port: 0, policy: store, dashboardOrigins: [DASH] });
+    const before = readFileSync(policyFile, "utf8");
+    const port = srv.port;
+    const r = await new Promise<{ status: number; closed: Promise<void> }>((resolve, reject) => {
+      const req = request(
+        { host: "127.0.0.1", port, method: "PUT", path: "/policy", headers: { Host: `127.0.0.1:${port}`, "Content-Type": "application/json", "Content-Length": String(1024 * 1024) } },
+        (res) => {
+          res.resume();
+          resolve({ status: res.statusCode ?? 0, closed: new Promise<void>((done) => req.socket?.once("close", () => done())) });
+        },
+      );
+      req.on("error", () => {}); // the server closing the socket mid-upload is expected
+      req.flushHeaders(); // headers only: the 1 MiB body is never sent
+      setTimeout(() => reject(new Error("no 413 before the body was sent")), 1000).unref();
+    });
+    expect(r.status).toBe(413);
+    await r.closed; // the server closed the connection instead of reading 1 MiB
+    expect(readFileSync(policyFile, "utf8")).toBe(before);
+  });
+
   it("404s /policy and /health when no provider is wired", async () => {
     srv = await startServer({ file: join(tmpdir(), "nope.jsonl"), port: 0 });
     expect((await raw(srv.port, "GET", "/policy")).status).toBe(404);
@@ -205,9 +259,9 @@ describe("server: GET /health", () => {
     const VAULT = "0x17d867860a0A0Ff528dF655439ff59176b061B3C" as const;
     const GUARDIAN = "0x9858EfFD232B4033E47d90003D41EC34EcaEdA94" as const;
     const readBalance = vi.fn(async () => 2n * 10n ** 18n);
-    const readWindow = vi.fn(() => ({ live: true, remainingBlocks: 900n, remainingTxs: 9n, remainingValue: 123n, allowedTargets: [VAULT] }));
+    const readWindow = vi.fn(() => ({ live: true, remainingBlocks: 900n, remainingTxs: 9n, remainingValue: 10n ** 18n, allowedTargets: [VAULT] }));
     const health = createHealth({
-      guardian: GUARDIAN, gasLowWei: 5n * 10n ** 17n, readBalance, readWindow,
+      guardian: GUARDIAN, vault: VAULT, gasLowWei: 5n * 10n ** 17n, readBalance, readWindow,
       channels: { telegram: true, webhook: false }, notify: () => {}, log: () => {}, startedAt: "2026-11-21T09:00:00.000Z",
     });
     health.setTip(1234n);
@@ -223,7 +277,7 @@ describe("server: GET /health", () => {
       startedAt: "2026-11-21T09:00:00.000Z",
       lastBlock: "1234",
       lastBlockAt: expect.any(String),
-      window: { live: true, remainingBlocks: "900", remainingTxs: "9", remainingValue: "123" },
+      window: { live: true, remainingBlocks: "900", remainingTxs: "9", remainingValue: "1000000000000000000" },
       gas: { guardian: GUARDIAN, balance: "2000000000000000000", threshold: "500000000000000000", low: false },
       alerts: { telegram: true, webhook: false },
     });

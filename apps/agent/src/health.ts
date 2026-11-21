@@ -1,6 +1,6 @@
 import type { Hex } from "viem";
 import type { AlertEvent } from "./notify";
-import type { WindowStatus } from "./window";
+import { needsWindow, type WindowStatus } from "./window";
 
 /** Alert when the guardian holds less than 0.5 QOR (GAS_LOW_WEI): it pays every rescue tx and window open. */
 export const DEFAULT_GAS_LOW_WEI = 500_000_000_000_000_000n;
@@ -9,6 +9,8 @@ const TIP_STALE_MS = 30_000;
 
 export type HealthOptions = {
   guardian: Hex;
+  /** The vault the guardian window must target (window.ts `needsWindow`). */
+  vault: Hex;
   gasLowWei: bigint;
   readBalance: () => Promise<bigint>;
   /** The window keeper's last status read (no REST call). */
@@ -80,7 +82,8 @@ export function createHealth(opts: HealthOptions) {
       const low = balance !== null && balance < opts.gasLowWei;
       const tipFresh = lastBlockAt !== null && now().getTime() - lastBlockAt.getTime() <= TIP_STALE_MS;
       return {
-        ok: tipFresh && !!window?.live && balance !== null && !low,
+        // Usable as the rescue path sees it: live, scoped to this vault, enough blocks, txs and value left.
+        ok: tipFresh && !!w && !needsWindow(w, opts.vault) && balance !== null && !low,
         startedAt,
         lastBlock,
         lastBlockAt: lastBlockAt ? lastBlockAt.toISOString() : null,
