@@ -5,9 +5,16 @@ Testnet: `qorechain-diana` (EVM chain ID 9800) · Team: solo · Deadline: 2026-1
 
 ## 1. One-line description
 
-An **owner** with assets on the EVM lane lets a **Guardian agent** watch the account. When the ECDSA
-key leaks and an attacker starts draining, the agent **sweeps what is left into `GuardianVault`**,
-which only opens with the owner's ML-DSA-87 signature.
+An AI agent on testnet `qorechain-diana` that, when an owner's ECDSA key leaks during an open EVM
+window, sweeps their ERC-20 tokens into a vault that only opens with the owner's ML-DSA-87 key.
+
+Read precisely (updated 2026-11-21):
+- **What is swept:** the ERC-20s the owner approved to the vault (fUSD/fETH/fBTC). QOR on the EVM
+  lane is not swept; the window's budget caps what a leaked key can spend of it.
+- **What is detected:** not the leak itself but its symptom, an outbound transfer to an address
+  that is not on the owner's trusted list (or above a threshold), and only while an EVM window is open.
+- **What the AI does:** fixed rules in `apps/agent/src/rules.ts` decide every rescue. The LLM only
+  writes the signed incident summary and never decides to move funds.
 
 > Honest scope: native-lane transactions on QoreChain already require a hybrid signature. A leaked
 > ECDSA key only does damage inside an **open EVM window** and to assets on the EVM lane. The

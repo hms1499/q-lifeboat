@@ -3,10 +3,15 @@
 > **Status: work in progress** for QoreChain *Build Before Q-Day* (Post-Quantum AI Agents).
 > Testnet `qorechain-diana` only. Test tokens have no value.
 
+**An AI agent on testnet `qorechain-diana` that, when an owner's ECDSA key leaks during an open EVM
+window, sweeps their ERC-20 tokens into a vault that only opens with the owner's ML-DSA-87 key.**
+
 When an account's classical ECDSA key leaks, anything it can reach on the EVM lane is at risk
-while its EVM window is open. **Q-Day Guardian** is an AI agent that spots the drain and sweeps
-what is left into a `GuardianVault`, which only releases funds with the owner's **ML-DSA-87**
-(post-quantum) signature.
+while its EVM window is open. **Q-Day Guardian** spots the drain (a transfer to an address the owner
+doesn't trust) and sweeps the approved ERC-20s that are left into a `GuardianVault`, which only
+releases funds with the owner's **ML-DSA-87** (post-quantum) signature. Fixed rules decide every
+rescue; the AI only writes the signed incident report. QOR on the EVM lane is not swept: the
+window's budget caps it.
 
 The agent itself is boxed in. Its own account is the vault's immutable `guardian`, which may call
 **one function** (`GuardianVault.rescue`), inside an EVM window that targets only the vault. Its linked
