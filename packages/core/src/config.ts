@@ -7,6 +7,9 @@ export const NETWORK = {
   evmRpc: "https://evm-testnet.qore.host",
 } as const;
 
+/** Gas limit for `vault.withdraw` (CLI and dashboard). diana bills at least half of it (chain fact 5). */
+export const WITHDRAW_GAS = 1_000_000n;
+
 type Env = Record<string, string | undefined>;
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;

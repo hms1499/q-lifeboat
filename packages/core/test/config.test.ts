@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadTokens, loadVault } from "../src/config";
+import { loadTokens, loadVault, WITHDRAW_GAS } from "../src/config";
 
 const A = "0x1111111111111111111111111111111111111111";
 const B = "0x2222222222222222222222222222222222222222";
@@ -35,5 +35,11 @@ describe("loadTokens", () => {
     expect(() => loadTokens({ FUSD_ADDRESS: A, FETH_ADDRESS: "nope", FBTC_ADDRESS: C })).toThrow(
       /FETH_ADDRESS/,
     );
+  });
+});
+
+describe("WITHDRAW_GAS", () => {
+  it("is the 1M gas limit the CLI and the dashboard both send withdraw with", () => {
+    expect(WITHDRAW_GAS).toBe(1_000_000n);
   });
 });
