@@ -1,22 +1,19 @@
-import type { Incident } from "@qday/core";
 import type { EvmWindow } from "@qorechain/evm/window";
 import { useState } from "react";
 import { erc20Abi, getAbiItem, type Hex } from "viem";
-import { Command, ExtLink } from "../components/ui";
+import { ExtLink, WindowCommand } from "../components/ui";
 import { fetchHealth, fetchPolicy } from "../lib/agent";
 import { explorerTx, publicClient, readSpendingRules, readWindow } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { ago, fmtAmount, fmtInt, shortAddr, tokenSymbol } from "../lib/format";
 import { usePoll } from "../lib/hooks";
 import { big, incidentTag, triggerKind } from "../lib/incidents";
-import { coverage, describeAgentRule, labelCounterparty, windowTargetsLabel } from "../lib/overview";
+import { coverage, describeAgentRule, heroRescue, labelCounterparty, windowTargetsLabel } from "../lib/overview";
 import { useApp } from "../state";
 
 const SYMBOLS = ["fUSD", "fETH", "fBTC"] as const;
 const ACTIVITY_BLOCKS = 2000n;
 const BLOCK_SECONDS = 1.4;
-/** A rescue this recent turns the banner into "your tokens are safe". */
-const RECENT_RESCUE_MS = 30 * 60_000;
 
 type AssetRow = { sym: string; owner: bigint; vault: bigint | null; allowance: bigint | null };
 
@@ -58,15 +55,13 @@ async function readActivity(cfg: AgentConfig): Promise<{ tip: bigint; items: Act
   return { tip, items: items.slice(0, 25) };
 }
 
-function latestRescue(incidents: Incident[]): Incident | undefined {
-  const i = incidents.find((x) => incidentTag(x) === "Rescue" && x.rescues.some((r) => r.success));
-  return i && Date.now() - Date.parse(i.detectedAt) < RECENT_RESCUE_MS ? i : undefined;
-}
-
 function Hero({ cfg, win, winError }: { cfg: AgentConfig; win: EvmWindow | undefined; winError: string | null }) {
-  const { incidents } = useApp();
+  const { incidents, verdictFor } = useApp();
   const [show, setShow] = useState<"close" | "open" | null>(null);
-  const rescue = latestRescue(incidents);
+  const reported = heroRescue(incidents, verdictFor);
+  // "Your tokens are safe" only for a report verified against the chain (Review: never from the agent's word alone).
+  const rescue = reported?.state === "safe" ? reported.incident : undefined;
+  const doubt = reported && reported.state !== "safe" ? reported : undefined;
   const open = !!win?.live;
 
   let kicker: string;
@@ -84,6 +79,14 @@ function Hero({ cfg, win, winError }: { cfg: AgentConfig; win: EvmWindow | undef
       triggerKind(rescue) === "approval"
         ? `At block #${fmtInt(String(t.block))} your ECDSA key approved ${shortAddr(t.to)}, a spender you don't trust, for ${sym}. The Guardian moved ${kept.join(", ")} into your vault. Treat that key as leaked.`
         : `At block #${fmtInt(String(t.block))} your ECDSA key sent ${fmtAmount(big(t.amount))} ${sym} to ${shortAddr(t.to)}, an address you don't trust. The Guardian moved ${kept.join(", ")} into your vault. Treat that key as leaked.`;
+  } else if (doubt) {
+    tone = doubt.state === "unverified" ? "rescued" : open ? "open" : "";
+    kicker = doubt.state === "unverified" ? `Unverified rescue report · ${ago(doubt.incident.detectedAt)}` : "Checking a rescue report";
+    title = doubt.state === "unverified" ? "The agent reports a rescue that did not verify" : "Checking the agent's rescue report…";
+    body =
+      doubt.state === "unverified"
+        ? "Its report failed a check against the chain (signature, linked key or the rescue txs), so this page does not treat your tokens as safe. Open the report to see which check failed, and check your balances below."
+        : "The agent reports a rescue. This page shows it as safe only once the signed report checks out against the chain.";
   } else if (open) {
     kicker = "Protected · Guardian is watching";
     title = "Your EVM window is open";
@@ -116,10 +119,15 @@ function Hero({ cfg, win, winError }: { cfg: AgentConfig; win: EvmWindow | undef
                 Close EVM window now
               </button>
             ) : null}
-            {!open && win && !rescue ? (
+            {!open && win && !rescue && !doubt ? (
               <button type="button" className="btn" onClick={() => setShow(show === "open" ? null : "open")} aria-expanded={show === "open"}>
                 Open a scoped window
               </button>
+            ) : null}
+            {doubt ? (
+              <a className="btn" href={`#/incidents/${encodeURIComponent(doubt.incident.id)}`}>
+                View the report
+              </a>
             ) : null}
             {rescue ? (
               <>
@@ -133,16 +141,16 @@ function Hero({ cfg, win, winError }: { cfg: AgentConfig; win: EvmWindow | undef
             ) : null}
           </div>
           {show === "close" && open ? (
-            <Command cmd="pnpm cli window close">
+            <WindowCommand action="close" owner={cfg.owner}>
               Closing sends <span className="mono">MsgCloseEVMWindow</span>, a hybrid tx (ECDSA + your ML-DSA-87 key). No browser wallet can sign
               one on diana yet, so run this in the repo root. It takes effect in the same block.
-            </Command>
+            </WindowCommand>
           ) : null}
           {show === "open" && !open ? (
-            <Command cmd="pnpm cli window open">
-              Opens 1,800 blocks (~42 min) and 5 txs, scoped to fUSD, fETH, fBTC, your vault and the guardian. Keep it short; close it when you are
-              done. Hybrid tx, so it runs from the CLI.
-            </Command>
+            <WindowCommand action="open" owner={cfg.owner}>
+              Opens 1,800 blocks (~42 min) and 5 txs, scoped to fUSD, fETH, fBTC and your vault (plus the guardian, for QOR top-ups that come in 6E).
+              Its budget covers fees only. Keep it short; close it when you are done. Hybrid tx, so it runs from the CLI.
+            </WindowCommand>
           ) : null}
         </div>
         <div className="window-box">

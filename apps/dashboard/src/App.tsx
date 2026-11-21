@@ -1,5 +1,5 @@
 import { APP_NAME } from "./brand";
-import { ShieldIcon } from "./components/ui";
+import { ScreenBoundary, ShieldIcon } from "./components/ui";
 import { explorerAddress } from "./lib/chain";
 import { shortAddr } from "./lib/format";
 import { useHashRoute } from "./lib/hooks";
@@ -91,7 +91,9 @@ export function App() {
       <TopBar active={active} />
       <main>
         <Banners />
-        {active === "incidents" ? <Incidents selected={id} /> : active === "recover" ? <Recover /> : <Overview />}
+        <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
+          {active === "incidents" ? <Incidents selected={id} /> : active === "recover" ? <Recover /> : <Overview />}
+        </ScreenBoundary>
       </main>
     </>
   );

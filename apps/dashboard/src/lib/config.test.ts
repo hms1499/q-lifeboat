@@ -1,6 +1,6 @@
 import { NETWORK } from "@qday/core";
 import { describe, expect, it } from "vitest";
-import { DIANA_REST, REST_PROXY_PATH as VITE_PROXY_PATH } from "../../vite.config";
+import { DIANA_REST, REST_PROXY_PATH as VITE_PROXY_PATH, restProxyRewrite } from "../../vite.config";
 import { REST_PROXY_PATH } from "./chain";
 import { checkConfigOnChain, loadCachedConfig, parseAgentConfig, saveCachedConfig, type AgentConfig } from "./config";
 
@@ -58,5 +58,14 @@ describe("REST proxy target", () => {
   it("vite.config's DIANA_REST is NETWORK.rest, and the browser uses the proxy path vite serves", () => {
     expect(DIANA_REST).toBe(NETWORK.rest);
     expect(REST_PROXY_PATH).toBe(VITE_PROXY_PATH);
+  });
+});
+
+describe("restProxyRewrite", () => {
+  it("strips /qore-rest only as a whole path segment", () => {
+    expect(restProxyRewrite("/qore-rest/qorechain/pqc/v1/evm_window/qor1x")).toBe("/qorechain/pqc/v1/evm_window/qor1x");
+    expect(restProxyRewrite("/qore-rest")).toBe("/");
+    expect(restProxyRewrite("/qore-rest?x=1")).toBe("/?x=1");
+    expect(restProxyRewrite("/qore-restx/y")).toBe("/qore-restx/y");
   });
 });

@@ -1,7 +1,7 @@
 import { RESCUE_SELECTOR } from "@qday/core";
 import { maxUint256 } from "viem";
 import { describe, expect, it } from "vitest";
-import { coverage, describeAgentRule, labelCounterparty, windowTargetsLabel } from "./overview";
+import { coverage, describeAgentRule, heroRescue, labelCounterparty, windowTargetsLabel } from "./overview";
 
 const VAULT = "0x17d867860a0A0Ff528dF655439ff59176b061B3C";
 const cfg = {
@@ -65,5 +65,41 @@ describe("windowTargetsLabel", () => {
       "fUSD, vault, guardian + 1 other",
     );
     expect(windowTargetsLabel([], cfg)).toBe("any address (unscoped)");
+  });
+});
+
+describe("heroRescue (the 'your tokens are safe' banner)", () => {
+  const NOW = Date.parse("2026-11-21T12:00:00.000Z");
+  const rescue = (id: string, sig: string, min: number, success = true) =>
+    ({ id, sig, detectedAt: new Date(NOW - min * 60_000).toISOString(), rescues: [{ success }] }) as never;
+  const ok = { ok: true, checks: [] };
+  const bad = { ok: false, checks: [] };
+
+  it("test_safeOnlyWhenThatReportIsVerified: safe only when the verdict for that exact report is ok", () => {
+    const i = rescue("a", "s1", 5);
+    expect(heroRescue([i], () => ok, NOW)).toEqual({ incident: i, state: "safe" });
+  });
+
+  it("a failed verdict → 'unverified', never 'safe'", () => {
+    const i = rescue("a", "s1", 5);
+    expect(heroRescue([i], () => bad, NOW)).toEqual({ incident: i, state: "unverified" });
+  });
+
+  it("no verdict yet → 'pending', never 'safe'", () => {
+    const i = rescue("a", "s1", 5);
+    expect(heroRescue([i], () => undefined, NOW)).toEqual({ incident: i, state: "pending" });
+  });
+
+  it("asks the verdict for that incident object (id + sig), not another one", () => {
+    const i = rescue("a", "s2", 5);
+    const seen: unknown[] = [];
+    heroRescue([i], (x) => (seen.push(x), ok), NOW);
+    expect(seen).toEqual([i]);
+  });
+
+  it("ignores old rescues, alerts and failed-only rescues", () => {
+    expect(heroRescue([rescue("a", "s", 31)], () => ok, NOW)).toBeUndefined();
+    expect(heroRescue([{ id: "b", sig: "s", detectedAt: new Date(NOW).toISOString(), rescues: [] } as never], () => ok, NOW)).toBeUndefined();
+    expect(heroRescue([rescue("c", "s", 1, false)], () => ok, NOW)).toBeUndefined();
   });
 });

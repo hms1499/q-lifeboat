@@ -9,12 +9,11 @@ import { APP_NAME } from "./src/brand";
 export const DIANA_REST = "https://api-testnet.qore.host";
 export const REST_PROXY_PATH = "/qore-rest";
 
+/** Strip the prefix only as a whole path segment: /qore-rest/x → /x, /qore-rest → /, /qore-restx stays as it is. */
+export const restProxyRewrite = (path: string) => path.replace(/^\/qore-rest(?=\/|\?|$)/, "").replace(/^(?=\?|$)/, "/");
+
 const proxy = {
-  [REST_PROXY_PATH]: {
-    target: DIANA_REST,
-    changeOrigin: true,
-    rewrite: (path: string) => path.slice(REST_PROXY_PATH.length) || "/",
-  },
+  [REST_PROXY_PATH]: { target: DIANA_REST, changeOrigin: true, rewrite: restProxyRewrite },
 };
 
 /** index.html's <title> comes from APP_NAME too (main.tsx also sets it at runtime). */

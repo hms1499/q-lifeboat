@@ -1,7 +1,8 @@
-import { RESCUE_SELECTOR } from "@qday/core";
+import { RESCUE_SELECTOR, type Incident } from "@qday/core";
 import type { SpendingRules } from "@qorechain/sdk";
 import { maxUint256 } from "viem";
 import type { Policy } from "./agent";
+import type { VerifyResult } from "./verify";
 import type { AgentConfig } from "./config";
 import { shortAddr } from "./format";
 
@@ -52,4 +53,25 @@ export function windowTargetsLabel(targets: readonly string[], cfg: Cfg): string
   const known = targets.map((t) => names[lc(t)]).filter(Boolean);
   const other = targets.length - known.length;
   return [known.join(", "), other ? `${other} other` : ""].filter(Boolean).join(" + ");
+}
+
+/** A rescue this recent drives the Overview banner. */
+export const RECENT_RESCUE_MS = 30 * 60_000;
+
+/**
+ * The newest recent incident with a successful rescue, and what the banner may say about it: "safe" only when the
+ * verdict for that exact report (id + sig, current config) is ok. Unverified or pending reports never read as safe.
+ * `incidents` is newest first.
+ */
+export function heroRescue(
+  incidents: readonly Incident[],
+  verdictFor: (i: Incident) => VerifyResult | undefined,
+  now: number = Date.now(),
+): { incident: Incident; state: "safe" | "unverified" | "pending" } | undefined {
+  const incident = incidents.find((x) => Array.isArray(x.rescues) && x.rescues.some((r) => r.success === true));
+  if (!incident) return undefined;
+  const t = Date.parse(incident.detectedAt);
+  if (Number.isNaN(t) || now - t >= RECENT_RESCUE_MS) return undefined;
+  const v = verdictFor(incident);
+  return { incident, state: v === undefined ? "pending" : v.ok === true ? "safe" : "unverified" };
 }

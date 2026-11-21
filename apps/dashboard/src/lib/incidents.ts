@@ -25,16 +25,45 @@ export function incidentTag(i: Incident): "Rescue" | "Alert" {
   return Array.isArray(i.rescues) && i.rescues.length > 0 ? "Rescue" : "Alert";
 }
 
-/** Add a live (SSE) incident unless its id is already listed; result sorted. */
+/**
+ * Add a live (SSE) incident; a replay of the same body is ignored, a new body under a known id replaces the old one
+ * (its verdict is then pending until it is verified: see verifyPolicy). Result sorted.
+ */
 export function mergeIncident(list: readonly Incident[], incoming: Incident): Incident[] {
-  if (list.some((i) => i.id === incoming.id)) return sortIncidents(list);
-  return sortIncidents([...list, incoming]);
+  const at = list.findIndex((i) => i.id === incoming.id);
+  if (at < 0) return sortIncidents([...list, incoming]);
+  if (list[at].sig === incoming.sig) return sortIncidents(list);
+  return sortIncidents(list.map((i, n) => (n === at ? incoming : i)));
 }
 
-/** The /incidents body: keep the entries that are objects with a string id. */
-export function parseIncidentList(body: unknown): Incident[] {
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const isStr = (v: unknown): v is string => typeof v === "string";
+const isAddr = (v: unknown) => isStr(v) && /^0x[0-9a-fA-F]{40}$/.test(v);
+const isDec = (v: unknown) => isStr(v) && /^\d{1,78}$/.test(v);
+
+/**
+ * The fields the screens and verify.ts read, with the types they assume (bigints arrive as decimal strings). Only a
+ * shape check: whether the content is TRUE is verify.ts's job.
+ */
+export function isIncidentShape(x: unknown): x is Incident {
+  if (!isObj(x)) return false;
+  if (!isStr(x.id) || !isStr(x.detectedAt) || !isStr(x.reason) || !isStr(x.summary) || !isStr(x.summarySource)) return false;
+  if (!isStr(x.agentPubkey) || !isStr(x.sig)) return false;
+  const t = x.trigger;
+  if (!isObj(t) || !isStr(t.hash) || !isDec(t.block) || !isAddr(t.token) || !isAddr(t.to) || !isDec(t.amount)) return false;
+  if (t.kind !== undefined && t.kind !== "transfer" && t.kind !== "approval") return false;
+  if (!Array.isArray(x.rescues)) return false;
+  return x.rescues.every(
+    (r) => isObj(r) && isAddr(r.token) && isStr(r.hash) && isDec(r.amount) && typeof r.success === "boolean" && (r.error === undefined || isStr(r.error)),
+  );
+}
+
+/** The /incidents body (or one SSE frame): malformed entries are dropped (and counted) so they cannot crash a screen. */
+export function parseIncidentList(body: unknown, onDropped?: (n: number) => void): Incident[] {
   if (!Array.isArray(body)) return [];
-  return body.filter((i): i is Incident => !!i && typeof i === "object" && typeof (i as { id?: unknown }).id === "string");
+  const ok = body.filter(isIncidentShape);
+  if (ok.length < body.length) onDropped?.(body.length - ok.length);
+  return ok;
 }
 
 /** A JSON decimal string (or bigint) as bigint; 0n when unreadable. For display only. */

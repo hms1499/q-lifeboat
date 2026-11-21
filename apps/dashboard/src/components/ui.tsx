@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { Component, useState, type ErrorInfo, type ReactNode } from "react";
 import type { CheckStatus } from "../lib/verify";
 
 export function ShieldIcon({ size = 26 }: { size?: number }) {
@@ -57,4 +57,48 @@ export function ExtLink({ href, children }: { href: string; children: ReactNode 
       {children}
     </a>
   );
+}
+
+/**
+ * `pnpm cli window open|close --expect <owner>`: the CLI signs for OWNER_MNEMONIC and refuses before signing when that
+ * is not the watched owner (a demo.sh run's fresh owner is not the root .env owner).
+ */
+export function WindowCommand({ action, owner, children }: { action: "open" | "close"; owner: string; children?: ReactNode }) {
+  return (
+    <Command cmd={`pnpm cli window ${action} --expect ${owner}`}>
+      {children}
+      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
+        It refuses to sign unless the CLI's owner is {owner}. For a demo.sh owner, run it with that run's env:{" "}
+        <span className="mono wrap-any">
+          (set -a &amp;&amp; . ~/.config/qday/runs/&lt;run id&gt;/run.env &amp;&amp; set +a &amp;&amp; pnpm cli window {action} --expect {owner})
+        </span>
+      </div>
+    </Command>
+  );
+}
+
+/** A screen that throws shows this instead of blanking the whole app (the top bar and banners stay up). */
+export class ScreenBoundary extends Component<{ children: ReactNode; resetKey: string }, { error: string | null; key: string }> {
+  state = { error: null as string | null, key: this.props.resetKey };
+
+  static getDerivedStateFromError(e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+
+  static getDerivedStateFromProps(props: { resetKey: string }, state: { error: string | null; key: string }) {
+    return props.resetKey !== state.key ? { error: null, key: props.resetKey } : null;
+  }
+
+  componentDidCatch(e: unknown, info: ErrorInfo) {
+    console.error("screen error", e, info.componentStack);
+  }
+
+  render() {
+    if (this.state.error === null) return this.props.children;
+    return (
+      <div className="banner bad" role="alert">
+        <strong>This screen hit an error and stopped.</strong> {this.state.error}. Other screens still work; reload to try again.
+      </div>
+    );
+  }
 }

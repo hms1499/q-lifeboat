@@ -26,7 +26,8 @@ async function getJson(path: string, timeoutMs = 5000): Promise<unknown> {
 }
 
 export const fetchConfig = async (): Promise<AgentConfig> => parseAgentConfig(await getJson("/config"));
-export const fetchIncidents = async (): Promise<Incident[]> => parseIncidentList(await getJson("/incidents"));
+const warnDropped = (n: number) => console.warn(`dropped ${n} malformed incident(s) from the agent`);
+export const fetchIncidents = async (): Promise<Incident[]> => parseIncidentList(await getJson("/incidents"), warnDropped);
 export const fetchHealth = async (): Promise<Health> => (await getJson("/health")) as Health;
 
 export async function fetchPolicy(): Promise<Policy> {
@@ -42,7 +43,7 @@ export function subscribeIncidents(onIncident: (i: Incident) => void, onOpen: ()
   es.addEventListener("error", onDown);
   es.addEventListener("incident", (ev) => {
     try {
-      const [i] = parseIncidentList([JSON.parse((ev as MessageEvent<string>).data)]);
+      const [i] = parseIncidentList([JSON.parse((ev as MessageEvent<string>).data)], warnDropped);
       if (i) onIncident(i);
     } catch {
       // a malformed frame is dropped; the next /incidents fetch has the truth

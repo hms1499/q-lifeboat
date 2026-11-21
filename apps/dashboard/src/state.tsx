@@ -8,6 +8,7 @@ import { errorText } from "./lib/format";
 import { usePoll } from "./lib/hooks";
 import { mergeIncident, sortIncidents } from "./lib/incidents";
 import { verifyReport, type VerifyResult } from "./lib/verify";
+import { configKey, needsVerification, shownVerification, type StoredVerification } from "./lib/verifyPolicy";
 
 const CONFIG_POLL_MS = 10_000;
 const REVERIFY_MS = 60_000;
@@ -36,7 +37,8 @@ type AppData = {
   config: ConfigState;
   incidents: Incident[];
   incidentsError: string | null;
-  verifications: Record<string, VerifyResult | undefined>;
+  /** The verdict for this exact report (id + sig) under the current config; undefined = pending (never a stale ✓). */
+  verdictFor: (i: Incident) => VerifyResult | undefined;
   wallet: WalletState;
   setWallet: (w: WalletState) => void;
 };
@@ -55,7 +57,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [agentOnline, setAgentOnline] = useState(false);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [incidentsError, setIncidentsError] = useState<string | null>(null);
-  const [verifications, setVerifications] = useState<Record<string, VerifyResult | undefined>>({});
+  const [store, setStore] = useState<Record<string, StoredVerification | undefined>>({});
   const [wallet, setWallet] = useState<WalletState>(null);
 
   const refreshConfig = useCallback(async () => {
@@ -99,7 +101,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshConfig, refreshIncidents]);
 
-  // The config is the agent's word only: hold it against the vault's immutable owner and guardian.
+  // The config is the agent's word only: hold it against the vault's immutable owner and guardian. Each verdict is
+  // tagged with the config it was read for, so a verdict for the previous config is never used for a new one.
+  const cfgId = cfg ? `${cfg.owner}/${cfg.vault}/${cfg.guardian}`.toLowerCase() : null;
   const checkPoll = usePoll(
     async () => {
       if (!cfg) throw new Error("no config");
@@ -107,58 +111,73 @@ export function AppProvider({ children }: { children: ReactNode }) {
         publicClient.readContract({ address: cfg.vault, abi: vaultAbi, functionName: "owner" }),
         publicClient.readContract({ address: cfg.vault, abi: vaultAbi, functionName: "guardian" }),
       ]);
-      return checkConfigOnChain(cfg, { owner, guardian });
+      return { cfgId: `${cfg.owner}/${cfg.vault}/${cfg.guardian}`.toLowerCase(), ...checkConfigOnChain(cfg, { owner, guardian }) };
     },
     15_000,
-    cfg ? `${cfg.owner}/${cfg.vault}/${cfg.guardian}` : null,
+    cfgId,
   );
-  const check = checkPoll.data ?? null;
+  const check = checkPoll.data && checkPoll.data.cfgId === cfgId ? { ok: checkPoll.data.ok, detail: checkPoll.data.detail } : null;
 
-  // Verify every report against the configured owner. Re-run on new incidents, a config change and once a minute
-  // (a key may be revoked meanwhile).
-  const [tick, setTick] = useState(0);
+  // Verify every report against the configured owner: a new report, a new body under a known id, a config change, and
+  // once a minute (a key may be revoked meanwhile). Results are keyed by id but carry the body's sig and the config
+  // key; verifyPolicy decides what may be shown, so nothing is shown as ✓ for another body or config.
+  const [round, setRound] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setTick((n) => n + 1), REVERIFY_MS);
+    const t = setInterval(() => setRound((n) => n + 1), REVERIFY_MS);
     return () => clearInterval(t);
   }, []);
-  const verifyKey = cfg && check ? `${cfg.owner}/${cfg.vault}/${check.ok}/${tick}` : null;
-  const lastKey = useRef<string | null>(null);
+  const key = configKey(cfg, check);
+  const inFlight = useRef(new Set<string>());
+  const mounted = useRef(true);
   useEffect(() => {
-    if (!cfg || !check || !verifyKey) return;
-    const fresh = lastKey.current !== verifyKey;
-    const todo = incidents.filter((i) => fresh || !verifications[i.id]);
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!cfg || !check || key === null) return;
+    const todo = incidents.filter((i) => needsVerification(i, store[i.id], key, round) && !inFlight.current.has(`${i.id}/${i.sig}/${key}/${round}`));
     if (!todo.length) return;
-    lastKey.current = verifyKey;
-    let live = true;
-    let done = false;
+    const tags = todo.map((i) => `${i.id}/${i.sig}/${key}/${round}`);
+    tags.forEach((t) => inFlight.current.add(t));
+    const vault = cfg.vault;
+    const owner = cfg.owner;
+    const cfgCheck = check;
     void (async () => {
       let authenticators: Awaited<ReturnType<typeof readAuthenticators>>;
       try {
-        authenticators = await readAuthenticators(cfg.owner);
+        authenticators = await readAuthenticators(owner);
       } catch (e) {
         // Unknown is never read as "linked": every report fails the key checks until the read works.
         authenticators = [];
         console.warn(`authenticators read failed: ${errorText(e)}`);
       }
-      const ctx = { authenticators, nowUnix: Math.floor(Date.now() / 1000), vault: cfg.vault, readReceipt, config: check };
-      const results = await Promise.all(todo.map(async (i) => [i.id, await verifyReport(i, ctx)] as const));
-      done = true;
-      if (live) setVerifications((v) => ({ ...v, ...Object.fromEntries(results) }));
+      const ctx = { authenticators, nowUnix: Math.floor(Date.now() / 1000), vault, readReceipt, config: cfgCheck };
+      const results = await Promise.all(
+        todo.map(async (i) => [i.id, { sig: i.sig, configKey: key, round, result: await verifyReport(i, ctx) }] as const),
+      );
+      tags.forEach((t) => inFlight.current.delete(t));
+      // Stored whatever happened meanwhile: each entry names its body and config, and is shown only if both still match.
+      if (mounted.current) {
+        setStore((st) => {
+          const next = { ...st };
+          for (const [id, v] of results) if (!next[id] || next[id]!.round <= v.round) next[id] = v;
+          return next;
+        });
+      }
     })();
-    return () => {
-      live = false;
-      // A batch cut short by a newer render is redone in full, so no report keeps a result from an older config.
-      if (!done && lastKey.current === verifyKey) lastKey.current = null;
-    };
-    // `verifications` is read only to skip ids already done.
+    // `store` is read only to skip work already done.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incidents, verifyKey]);
+  }, [incidents, key, round]);
+
+  const verdictFor = useCallback((i: Incident) => shownVerification(i, store[i.id], key), [store, key]);
 
   const config: ConfigState = { cfg, source, agentOnline, check, checkError: checkPoll.error };
   const value = useMemo(
-    () => ({ config, incidents, incidentsError, verifications, wallet, setWallet }),
+    () => ({ config, incidents, incidentsError, verdictFor, wallet, setWallet }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cfg, source, agentOnline, check, checkPoll.error, incidents, incidentsError, verifications, wallet],
+    [cfg, source, agentOnline, key, check?.detail, checkPoll.error, incidents, incidentsError, verdictFor, wallet],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

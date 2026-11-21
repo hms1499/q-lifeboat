@@ -41,6 +41,7 @@ export function parseWithdrawalJson(text: string): ParsedWithdrawal {
   };
   const vault = addr("vault");
   const to = addr("to");
+  if (/^0x0{40}$/.test(to)) throw new Error(`"to" is the zero address: the funds would be burned`);
   const token = addr("token");
   const amount = dec("amount");
   if (amount === 0n) throw new Error(`"amount" must be greater than zero`);

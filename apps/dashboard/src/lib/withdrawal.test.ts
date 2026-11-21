@@ -136,3 +136,10 @@ describe("parseWithdrawalJson checksum", () => {
     expect(parse({ ...f, to: f.to.toLowerCase() }).to).toBe(f.to.toLowerCase());
   });
 });
+
+describe("parseWithdrawalJson recipient", () => {
+  it("test_refusesZeroAddressRecipient: paying to 0x0 would burn the funds", () => {
+    const f = signed().file;
+    expect(() => parse({ ...f, to: QOR })).toThrow(/zero address/);
+  });
+});

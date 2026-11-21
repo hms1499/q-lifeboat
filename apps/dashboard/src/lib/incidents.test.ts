@@ -4,6 +4,19 @@ import { incidentTag, mergeIncident, parseIncidentList, sortIncidents, triggerKi
 const inc = (id: string, detectedAt: string, extra: Record<string, unknown> = {}) =>
   ({ id, detectedAt, trigger: { kind: "transfer" }, rescues: [], ...extra }) as never;
 
+/** A well-formed incident as the agent serves it (bigints as decimal strings). */
+const full = () => ({
+  id: "ok-1",
+  detectedAt: "2026-11-21T10:00:00.000Z",
+  trigger: { kind: "transfer", hash: `0x${"cc".repeat(32)}`, block: "100", token: "0x1111111111111111111111111111111111111111", to: "0x2222222222222222222222222222222222222222", amount: "10" },
+  reason: "r",
+  rescues: [{ token: "0x1111111111111111111111111111111111111111", hash: `0x${"aa".repeat(32)}`, amount: "90", expected: "90", success: true }],
+  summary: "s",
+  summarySource: "template",
+  agentPubkey: "ab".repeat(32),
+  sig: "cd".repeat(64),
+});
+
 describe("sortIncidents", () => {
   it("sorts by detectedAt, newest first, whatever the file order (6C appends out of order)", () => {
     const list = [inc("b", "2026-11-21T10:00:01.000Z"), inc("c", "2026-11-21T09:59:59.000Z"), inc("a", "2026-11-21T10:00:05.000Z")];
@@ -38,12 +51,38 @@ describe("mergeIncident / parseIncidentList", () => {
   it("adds a live incident once (SSE replay or reconnect never duplicates)", () => {
     const list = [inc("a", "2026-11-21T10:00:00.000Z")];
     const one = mergeIncident(list, inc("b", "2026-11-21T10:00:09.000Z"));
+    // a new body under a known id replaces the old one (it is then verified afresh)
+    const replaced = mergeIncident(one, { ...(inc("b", "2026-11-21T10:00:09.000Z") as object), sig: "new" } as never);
+    expect(replaced.find((i: { id: string }) => i.id === "b")).toMatchObject({ sig: "new" });
     expect(one.map((i: { id: string }) => i.id)).toEqual(["b", "a"]);
     expect(mergeIncident(one, inc("b", "2026-11-21T10:00:09.000Z"))).toHaveLength(2);
   });
 
-  it("keeps only objects with a string id from the /incidents body", () => {
-    expect(parseIncidentList([inc("a", "t"), null, 5, { id: 3 }, { nope: 1 }]).map((i: { id: string }) => i.id)).toEqual(["a"]);
+  it("keeps only well-formed incidents from the /incidents body", () => {
+    expect(parseIncidentList([full(), null, 5, { id: 3 }, { nope: 1 }]).map((i: { id: string }) => i.id)).toEqual(["ok-1"]);
     expect(parseIncidentList({ not: "an array" })).toEqual([]);
+  });
+
+  it("test_dropsMalformedIncidents: anything the screens would crash on is dropped, a valid old (no kind) one is kept", () => {
+    const good = full();
+    const { kind: _k, ...oldTrigger } = good.trigger;
+    expect(parseIncidentList([{ ...good, trigger: oldTrigger }])).toHaveLength(1);
+    const bad = [
+      { ...good, rescues: "x" },
+      { ...good, rescues: [{ ...good.rescues[0], token: 5 }] },
+      { ...good, rescues: [{ ...good.rescues[0], success: "yes" }] },
+      { ...good, rescues: [{ ...good.rescues[0], amount: 90 }] },
+      { ...good, rescues: [null] },
+      { ...good, trigger: null },
+      { ...good, trigger: { ...good.trigger, token: undefined } },
+      { ...good, trigger: { ...good.trigger, to: "nope" } },
+      { ...good, trigger: { ...good.trigger, amount: "1e18" } },
+      { ...good, trigger: { ...good.trigger, kind: "mint" } },
+      { ...good, detectedAt: 7 },
+      { ...good, summary: null },
+      { ...good, sig: 1 },
+      { ...good, agentPubkey: undefined },
+    ];
+    for (const b of bad) expect(parseIncidentList([b]), JSON.stringify(b).slice(0, 80)).toEqual([]);
   });
 });

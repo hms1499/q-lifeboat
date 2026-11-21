@@ -1,7 +1,7 @@
 import { NETWORK, vaultAbi, WITHDRAW_GAS } from "@qday/core";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { erc20Abi, zeroAddress, type Hex } from "viem";
-import { CheckRow, Command, ExtLink } from "../components/ui";
+import { CheckRow, Command, ExtLink, WindowCommand } from "../components/ui";
 import { explorerTx, publicClient, readPqcStatus, readWindow } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { errorText, fmtAmount, fmtInt, shortAddr, shortHash, tokenSymbol } from "../lib/format";
@@ -319,10 +319,11 @@ export function Recover() {
               {walletError ? <div className="err">{walletError}</div> : null}
               {wallet && win && !win.live ? (
                 isOwner ? (
-                  <Command cmd="pnpm cli window open">
+                  <WindowCommand action="open" owner={cfg.owner}>
                     Every EVM tx on diana needs a live window, opened by a hybrid tx the browser can't sign. Run this in the repo root (it opens the owner's
-                    window, scoped to the vault among others), then come back. Close it afterwards with <span className="mono">pnpm cli window close</span>.
-                  </Command>
+                    window, scoped to the vault among others), then come back. Close it afterwards with{" "}
+                    <span className="mono">pnpm cli window close --expect {cfg.owner}</span>.
+                  </WindowCommand>
                 ) : (
                   <div className="banner warn" style={{ marginBottom: 14 }}>
                     This account has no live EVM window. <span className="mono">pnpm cli window open</span> opens the owner's window only: connect the owner

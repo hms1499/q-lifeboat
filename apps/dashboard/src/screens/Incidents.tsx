@@ -209,7 +209,7 @@ function Detail({ i, cfg, v }: { i: Incident; cfg: AgentConfig | null; v: Verify
 }
 
 export function Incidents({ selected }: { selected?: string }) {
-  const { incidents, incidentsError, verifications, config } = useApp();
+  const { incidents, incidentsError, verdictFor, config } = useApp();
   const cfg = config.cfg;
   const current = incidents.find((i) => i.id === selected) ?? incidents[0];
 
@@ -224,7 +224,7 @@ export function Incidents({ selected }: { selected?: string }) {
           <section aria-label="Incident list" className="inc-list">
             {incidents.map((i) => {
               const tag = incidentTag(i);
-              const v = verifications[i.id];
+              const v = verdictFor(i);
               return (
                 <a key={i.id} className="inc-item" href={`#/incidents/${encodeURIComponent(i.id)}`} aria-current={i === current ? "true" : undefined}>
                   <span className="between" style={{ alignItems: "center" }}>
@@ -239,7 +239,7 @@ export function Incidents({ selected }: { selected?: string }) {
               );
             })}
           </section>
-          {current ? <Detail key={current.id} i={current} cfg={cfg} v={verifications[current.id]} /> : null}
+          {current ? <Detail key={current.id} i={current} cfg={cfg} v={verdictFor(current)} /> : null}
         </div>
       ) : null}
     </>
