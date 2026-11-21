@@ -35,7 +35,7 @@ describe("formatAlert", () => {
 
   it("headlines RESCUE FAILED with the error when the rescue itself errored (never 'nothing to move')", () => {
     const t = formatAlert({ ...rescue, rescues: [], error: "guardian window still not usable after opening" });
-    expect(t).toMatch(/^Q-Day Guardian: RESCUE FAILED/);
+    expect(t).toMatch(/^Q-Lifeboat: RESCUE FAILED/);
     expect(t).toContain("guardian window still not usable after opening");
     expect(t).not.toMatch(/nothing to move/);
     expect(formatAlert(rescue)).not.toMatch(/FAILED:/);

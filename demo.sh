@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Q-Day Guardian end-to-end demo on qorechain-diana (Task 5).
+# Q-Lifeboat end-to-end demo on qorechain-diana (Task 5).
 #
 #   ./demo.sh            one run
 #   ./demo.sh --runs 3   three runs in a row, each from a FRESH owner; stops at the first FAIL

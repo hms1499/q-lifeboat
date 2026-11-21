@@ -1,4 +1,4 @@
-# Q-Day Guardian
+# Q-Lifeboat (formerly Q-Day Guardian)
 
 AI agent that rescues a QoreChain account's EVM-lane assets into an ML-DSA-87-locked vault when the
 account's classical (ECDSA) key leaks. Entry for **QoreChain Build Before Q-Day**, category
