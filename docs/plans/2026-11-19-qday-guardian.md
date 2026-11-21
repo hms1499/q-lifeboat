@@ -32,7 +32,10 @@
 2. The message signed in TS must match the message Solidity builds byte for byte. Otherwise every withdraw reverts. Shared test vector in Task 2.
 3. After `vault.withdraw` the nonce increments, so resubmitting an old signature must be rejected. Test in Task 1.
 4. The owner's own outbound tx to an allowlisted address must not trigger a rescue (false positive). Test in Task 4.
-5. An incident report with a valid signature from a key that is **not** the currently linked authenticator must show ✗ on the dashboard. Test in Task 6.
+5. An incident report with a valid signature from a key that is **not** the currently linked authenticator must show ✗ on the dashboard. Test in Task 6D.
+6. Someone holding only the leaked ECDSA key must not be able to add themselves to the trusted list. The policy API binds 127.0.0.1 only and has no remote write path. Test in Task 6C.
+7. An `Approval` to the vault with value 0 (the attacker revoking our allowance, T5) is never treated as benign in silence: it raises an alert and an incident even though no rescue can follow. Test in Task 6B.
+8. Alerts, the LLM summary and `/health` can never delay or block a rescue: rescue first, then report and notify, and a failing notifier is logged and skipped. Test in Task 6C.
 
 ---
 
@@ -179,24 +182,75 @@ As built (5A, local code + unit tests only, 2026-11-20; the diana runs are 5B): 
 - [x] **Step 2:** Run 3 times in a row with fresh accounts. Expected: all 3 pass. Record the tx hashes in `EVIDENCE.md`.
 - [x] **Step 3:** Commit.
 
-### Task 6: Dashboard (Nov 28–29)
+### Task 6: Product surface, direction A (Nov 22–29)
 
-**Files:**
-- Create: `apps/dashboard/` (Vite React TS), with `src/panels/Status.tsx`, `Incidents.tsx`, `Recover.tsx`, `src/lib/verify.ts`, `src/lib/verify.test.ts`
+Decided 2026-11-21: the dashboard is a product, not a demo script (spec §2.3 and §8). Mockup:
+https://claude.ai/artifact/J2uWP23zGnQYdxNQ2HHCfW (private). Sub-tasks in priority order. Each one is
+shippable on its own.
 
-**Interfaces:**
-- Consumes: the agent's SSE `/events`, `evmWindowStatus`, `fetchSpendingRules`, `fetchAuthenticators`, and `verifyIncident` from core.
-- Panels:
-  - **Status:** window budget, agent rules, vault balance.
-  - **Incidents:** incident timeline, each entry marked ✓ or ✗.
-  - **Recover:** upload `withdrawal.json`, then submit through the QoreX EVM wallet.
+**Scope cut if late, in this order:** drop 6G (drill stays CLI `./demo.sh`) → 6F falls back to showing
+the CLI setup commands → drop "Turn off protection" in 6E → drop the Recover screen (CLI `withdraw`).
+Never cut 6B, 6C or 6D.
+
+#### Task 6A: QoreX signing spike (THROWAWAY, Nov 22, ½ day)
+
+Question: can the dashboard, through QoreX / `@qorechain/react`, get the owner to sign (1) the hybrid
+setup tx (`MsgOpenEVMWindow` + `linkAuthenticatorMsgs` + `MsgUpdateSpendingRules`), (2) EVM txs
+(vault deploy, `approve`, `vault.rescue`, `withdraw`) and (3) a QOR transfer to the guardian (gas tank)?
+Work in `spike/`, never import from it.
+
+- [ ] **Step 1:** Check `@qorechain/react` and QoreX typings for a hybrid-sign API. Record what exists.
+- [ ] **Step 2:** Try (1), (2) and (3) on diana from a minimal page. Record each tx hash or error in `docs/EVIDENCE.md`.
+- [ ] **Step 3 (gate):** (1) works → 6F signs in the browser. (1) fails → 6F shows the CLI commands. Write the result into CLAUDE.md "Chain facts".
+
+#### Task 6B: Agent rules: trusted apps and the `Approval` trigger (high tier)
+
+**Files:** `apps/agent/src/rules.ts`, `apps/agent/src/watch.ts`, `packages/core` (`OutboundTx` gets a `kind: "transfer" | "approval"`), tests.
+
+- [ ] **Step 1:** Write the failing `decide` tests: `test_approvalToUntrustedSpenderTriggersRescue`, `test_approvalToTrustedAppDoesNotTrigger`, `test_zeroApprovalToOtherSpenderDoesNotTrigger` (a revoke), `test_zeroApprovalToVaultRaisesAlertOnly` (Review Focus 7), `test_transferToTrustedAppDoesNotTrigger`.
+- [ ] **Step 2:** Write the failing watcher test: `Approval(owner, spender)` logs on the protected tokens are emitted with `kind: "approval"`, batched with the `Transfer` read (no extra round trip).
+- [ ] **Step 3:** Implement. Run `pnpm -F agent test` and `pnpm -F core test`. Expected: all PASS.
+- [ ] **Step 4:** On diana: approve an untrusted spender from a fresh demo owner. Expected: a rescue within ≤ 3 blocks. Record the hashes in `EVIDENCE.md`.
+- [ ] **Step 5:** Review (fresh context) against Review Focus 1, 4 and 7, then commit.
+
+#### Task 6C: Agent API: policy, health, alerts (high tier for policy)
+
+**Files:** `apps/agent/src/policy.ts` (reads and writes `data/policy.json`: trusted entries `{label, address, kind: wallet|app}`, `maxOutbound`; reloaded on change), `apps/agent/src/server.ts` (`GET/PUT /policy`, `GET /health`), `apps/agent/src/notify.ts` (Telegram bot + webhook), tests.
+
+- [ ] **Step 1:** Failing tests: `test_policyWriteRejectedFromNonLoopback` and `test_serverBindsLoopbackOnly` (Review Focus 6), `test_policyReloadChangesDecision`, `test_healthReportsTipWindowAndGas`, `test_notifierFailureDoesNotBlockRescue` (Review Focus 8), `test_gasLowAlertFiresOnceBelowThreshold`.
+- [ ] **Step 2:** Implement. `ALLOWLIST`/`MAX_OUTBOUND` in env stay as the seed for a missing `policy.json`. Run `pnpm -F agent test`. Expected: PASS.
+- [ ] **Step 3:** On diana: a fresh demo run with Telegram configured. Expected: the alert arrives after the rescue tx, and the rescue latency is unchanged (≤ 3 blocks).
+- [ ] **Step 4:** Review (fresh context) against Review Focus 6 and 8, then commit.
+
+#### Task 6D: Dashboard core: Overview, Incidents, Recover
+
+**Files:** `apps/dashboard/` (Vite React TS): `src/screens/Overview.tsx`, `Incidents.tsx`, `Recover.tsx`, `src/lib/verify.ts`, `src/lib/verify.test.ts`.
+**Consumes:** the agent's `/events`, `/incidents`, `/health`, `/policy`; `evmWindowStatus`, `fetchSpendingRules`, `fetchAuthenticators`, `verifyIncident` from core.
 
 - [ ] **Step 1:** Write `verify.test.ts`: `test_rejectsValidSigFromUnlinkedKey`. The pubkey must be in `fetchAuthenticators` and not revoked (Review Focus 5).
-- [ ] **Step 2:** Implement. Run `pnpm -F dashboard test && pnpm -F dashboard build`. Expected: PASS and the build succeeds.
-- [ ] **Step 3:** Run `demo.sh` with the dashboard open alongside. Expected: the incident appears on the dashboard within ≤ 5 seconds.
-- [ ] **Step 4:** Commit.
+- [ ] **Step 2:** Implement the three screens per the mockup: exposure banner, protected assets, Guardian health and gas tank, outgoing activity; incident list and detail with chain checks; Recover (load `withdrawal.json`, check, submit through QoreX).
+- [ ] **Step 3:** Run `pnpm -F dashboard test && pnpm -F dashboard build`. Expected: PASS and the build succeeds.
+- [ ] **Step 4:** Run `demo.sh` with the dashboard open. Expected: the incident appears within ≤ 5 seconds and shows ✓.
+- [ ] **Step 5:** Commit.
 
-**Scope cut if late:** drop the Recover panel and use the CLI `withdraw` instead.
+#### Task 6E: Dashboard: Rules, Rescue now, gas tank top-up
+
+- [ ] **Step 1:** Rules screen: trusted wallets and apps (add, remove), threshold, alert channels, the on-chain permission read from `fetchSpendingRules` (read only). Writes go to `PUT /policy`.
+- [ ] **Step 2:** "Rescue now" on Overview: the owner sends `vault.rescue(token)` per protected token through QoreX. On diana: record the hash in `EVIDENCE.md`.
+- [ ] **Step 3:** Gas tank: show the guardian's QOR balance and a top-up (QOR transfer to the guardian) through QoreX, if 6A step 2 (3) works.
+- [ ] **Step 4 (optional):** "Turn off protection": `approve(vault, 0)` per token and `revokeAuthenticatorMsg`.
+- [ ] **Step 5:** `pnpm -F dashboard test && pnpm -F dashboard build`, then commit.
+
+#### Task 6F: Dashboard: Protect onboarding
+
+- [ ] **Step 1:** Six steps per the mockup: connect, create vault, approve tokens, trusted list, recovery address and alerts, link the Guardian and fund the gas tank. Signing path from 6A's gate.
+- [ ] **Step 2:** On diana: onboard a fresh owner from the browser (or with the shown CLI commands), then run `pnpm cli attack` and `demo-check` against it. Expected: PASS. Record the hashes.
+- [ ] **Step 3:** Commit.
+
+#### Task 6G: Dashboard: Fire drill (lowest priority)
+
+- [ ] **Step 1:** Agent endpoint `POST /drill` (loopback only) runs `fresh-owner`, `attack` and `demo-check` and streams progress over SSE; the screen shows stages and past runs from the run dirs.
+- [ ] **Step 2:** Run a drill from the screen. Expected: PASS within ≤ 3 blocks and ≥ 80% kept. Commit.
 
 ### Task 7: Audit Stage 2 + submission (Nov 30 → Dec 2)
 

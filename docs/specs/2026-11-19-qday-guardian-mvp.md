@@ -20,6 +20,26 @@ Read precisely (updated 2026-11-21):
 > ECDSA key only does damage inside an **open EVM window** and to assets on the EVM lane. The
 > Guardian covers exactly that gap.
 
+## 1b. Problem, users and the role of QOR (added 2026-11-21)
+
+**Problem.** To use EVM dApps on QoreChain an owner opens an EVM window, and inside it a tx needs
+only the ECDSA signature. Whoever holds that key (quantum break at Q-Day, but today also malware,
+phishing or a leaked seed) can drain the owner's ERC-20s until the window closes. Blocks on diana
+take ~1.4 s, so a human notices too late. The Guardian is the airbag for that exposure: it reacts
+within a block or two and parks what is left behind the owner's post-quantum key.
+
+**Users.** People who use EVM dApps on QoreChain and hold ERC-20s there, and bots or hot wallets
+that keep a window open for long. The longer the window stays open, the more the Guardian is worth.
+It does not replace closing the window; it covers the time the window has to be open.
+
+**Role of QOR.**
+| Role | Detail |
+|---|---|
+| Gas tank | The owner pre-funds the guardian account with QOR. It pays rescue gas and the guardian's window fees. The dashboard shows the balance and the agent alerts when it runs low. A flat fee per rescued token (the Harpie model) is the business model, set to 0 in the MVP |
+| Fees | Owner txs: vault deploy, setup (hybrid), approvals, withdraw |
+| Protected asset | `deposit()` / `withdraw(token = address(0))` hold QOR behind ML-DSA. The agent does not sweep QOR: the window budget caps it |
+| Agent key limit | The ed25519 key's spending rule is in `uqor` (1 QOR per tx, 3 QOR per day) |
+
 ## 2. Must-haves (3)
 
 1. **`GuardianVault.sol`** (Foundry)
@@ -39,16 +59,35 @@ Read precisely (updated 2026-11-21):
    - An ed25519 key linked to the owner's account in one hybrid tx: permission `evm`,
      `allowedEvmCalls = [GuardianVault.rescue]`, `allowedDenoms = ["uqor"]`, with per-tx, daily and expiry
      limits. It signs the incident reports and proves that the chain refuses a direct token call (demo 4(b)).
-   - Watches the owner's EVM address every block. Detection rule: an outbound tx to an address not on
-     the allowlist, or above a threshold. On a match it calls `vault.rescue(token)` for fUSD/fETH/fBTC.
-     `deposit()` QOR is not swept by the agent: QOR on the EVM lane stays the owner's (window budget cap).
+   - Watches the owner's EVM address every block. Detection rules: an outbound transfer to an address
+     that is not a trusted wallet or app, or above a threshold; and (added 2026-11-21) an `Approval`
+     from the owner to a spender that is not trusted, with a non-zero value, which catches approve and
+     permit phishing before the tokens move. On a match it calls `vault.rescue(token)` for
+     fUSD/fETH/fBTC. `deposit()` QOR is not swept by the agent: QOR on the EVM lane stays the owner's
+     (window budget cap).
+   - The trusted list holds wallets **and apps** (swap routers, lending pools, bridges), because a dApp
+     call moves tokens to a contract. It lives in a local policy file the agent reloads; the dashboard
+     edits it through the agent's API, bound to 127.0.0.1 only (see Review Focus).
    - The LLM writes the incident report. The report is signed with the agent key (authenticated
      messaging) so the dashboard can verify it.
-3. **Dashboard** (React + `@qorechain/react`)
-   - Setup: open the scoped window, approve the vault, link the agent.
-   - Live: window budget, agent rules, `pq status`, incident timeline with signature checks.
-   - Recover: load a signature from the **Guardian Signer**, a local page or CLI that signs ML-DSA with
-     `pqcSign`. This is needed because QoreX refuses `signArbitrary`.
+   - Alerts (added 2026-11-21): Telegram and/or a webhook on every rescue and when the gas tank runs
+     low. Alerts go out after the rescue and can never delay or block it. `GET /health` reports the last
+     block seen, the guardian window's budget and the gas tank balance.
+3. **Dashboard** (React + `@qorechain/react`). Product screens, not a demo script (direction A,
+   2026-11-21). Mockup: https://claude.ai/artifact/J2uWP23zGnQYdxNQ2HHCfW (private)
+   - **Overview:** exposure first (window open or closed, blocks and txs left, "Close EVM window now"),
+     protected assets, Guardian health, gas tank, outgoing activity, trusted list. "Rescue now" lets the
+     owner call `vault.rescue` from QoreX when the agent is down (the vault already allows the owner).
+   - **Incidents:** signed reports, each checked against the chain (✓ or ✗), AI summary marked as such.
+   - **Recover:** load `withdrawal.json` from the **Guardian Signer** (local CLI that signs ML-DSA with
+     `pqcSign`, because QoreX refuses `signArbitrary`), check it, submit through QoreX.
+   - **Rules:** trusted wallets and apps, the transfer threshold, alert channels, the Guardian's
+     on-chain permission (read only).
+   - **Protect:** self-serve onboarding: connect QoreX, create the vault, approve tokens, trusted
+     list, recovery address and alerts, link the Guardian and fund the gas tank. Depends on the QoreX
+     signing spike (plan Task 6A); without it this screen shows the CLI commands instead.
+   - **Fire drill:** runs the end-to-end attack on a throwaway account (`fresh-owner`, `attack`,
+     `demo-check`) to prove the Guardian works without risking the owner's funds.
 
 ## 3. Non-goals
 
@@ -57,7 +96,10 @@ Read precisely (updated 2026-11-21):
   to move funds**.
 - The agent closing the window or revoking keys: those messages can't be delegated.
 - Multiple owners, multiple agents, multisig, tokens other than QOR/fUSD/fETH/fBTC.
-- QoreSeal/ML-KEM, Cross-VM, mobile app, Telegram or email notifications.
+- QoreSeal/ML-KEM, Cross-VM, mobile app, email or SMS notifications (Telegram and webhook alerts
+  moved into scope on 2026-11-21).
+- Not in the MVP (roadmap, see section 8): mempool front-running, several guardians, a withdrawal
+  timelock with cancel, a non-zero rescue fee, a hosted multi-owner agent.
 
 ## 4. End-to-end demo (≤ 3 minutes)
 
@@ -119,3 +161,24 @@ and that the owner can close the window at any time while the Guardian keeps wor
    "measured EVM spending policy")? If so, set daily ≥ total protected assets.
 3. The attacker can also call `approve(vault, 0)` to block the rescue. Record this in the threat model
    and let the demo show the race.
+
+## 8. Product direction A and prior art (2026-11-21)
+
+The project read too much like a scripted demo. Direction A keeps the scope (one owner, one agent,
+the same contract) and turns the surface into a product. The additions come from products that solve
+the same problem:
+
+| Prior art | What it does | What we take |
+|---|---|---|
+| Harpie (EVM wallet firewall) | Owner picks tokens, trusted apps and addresses, and a withdrawal address. On a transfer to an unapproved address it front-runs into a non-custodial vault. Fee per recovered asset | Trusted **apps**, not only wallets; recovery address at setup; per-rescue fee as the business model |
+| Circuit | Pre-signed txs to a fixed backup wallet; the owner can trigger them by hand if automation fails | "Rescue now" button for the owner |
+| Flashbots whitehat / MetaMask sweeper-bot guide | Never fund a compromised wallet with gas | Already true: the guardian pays gas and the vault pulls by allowance |
+| Hypernative Guardian on Safe, Forta Firewall | Pre-execution screening; removing the guard needs a 24 h timelock | Protect the protection: `approve(vault, 0)` is the cheapest way to switch us off (T5) |
+| Argent, Safe RecoveryHub | Recovery delays with cancel; email/SMS/push on every security event | Alerts are table stakes |
+| Bitcoin vaults (BIP-345) + watchtowers | Pre-committed recovery path; run several watchtowers so one outage does not matter | One agent is a single point of failure: `/health` now, several guardians later |
+| Project Eleven yellowpages, Ethereum quantum-emergency proposal | Link classical keys to post-quantum keys; recover after a mass break | The vault is a post-quantum holding place; a mass break means many owners at once |
+
+**MVP priorities (plan Task 6):** P1 trusted apps, `Approval` trigger, "Rescue now", Telegram/webhook
+alerts; P2 gas tank and `/health`. **Roadmap:** mempool front-running if diana's EVM RPC exposes
+pending txs (would also close T5), several guardians, a withdrawal timelock with cancel, a non-zero
+rescue fee, a hosted multi-owner agent whose policy writes need an ML-DSA signature.
