@@ -109,3 +109,19 @@ Fresh owner `0x0aEb66a9Ba4A39B4B5339BB2590e64FA66e9d04A` (`qor1pt4kd2d6fgumfdfnn
 | `20261120T150823Z` | `0x9ac26061A6AB91B8B2833010A175D26b05fCf3b2` / `0xa5c2b683da4c6ba7b870bed89d91d9cfec2f8e28` | `0x23502091c1384424179c1090293da90036db6f53808af7b90bca070562462f60` (10439541) | `0x71573efbc7542df78dcb1d222cbc4f6ecb84e6f82620ce3bcf13c1c6acbc03a5` (10439542) | **1** | **90%** | `0x0a720f32de7c28d55b20fd2678afd86c12159afefb2b4dad55c6427ced011eba` | `A53785CFF3FC045CD64335ED5B95F54033B42FB8A86C1411B767089125A3373F` | `0x3938ee536772169b4a4869ff9beded2d020175202b4fdd6cf79b5094c36aec29` | `969d0476…` |
 
 In every run drains 2 and 3 reverted (nothing left), the attacker got 10 fUSD, the vault 89 and the safe address 1 (ML-DSA recovery). Agent timing (from `agent.log`): detected 0.57-0.67 s → rescue sent, receipt in the next block. Each fresh owner's setup (fund, ML-DSA register, deploy window, vault deploy, mint, scoped window + link, 3 approvals) is in the run log; fund txs `D8C73A9A…`, `516072D8…`, `D20C63B8…`.
+
+## Task 6A: wallet signing spike (2026-11-21)
+
+Throwaway page `spike/qorex-sign/` (gitignored). Builder's QoreX build and MetaMask, owner `0xE871748C0922745Ad94d065a388e95eC420A67EB`.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| QoreX `signAndBroadcast` on diana (MsgSend, window + rules + register, each alone, `MsgCrossVMCall`) | All refused before any prompt: "chain qorechain-diana does not match the active network qorechain-vladi". The build has no testnet option | Page log, 2026-11-21 02:51 UTC |
+| QoreX build capabilities | `listAccounts`, `connectProofPicksAccount`, `executeRequest`, `signAndBroadcast`, `signDirectAddsPqcLayer`, `signArbitrary`; EVM account `0xa88D…36a1` differs from native `qor1fwr0…` (`0x4b86…9b74`) | Page log, 02:46 UTC |
+| MetaMask `eth_sendTransaction` from an account with no EVM window (`0xa88D…`, 175 QOR) | Refused at broadcast: "account qor14zxae5fs0rks778qpdwwlr0aaw48jd4pk5dupt has no open EVM authorisation window; open one with MsgOpenEVMWindow, signed on the Cosmos lane with the account's post-quantum key". No hash, no gas | Page log, 03:10 UTC |
+| Owner window opened by CLI (probe, hybrid): 600 blocks, 4 txs, 1.35 QOR budget | OK | `3A78EE03C41F002D6B896581F863F8349A0B1742E3B2E2D3D66E5D939A4F8504` |
+| MetaMask (owner mnemonic imported): `fUSD.approve(0xdEaD, 1)` | Success, block 10469956, `from` = owner; `allowance(owner, 0xdEaD)` = 1 | `0xf6fc57752926acb970ef4b249ea76c1b829408bea6851b86ad886772149cf70a` (again: `0x563f1b830755bb76d1ecb6f286e4d4e0db0d2623fbe970f20171638805271f92`) |
+| MetaMask: 0.01 QOR to the guardian (gas tank top-up) | Success, block 10469968, gasUsed 25000 of 50000 | `0x65282be012b3185d00d4a8802610b9f3e50bae2ec8c05276b58570b633006f50` |
+| MetaMask: owner calls `vault.rescue(fUSD)` ("Rescue now") | Success, block 10469972, gasUsed 100000 of 200000 | `0xb4119a4cef70c4e5c48bd94afcdbc6088893b04f023b4844e4df34095cc5034b` |
+| Window after the 4 txs | `usedTxs` 4/4, `live: false`, 60625 uqor used | `evmWindowStatus`, 03:15 UTC |
+| Not tested: `vault.withdraw` through MetaMask (window spent) | Same EVM path as `rescue`; to prove in Task 6D step 4 | |
