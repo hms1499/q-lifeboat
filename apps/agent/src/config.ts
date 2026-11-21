@@ -1,6 +1,6 @@
 import type { Hex } from "viem";
 import type { UnifiedAccount } from "@qorechain/sdk";
-import { loadAgentKey, loadGasAccount, loadOwnerAddress, loadTokens, loadVault, type TokenSymbol } from "@qday/core";
+import { loadAgentKey, loadGasAccount, loadOwnerAddress, loadTokens, loadVault, NETWORK, type TokenSymbol } from "@qday/core";
 import { DEFAULT_GAS_LOW_WEI } from "./health";
 import { DEFAULT_POLL_MS } from "./watch";
 
@@ -128,4 +128,18 @@ export function checkVaultGuardian(onChain: string, agent: string): void {
   if (onChain.toLowerCase() !== agent.toLowerCase()) {
     throw new Error(`vault guardian() is ${onChain}, not the agent's account ${agent} (redeploy the vault with GUARDIAN_ADDRESS)`);
   }
+}
+
+/** GET /config: what the dashboard needs to find the owner's assets. Public 0x addresses only, never a key or token. */
+export type PublicConfig = { owner: Hex; vault: Hex; guardian: Hex; tokens: Record<TokenSymbol, Hex>; evmChainId: number };
+
+/** Pick the public fields by name, so a field added to AgentConfig later can never leak through /config. */
+export function publicConfig(cfg: AgentConfig): PublicConfig {
+  return {
+    owner: cfg.owner,
+    vault: cfg.vault,
+    guardian: cfg.gas.evm as Hex,
+    tokens: { fUSD: cfg.tokens.fUSD, fETH: cfg.tokens.fETH, fBTC: cfg.tokens.fBTC },
+    evmChainId: NETWORK.evmChainId,
+  };
 }

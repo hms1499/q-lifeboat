@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkVaultGuardian, loadAgentConfig } from "../src/config";
+import { checkVaultGuardian, loadAgentConfig, publicConfig } from "../src/config";
 
 const base = {
   OWNER_EVM_ADDRESS: "0x7777777777777777777777777777777777777777",
@@ -136,5 +136,22 @@ describe("checkVaultGuardian", () => {
     expect(() => checkVaultGuardian("0x8888888888888888888888888888888888888888", agent)).toThrow(
       /guardian\(\) is 0x8888888888888888888888888888888888888888.*0x9858EfFD232B4033E47d90003D41EC34EcaEdA94/,
     );
+  });
+});
+
+describe("publicConfig (GET /config)", () => {
+  it("test_publicConfigHoldsAddressesOnly: owner, vault, guardian, tokens and chain id, never a key", async () => {
+    const c = await loadAgentConfig({ ...base, ANTHROPIC_API_KEY: "sk-secret", TELEGRAM_BOT_TOKEN: "1:abc", TELEGRAM_CHAT_ID: "2" });
+    const p = publicConfig(c);
+    expect(p).toEqual({
+      owner: base.OWNER_EVM_ADDRESS,
+      vault: base.VAULT_ADDRESS,
+      guardian: c.gas.evm,
+      tokens: { fUSD: base.FUSD_ADDRESS, fETH: base.FETH_ADDRESS, fBTC: base.FBTC_ADDRESS },
+      evmChainId: 9800,
+    });
+    const text = JSON.stringify(p);
+    for (const secret of ["sk-secret", "1:abc", base.AGENT_ED25519_SK, "abandon"]) expect(text).not.toContain(secret);
+    for (const v of [p.owner, p.vault, p.guardian, ...Object.values(p.tokens)]) expect(v).toMatch(/^0x[0-9a-fA-F]{40}$/);
   });
 });

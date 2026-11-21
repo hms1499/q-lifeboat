@@ -292,3 +292,21 @@ describe("server: a failing provider", () => {
     expect((await fetch(`http://127.0.0.1:${srv.port}/incidents`)).status).toBe(200); // still serving
   });
 });
+
+// ---------------------------------------------------------------- Task 6D: GET /config (dashboard)
+
+describe("server: GET /config", () => {
+  it("test_configServesPublicAddressesWithCors", async () => {
+    const body = { owner: A, vault: B, guardian: A, tokens: { fUSD: A, fETH: B, fBTC: A }, evmChainId: 9800 };
+    srv = await startServer({ file: join(tmpdir(), "nope.jsonl"), port: 0, config: () => body });
+    const r = await fetch(`http://127.0.0.1:${srv.port}/config`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("access-control-allow-origin")).toBe("*");
+    expect(await r.json()).toEqual(body);
+  });
+
+  it("404s /config when no provider is wired", async () => {
+    srv = await startServer({ file: join(tmpdir(), "nope.jsonl"), port: 0 });
+    expect((await fetch(`http://127.0.0.1:${srv.port}/config`)).status).toBe(404);
+  });
+});
