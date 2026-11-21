@@ -5,8 +5,11 @@ import { dirname } from "node:path";
 import { bigintReplacer } from "@qday/core/chain";
 import { canonicalJson, signIncident, type Incident, type IncidentBody, type OutboundTx, type RescueRecord } from "@qday/core";
 
-/** What happened, before the summary is written. */
-export type Facts = { trigger: OutboundTx; reason: string; rescues: RescueRecord[]; detectedAt?: string };
+/**
+ * What happened, before the summary is written. `alert`: decide() raised an alert-only incident, so no rescue was
+ * attempted (it only shapes the summary; the incident body does not carry it).
+ */
+export type Facts = { trigger: OutboundTx; reason: string; rescues: RescueRecord[]; detectedAt?: string; alert?: boolean };
 
 export type LlmReply = { text: string; stopReason: string | null };
 /** One LLM call. It may only produce text; nothing it returns is ever acted on. */
@@ -14,16 +17,33 @@ export type Llm = (system: string, user: string) => Promise<LlmReply>;
 
 const SYSTEM =
   "Write a 2-3 sentence plain-English incident summary from the JSON the user sends. " +
-  "You do not decide actions; the rescue has already happened or not. State only what the JSON says.";
+  "You do not decide actions; the rescue has already happened or not (an alert-only incident attempts none). " +
+  "State only what the JSON says.";
 
 /** Deterministic fallback summary. */
 export function templateSummary(f: Facts): string {
+  const t = f.trigger;
+  const event =
+    t.kind === "approval"
+      ? `Approval of ${t.amount} (token ${t.token}) to spender ${t.to} in tx ${t.hash}`
+      : `Outbound transfer of ${t.amount} (token ${t.token}) to ${t.to} in tx ${t.hash}`;
+  if (f.alert) {
+    return `${event} raised an alert: ${f.reason}. No rescue was attempted: the rules flag this event for the owner, but moving funds would not undo it.`;
+  }
   const ok = f.rescues.filter((r) => r.success).length;
   const outcome =
     f.rescues.length === 0
       ? "No tokens needed rescuing."
       : `Rescued ${ok} of ${f.rescues.length} token balance(s) into the vault.`;
-  return `Outbound transfer of ${f.trigger.amount} (token ${f.trigger.token}) to ${f.trigger.to} in tx ${f.trigger.hash} triggered a rescue: ${f.reason}. ${outcome}`;
+  return `${event} triggered a rescue: ${f.reason}. ${outcome}`;
+}
+
+/**
+ * The only data the LLM sees: an explicit pick of the facts. Whatever else a caller put on the object (the agent's
+ * secret key, an API key) is never sent.
+ */
+export function llmFacts(f: Facts): Facts {
+  return { trigger: f.trigger, reason: f.reason, rescues: f.rescues, detectedAt: f.detectedAt, alert: f.alert };
 }
 
 /**
@@ -38,7 +58,7 @@ export async function summarize(
   const fallback = () => ({ text: templateSummary(f), source: "template" as const });
   if (!llm) return fallback();
   try {
-    const r = await llm(SYSTEM, canonicalJson(f));
+    const r = await llm(SYSTEM, canonicalJson(llmFacts(f)));
     const text = r.text.trim();
     if (r.stopReason === "refusal") {
       log("summary: LLM refusal, using template");
@@ -113,8 +133,9 @@ export async function signAndRecord(
   input: Facts & { sk: Uint8Array; llm?: Llm; log?: (line: string) => void },
   file: string,
 ): Promise<Incident> {
-  const { text, source } = await summarize(input, input.llm, input.log);
-  const signed = signIncident(buildIncident({ ...input, summary: text, summarySource: source }), input.sk);
+  const { sk, llm, log, ...facts } = input; // secrets and helpers never travel with the facts
+  const { text, source } = await summarize(facts, llm, log);
+  const signed = signIncident(buildIncident({ ...facts, summary: text, summarySource: source }), sk);
   appendIncident(file, signed);
   return signed;
 }

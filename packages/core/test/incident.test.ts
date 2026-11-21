@@ -14,6 +14,7 @@ const body: IncidentBody = {
   id: "inc-1",
   detectedAt: "2026-11-20T10:00:00.000Z",
   trigger: {
+    kind: "transfer",
     hash: "0xabc0000000000000000000000000000000000000000000000000000000000001",
     block: 123n,
     token: T,
@@ -64,6 +65,18 @@ describe("incident signing", () => {
     expect(verifyIncident({ ...signed, summary: "x" })).toBe(false);
     const otherPk = Buffer.from(ed25519.getPublicKey(Uint8Array.from({ length: 32 }, () => 9))).toString("hex");
     expect(verifyIncident({ ...signed, agentPubkey: otherPk })).toBe(false);
+  });
+
+  it("signs the trigger kind: flipping it fails verification", () => {
+    const signed = signIncident(body, sk);
+    expect(verifyIncident({ ...signed, trigger: { ...signed.trigger, kind: "approval" } })).toBe(false);
+  });
+
+  it("an old incident whose trigger has no kind still signs and verifies (no default is added)", () => {
+    const { kind: _kind, ...oldTrigger } = body.trigger;
+    const signed = signIncident({ ...body, trigger: oldTrigger } as never, sk);
+    expect(new TextDecoder().decode(incidentSigningBytes(signed))).not.toContain('"kind"');
+    expect(verifyIncident(signed)).toBe(true);
   });
 
   it("returns false (never throws) on malformed hex", () => {

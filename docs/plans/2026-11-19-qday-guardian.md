@@ -210,15 +210,18 @@ Work in `spike/`, never import from it.
   steps (open/close window, link the Guardian). (2) and (3) work in MetaMask → "Rescue now", Recover's `withdraw`,
   the gas tank top-up and the token approvals sign in the browser, inside an owner window. Chain facts 16-17 in CLAUDE.md.
 
-#### Task 6B: Agent rules: trusted apps and the `Approval` trigger (high tier)
+#### Task 6B: Agent rules: trusted apps and the `Approval` trigger (high tier), DONE 2026-11-21
 
 **Files:** `apps/agent/src/rules.ts`, `apps/agent/src/watch.ts`, `packages/core` (`OutboundTx` gets a `kind: "transfer" | "approval"`), tests.
 
-- [ ] **Step 1:** Write the failing `decide` tests: `test_approvalToUntrustedSpenderTriggersRescue`, `test_approvalToTrustedAppDoesNotTrigger`, `test_zeroApprovalToOtherSpenderDoesNotTrigger` (a revoke), `test_zeroApprovalToVaultRaisesAlertOnly` (Review Focus 7), `test_transferToTrustedAppDoesNotTrigger`.
-- [ ] **Step 2:** Write the failing watcher test: `Approval(owner, spender)` logs on the protected tokens are emitted with `kind: "approval"`, batched with the `Transfer` read (no extra round trip).
-- [ ] **Step 3:** Implement. Run `pnpm -F agent test` and `pnpm -F core test`. Expected: all PASS.
-- [ ] **Step 4:** On diana: approve an untrusted spender from a fresh demo owner. Expected: a rescue within ≤ 3 blocks. Record the hashes in `EVIDENCE.md`.
-- [ ] **Step 5:** Review (fresh context) against Review Focus 1, 4 and 7, then commit.
+- [x] **Step 1:** Write the failing `decide` tests: `test_approvalToUntrustedSpenderTriggersRescue`, `test_approvalToTrustedAppDoesNotTrigger`, `test_zeroApprovalToOtherSpenderDoesNotTrigger` (a revoke), `test_zeroApprovalToVaultRaisesAlertOnly` (Review Focus 7), `test_transferToTrustedAppDoesNotTrigger`.
+- [x] **Step 2:** Write the failing watcher test: `Approval(owner, spender)` logs on the protected tokens are emitted with `kind: "approval"`, batched with the `Transfer` read (no extra round trip).
+- [x] **Step 3:** Implement. Run `pnpm -F agent test` and `pnpm -F core test`. Expected: all PASS.
+- [x] **Step 4:** On diana: approve an untrusted spender from a fresh demo owner. Expected: a rescue within ≤ 3 blocks. Record the hashes in `EVIDENCE.md`.
+  Ran on the root owner and vault v3 instead of a fresh demo owner (builder's call, funder low at the time): rescue 1 block after the approval.
+- [x] **Step 5:** Review (fresh context) against Review Focus 1, 4 and 7, then commit.
+  The review also found that the agent's ed25519 key went to the LLM inside the summary facts (since Task 4A); fixed here.
+  Ruling: any vault allowance below `maxUint256` raises the alert, not only 0 (an attacker could lower it to 1).
 
 #### Task 6C: Agent API: policy, health, alerts (high tier for policy)
 

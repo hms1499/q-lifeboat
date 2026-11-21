@@ -3,17 +3,19 @@ import type { OutboundTx } from "@qday/core";
 
 const ZERO: Hex = "0x0000000000000000000000000000000000000000";
 const transferEvent = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
+const approvalEvent = parseAbiItem("event Approval(address indexed owner, address indexed spender, uint256 value)");
 
-type TransferLog = {
-  address: Hex;
-  transactionHash: Hex;
-  blockNumber: bigint;
-  logIndex: number;
-  args: { from?: Hex; to?: Hex; value?: bigint };
-};
+type EventLog<A> = { address: Hex; transactionHash: Hex; blockNumber: bigint; logIndex: number; args: A };
+type TransferLog = EventLog<{ from?: Hex; to?: Hex; value?: bigint }>;
+type ApprovalLog = EventLog<{ owner?: Hex; spender?: Hex; value?: bigint }>;
 
 export function logToOutbound(log: TransferLog): OutboundTx {
-  return { hash: log.transactionHash, block: log.blockNumber, token: log.address, to: log.args.to!, amount: log.args.value! };
+  return { kind: "transfer", hash: log.transactionHash, block: log.blockNumber, token: log.address, to: log.args.to!, amount: log.args.value! };
+}
+
+/** An `Approval(owner, spender, value)` log: `to` is the spender, `amount` the approved value. */
+export function approvalLogToOutbound(log: ApprovalLog): OutboundTx {
+  return { kind: "approval", hash: log.transactionHash, block: log.blockNumber, token: log.address, to: log.args.spender!, amount: log.args.value! };
 }
 
 type BlockTx = { hash: Hex; blockNumber: bigint | null; from: Hex; to: Hex | null; value: bigint };
@@ -21,13 +23,13 @@ type BlockTx = { hash: Hex; blockNumber: bigint | null; from: Hex; to: Hex | nul
 /** A native QOR transfer sent by `owner`, or null (other senders, contract creations, zero value). */
 export function txToOutbound(tx: BlockTx, owner: Hex): OutboundTx | null {
   if (tx.from.toLowerCase() !== owner.toLowerCase() || !tx.to || tx.value <= 0n) return null;
-  return { hash: tx.hash, block: tx.blockNumber ?? 0n, token: ZERO, to: tx.to, amount: tx.value };
+  return { kind: "transfer", hash: tx.hash, block: tx.blockNumber ?? 0n, token: ZERO, to: tx.to, amount: tx.value };
 }
 
 export type WatchClient = Pick<PublicClient, "getBlockNumber" | "getLogs" | "getBlock">;
 
 export type WatchOptions = {
-  /** Tip + Transfer-log reads. Pass `createWatchClient()` (rpc.ts): one HTTP request per tick, no per-item retry. */
+  /** Tip + Transfer/Approval-log reads. Pass `createWatchClient()` (rpc.ts): one HTTP request per tick, no per-item retry. */
   client: WatchClient;
   /** Native-QOR block reads (default `client`). A separate client keeps a slow block off the log path's batch. */
   blockClient?: Pick<PublicClient, "getBlock">;
@@ -58,15 +60,17 @@ export const DEFAULT_POLL_MS = 300;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Emit every outbound transfer from the owner: ERC-20 `Transfer(from=owner)` on the given tokens plus native QOR
- * txs. Starts at the current tip (history is not replayed). Two independent loops, so a slow block read never
- * delays a token drain:
- * - logs: each tick reads the tip and the Transfer logs from `cursor - 2` to latest TOGETHER (one batched request,
- *   one round trip). The tip is always read from the RPC (`cacheTime: 0`; viem would otherwise cache it for 4 s
- *   on this chain). When that range would exceed MAX_RANGE (the agent stalled), it is caught up in MAX_RANGE
- *   ranges instead. The cursor moves to the tip only when one node answered both (see createWatchClient).
+ * Emit every outbound event from the owner: ERC-20 `Transfer(from=owner)` and `Approval(owner, *)` on the given
+ * tokens (kind "transfer" / "approval") plus native QOR txs (kind "transfer"). Starts at the current tip (history is
+ * not replayed). Two independent loops, so a slow block read never delays a token drain:
+ * - logs: each tick reads the tip, the Transfer logs and the Approval logs from `cursor - 2` to latest TOGETHER
+ *   (three calls in one batched request, one round trip). The tip is always read from the RPC (`cacheTime: 0`;
+ *   viem would otherwise cache it for 4 s on this chain). When that range would exceed MAX_RANGE (the agent
+ *   stalled), it is caught up in MAX_RANGE ranges instead, both events per range. The cursor moves to the tip only
+ *   when one node answered all three (see createWatchClient).
  * - native: scans each block up to the highest tip the log loop has seen, one getBlock per block.
- * A failed read never advances a cursor, so nothing is skipped. Items are deduplicated by hash + log index.
+ * A failed read never advances a cursor, so nothing is skipped. Items are deduplicated by hash + log index (a log
+ * index is unique within a tx across events).
  */
 export function watchOwner(opts: WatchOptions): { stop(): void } {
   const { client, owner, tokens, onTx, pollMs = DEFAULT_POLL_MS, onError = () => {}, log = () => {}, now = () => new Date() } = opts;
@@ -92,11 +96,22 @@ export function watchOwner(opts: WatchOptions): { stop(): void } {
       .then(() => onTx(tx))
       .catch(onError);
   };
-  const emitLogs = (logs: unknown[]) => {
+  const emitTransfers = (logs: unknown[]) => {
     for (const l of logs as TransferLog[]) emit(`${l.transactionHash}:${l.logIndex}`, logToOutbound(l));
   };
-  const getLogs = (fromBlock: bigint, toBlock?: bigint) =>
-    client.getLogs({ address: tokens, event: transferEvent, args: { from: owner }, fromBlock, ...(toBlock === undefined ? {} : { toBlock }) });
+  const emitApprovals = (logs: unknown[]) => {
+    for (const l of logs as ApprovalLog[]) emit(`${l.transactionHash}:${l.logIndex}`, approvalLogToOutbound(l));
+  };
+  const range = (fromBlock: bigint, toBlock?: bigint) => ({ address: tokens, fromBlock, ...(toBlock === undefined ? {} : { toBlock }) });
+  const getTransfers = (fromBlock: bigint, toBlock?: bigint) =>
+    client.getLogs({ ...range(fromBlock, toBlock), event: transferEvent, args: { from: owner } });
+  const getApprovals = (fromBlock: bigint, toBlock?: bigint) =>
+    client.getLogs({ ...range(fromBlock, toBlock), event: approvalEvent, args: { owner } });
+  /** Emit what each fulfilled log read returned, even when the other failed: a drain is a drain. */
+  const emitSettled = (transfers: PromiseSettledResult<unknown[]>, approvals: PromiseSettledResult<unknown[]>) => {
+    if (transfers.status === "fulfilled") emitTransfers(transfers.value);
+    if (approvals.status === "fulfilled") emitApprovals(approvals.value);
+  };
 
   const logTick = async () => {
     if (start === undefined) {
@@ -109,17 +124,26 @@ export function watchOwner(opts: WatchOptions): { stop(): void } {
     // The fast path reads cursor-2..latest, i.e. at least head - cursor + REQUERY_BLOCKS blocks.
     if (head - cursor + REQUERY_BLOCKS > MAX_RANGE) {
       const to = from + MAX_RANGE - 1n;
-      emitLogs(await getLogs(from, to));
+      const [transfers, approvals] = await Promise.allSettled([getTransfers(from, to), getApprovals(from, to)]);
+      emitSettled(transfers, approvals);
+      // Advance only when both events were read for this range; otherwise the whole range is read again.
+      if (transfers.status === "rejected") throw transfers.reason;
+      if (approvals.status === "rejected") throw approvals.reason;
       cursor = to;
       return;
     }
-    // Issued in the same turn: a batching client sends both in one request, so one node answers both.
-    const [tip, logs] = await Promise.allSettled([client.getBlockNumber({ cacheTime: 0 }), getLogs(from)]);
+    // Issued in the same turn: a batching client sends all three in one request, so one node answers all three.
+    const [tip, transfers, approvals] = await Promise.allSettled([
+      client.getBlockNumber({ cacheTime: 0 }),
+      getTransfers(from),
+      getApprovals(from),
+    ]);
     if (tip.status === "fulfilled" && tip.value > head) head = tip.value;
-    if (logs.status === "fulfilled") emitLogs(logs.value); // even without a tip: a drain is a drain
-    // Either failed: the cursor stays (a too-large range is then caught up in MAX_RANGE parts, as head moved).
+    emitSettled(transfers, approvals); // even without a tip
+    // Any failed: the cursor stays (a too-large range is then caught up in MAX_RANGE parts, as head moved).
     if (tip.status === "rejected") throw tip.reason;
-    if (logs.status === "rejected") throw logs.reason;
+    if (transfers.status === "rejected") throw transfers.reason;
+    if (approvals.status === "rejected") throw approvals.reason;
     // A stale node's lower tip never moves the cursor back; its logs were still emitted (deduped).
     if (tip.value > cursor) cursor = tip.value;
   };

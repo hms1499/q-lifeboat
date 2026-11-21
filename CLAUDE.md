@@ -144,6 +144,10 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSig
 
 - viem's `publicClient` caches `eth_blockNumber` for 4 s when the chain has no `blockTime`. Latency-critical
   reads (the agent's watcher) pass `cacheTime: 0` and batch tip + logs in one request (`apps/agent/src/rpc.ts`).
+- Owner windows of 600 blocks last ~14 min (1.4 s blocks): when the builder clicks MetaMask txs by hand, open
+  1800 blocks. `spike/probe`: `node probe.mjs window-open 1800 5`.
+- `FUNDER_MNEMONIC` in root `.env` is the builder's 175-QOR wallet (`qor14zxae5…`, `0xa88D…`): its SDK-derived ML-DSA
+  key matches the registered one, so the CLI signs hybrid for it. `spike/probe/fund.mjs check|send` moves QOR.
 - `./demo.sh --runs 3` needs ~2 QOR per run in the funder (root `OWNER_MNEMONIC`) and ~0.25 QOR per run in the
   guardian (`GAS_MNEMONIC`). `./demo.sh --resume <run.env>` finishes a funded run whose later step failed.
 

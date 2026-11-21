@@ -2,24 +2,36 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPublicClient, custom, encodeAbiParameters, encodeEventTopics, parseAbiItem } from "viem";
 import { chain } from "@qday/core/chain";
 import { createWatchClient } from "../src/rpc";
-import { DEFAULT_POLL_MS, logToOutbound, txToOutbound, watchOwner } from "../src/watch";
+import { approvalLogToOutbound, DEFAULT_POLL_MS, logToOutbound, txToOutbound, watchOwner } from "../src/watch";
 
 const OWNER = "0xAAAAaaaaAAAAaaaaAAAAaaaaAAAAaaaaAAAAaaaa" as const;
 const TOKEN = "0x00000000000000000000000000000000000000a1" as const;
 const OTHER = "0x9999999999999999999999999999999999999999" as const;
 const H = "0xabc0000000000000000000000000000000000000000000000000000000000001" as const;
+const SPENDER = "0x5555555555555555555555555555555555555555" as const;
+
+type LogsArgs = { event?: { name: string }; fromBlock: bigint; toBlock?: bigint; args?: object };
+/** A mock whose getLogs only knows Transfer logs: every Approval read answers []. */
+const transfersOnly = (c: { getLogs: (a: LogsArgs) => Promise<unknown[]> }) =>
+  ({ ...c, getLogs: async (a: LogsArgs) => (a.event?.name === "Approval" ? [] : c.getLogs(a)) }) as never;
 
 describe("mapping", () => {
   it("maps a Transfer log to an OutboundTx", () => {
     expect(
       logToOutbound({ address: TOKEN, transactionHash: H, blockNumber: 7n, logIndex: 2, args: { from: OWNER, to: OTHER, value: 5n } }),
-    ).toEqual({ hash: H, block: 7n, token: TOKEN, to: OTHER, amount: 5n });
+    ).toEqual({ kind: "transfer", hash: H, block: 7n, token: TOKEN, to: OTHER, amount: 5n });
+  });
+
+  it("maps an Approval log to an OutboundTx of kind approval (the spender as `to`)", () => {
+    expect(
+      approvalLogToOutbound({ address: TOKEN, transactionHash: H, blockNumber: 7n, logIndex: 3, args: { owner: OWNER, spender: SPENDER, value: 9n } }),
+    ).toEqual({ kind: "approval", hash: H, block: 7n, token: TOKEN, to: SPENDER, amount: 9n });
   });
 
   it("maps an owner QOR tx to token 0x0, and ignores zero-value or other senders", () => {
     const base = { hash: H, blockNumber: 8n, from: OWNER, to: OTHER, value: 3n };
     expect(txToOutbound(base, OWNER)).toEqual({
-      hash: H, block: 8n, token: "0x0000000000000000000000000000000000000000", to: OTHER, amount: 3n,
+      kind: "transfer", hash: H, block: 8n, token: "0x0000000000000000000000000000000000000000", to: OTHER, amount: 3n,
     });
     expect(txToOutbound({ ...base, value: 0n }, OWNER)).toBeNull();
     expect(txToOutbound({ ...base, from: OTHER }, OWNER)).toBeNull();
@@ -41,7 +53,7 @@ describe("watchOwner polling", () => {
       }),
     };
     const seen: unknown[] = [];
-    const w = watchOwner({ client: client as never, owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: (t) => void seen.push(t) });
+    const w = watchOwner({ client: transfersOnly(client), owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: (t) => void seen.push(t) });
     await new Promise((r) => setTimeout(r, 30));
     expect(seen).toHaveLength(0); // nothing new yet
     tip = 11n;
@@ -64,7 +76,7 @@ describe("watchOwner polling", () => {
     };
     const seen: bigint[] = [];
     const w = watchOwner({
-      client: client as never, owner: OWNER, tokens: [TOKEN], pollMs: 5,
+      client: transfersOnly(client), owner: OWNER, tokens: [TOKEN], pollMs: 5,
       onTx: (t) => { seen.push(t.block); return new Promise<void>(() => {}); }, // never resolves
     });
     await new Promise((r) => setTimeout(r, 20));
@@ -84,7 +96,7 @@ describe("watchOwner polling", () => {
       getBlock: async () => ({ transactions: [] }),
     };
     const errors: unknown[] = [];
-    const w = watchOwner({ client: client as never, owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: async () => { throw new Error("boom"); }, onError: (e) => void errors.push(e) });
+    const w = watchOwner({ client: transfersOnly(client), owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: async () => { throw new Error("boom"); }, onError: (e) => void errors.push(e) });
     await new Promise((r) => setTimeout(r, 15));
     tip = 11n;
     await new Promise((r) => setTimeout(r, 30));
@@ -117,7 +129,7 @@ describe("watchOwner latency and coverage (Task 5 fix round 4)", () => {
       getBlock: () => new Promise(() => {}), // the native scan never gets an answer
     };
     const seen: bigint[] = [];
-    const w = watchOwner({ client: client as never, owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: (t) => void seen.push(t.block) });
+    const w = watchOwner({ client: transfersOnly(client), owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: (t) => void seen.push(t.block) });
     await wait(20);
     tip = 11n;
     await until(() => seen.length >= 1);
@@ -139,7 +151,7 @@ describe("watchOwner latency and coverage (Task 5 fix round 4)", () => {
       getBlock: async () => ({ transactions: [] }),
     };
     const seen: bigint[] = [];
-    const w = watchOwner({ client: client as never, owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: (t) => void seen.push(t.block) });
+    const w = watchOwner({ client: transfersOnly(client), owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: (t) => void seen.push(t.block) });
     await wait(20);
     tip = 12n; // the tip node has 12, the logs node only 11
     logsHead = 11n;
@@ -164,7 +176,7 @@ describe("watchOwner latency and coverage (Task 5 fix round 4)", () => {
       getBlock: async () => ({ transactions: [] }),
     };
     const seen: bigint[] = [];
-    const w = watchOwner({ client: client as never, owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: (t) => void seen.push(t.block) });
+    const w = watchOwner({ client: transfersOnly(client), owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: (t) => void seen.push(t.block) });
     await until(() => seen.length >= 3, 300);
     await wait(30);
     w.stop();
@@ -188,7 +200,7 @@ describe("watchOwner latency and coverage (Task 5 fix round 4)", () => {
     };
     const seen: bigint[] = [];
     const errors: unknown[] = [];
-    const w = watchOwner({ client: client as never, owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: (t) => void seen.push(t.block), onError: (e) => void errors.push(e) });
+    const w = watchOwner({ client: transfersOnly(client), owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: (t) => void seen.push(t.block), onError: (e) => void errors.push(e) });
     await wait(20);
     tip = 13n;
     await until(() => seen.length >= 3, 300);
@@ -209,7 +221,7 @@ describe("watchOwner latency and coverage (Task 5 fix round 4)", () => {
       getBlock: async () => ({ transactions: [] }),
     };
     const seen: bigint[] = [];
-    const w = watchOwner({ client: client as never, owner: OWNER, tokens: [TOKEN], pollMs: 2, onTx: (t) => void seen.push(t.block) });
+    const w = watchOwner({ client: transfersOnly(client), owner: OWNER, tokens: [TOKEN], pollMs: 2, onTx: (t) => void seen.push(t.block) });
     await wait(20);
     tip = 130n;
     await until(() => seen.length >= 120, 2_000);
@@ -233,7 +245,7 @@ describe("watchOwner latency and coverage (Task 5 fix round 4)", () => {
       getBlock: async () => ({ transactions: [] }),
     };
     const seen: bigint[] = [];
-    const w = watchOwner({ client: client as never, owner: OWNER, tokens: [TOKEN], pollMs: 2, onTx: (t) => void seen.push(t.block), onError: () => {} });
+    const w = watchOwner({ client: transfersOnly(client), owner: OWNER, tokens: [TOKEN], pollMs: 2, onTx: (t) => void seen.push(t.block), onError: () => {} });
     await wait(10);
     tip = 20n;
     await until(() => seen.length >= 10, 300); // cursor 20
@@ -256,7 +268,7 @@ describe("watchOwner latency and coverage (Task 5 fix round 4)", () => {
     };
     const lines: string[] = [];
     const w = watchOwner({
-      client: client as never, owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: () => {},
+      client: transfersOnly(client), owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: () => {},
       log: (l) => void lines.push(l), now: () => new Date("2026-11-20T00:00:00.000Z"),
     });
     await wait(20);
@@ -293,8 +305,126 @@ describe("watchOwner latency and coverage (Task 5 fix round 4)", () => {
   });
 });
 
+const approvalAt = (n: bigint, value = 7n) => ({
+  address: TOKEN, transactionHash: hashAt(n + 500n), blockNumber: n, logIndex: 1, args: { owner: OWNER, spender: SPENDER, value },
+});
+/** A mock with one owner Transfer log and one owner Approval log in every block. */
+function bothEvents(tipRef: () => bigint, failApproval: () => boolean = () => false) {
+  const reads: { event: string; fromBlock: bigint; toBlock?: bigint; args?: object; ok: boolean }[] = [];
+  const client = {
+    getBlockNumber: async () => tipRef(),
+    getLogs: async ({ event, fromBlock, toBlock, args }: LogsArgs) => {
+      const failing = event!.name === "Approval" && failApproval();
+      reads.push({ event: event!.name, fromBlock, toBlock, args, ok: !failing });
+      const to = toBlock ?? tipRef();
+      if (event!.name === "Transfer") return logsIn(fromBlock, to);
+      if (failing) throw new Error("rpc 502 on approvals");
+      const out = [];
+      for (let b = fromBlock; b <= to; b++) out.push(approvalAt(b));
+      return out;
+    },
+    getBlock: async () => ({ transactions: [] }),
+  };
+  return { client: client as never, reads };
+}
+
+describe("watchOwner approvals (Task 6B)", () => {
+  it("emits owner Approval logs with kind approval and the spender as `to`, filtered on owner", async () => {
+    let tip = 10n;
+    const { client, reads } = bothEvents(() => tip);
+    const seen: { kind: string; to: string; amount: bigint; block: bigint }[] = [];
+    const w = watchOwner({ client, owner: OWNER, tokens: [TOKEN], pollMs: 5, onTx: (t) => void seen.push(t) });
+    await wait(20);
+    tip = 11n;
+    await until(() => seen.length >= 2, 300);
+    await wait(20);
+    w.stop();
+    expect(seen.filter((t) => t.kind === "approval")).toEqual([
+      { kind: "approval", hash: hashAt(511n), block: 11n, token: TOKEN, to: SPENDER, amount: 7n },
+    ]);
+    expect(seen.filter((t) => t.kind === "transfer").map((t) => t.block)).toEqual([11n]);
+    expect(reads.find((r) => r.event === "Approval")?.args).toEqual({ owner: OWNER });
+  });
+
+  it("a failed Approval read does not advance the cursor: the range is re-read, nothing skipped, transfers still emitted", async () => {
+    let tip = 10n;
+    let fail = false;
+    const { client, reads } = bothEvents(() => tip, () => fail);
+    const approvals: bigint[] = [];
+    const transfers: bigint[] = [];
+    const errors: unknown[] = [];
+    const w = watchOwner({
+      client, owner: OWNER, tokens: [TOKEN], pollMs: 5, onError: (e) => void errors.push(e),
+      onTx: (t) => void (t.kind === "approval" ? approvals : transfers).push(t.block),
+    });
+    await wait(20);
+    fail = true;
+    tip = 12n;
+    await until(() => transfers.length >= 2, 300); // a drain is a drain: the Transfer read still emits
+    await wait(20);
+    expect(approvals).toEqual([]);
+    tip = 14n;
+    await wait(20); // still failing while the tip moves on
+    fail = false;
+    await until(() => approvals.length >= 4, 300);
+    await wait(20);
+    w.stop();
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    expect(approvals).toEqual([11n, 12n, 13n, 14n]);
+    expect(transfers).toEqual([11n, 12n, 13n, 14n]);
+    // The first good Approval read after the failures re-reads from block 11 or earlier (the cursor did not move).
+    const approvalReads = reads.filter((r) => r.event === "Approval");
+    const firstFail = approvalReads.findIndex((r) => !r.ok);
+    expect(firstFail).toBeGreaterThanOrEqual(0);
+    const recovery = approvalReads.slice(firstFail).find((r) => r.ok);
+    expect(recovery!.fromBlock).toBeLessThanOrEqual(11n);
+  });
+
+  it("catch-up (gap > 50) reads both events per range and advances only when both succeeded", async () => {
+    let tip = 10n;
+    let failures = 2;
+    const { client, reads } = bothEvents(() => tip, () => {
+      if (failures > 0 && tip === 130n) { failures--; return true; }
+      return false;
+    });
+    const approvals: bigint[] = [];
+    const transfers: bigint[] = [];
+    const w = watchOwner({
+      client, owner: OWNER, tokens: [TOKEN], pollMs: 2, onError: () => {},
+      onTx: (t) => void (t.kind === "approval" ? approvals : transfers).push(t.block),
+    });
+    await wait(20);
+    tip = 130n;
+    await until(() => approvals.length >= 120 && transfers.length >= 120, 2_000);
+    await wait(20);
+    w.stop();
+    const all = Array.from({ length: 120 }, (_, i) => 11n + BigInt(i));
+    expect(approvals).toEqual(all);
+    expect(transfers).toEqual(all);
+    const bounded = reads.filter((r) => r.toBlock !== undefined);
+    expect(bounded.every((r) => r.toBlock! - r.fromBlock + 1n <= 50n)).toBe(true);
+    expect(new Set(bounded.map((r) => r.event))).toEqual(new Set(["Transfer", "Approval"]));
+  });
+});
+
 const hex = (n: bigint) => `0x${n.toString(16)}`;
 const transferAbi = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
+const approvalAbi = parseAbiItem("event Approval(address indexed owner, address indexed spender, uint256 value)");
+const APPROVAL_TOPIC = encodeEventTopics({ abi: [approvalAbi], eventName: "Approval" })[0];
+/** A raw eth_getLogs entry: owner approves SPENDER for `value` of TOKEN in block `n`. */
+const rawApproval = (n: bigint, value: bigint) => ({
+  address: TOKEN,
+  topics: encodeEventTopics({ abi: [approvalAbi], eventName: "Approval", args: { owner: OWNER.toLowerCase() as `0x${string}`, spender: SPENDER } }),
+  data: encodeAbiParameters([{ type: "uint256" }], [value]),
+  blockNumber: hex(n),
+  blockHash: hashAt(n + 1000n),
+  transactionHash: hashAt(n + 2000n),
+  transactionIndex: "0x0",
+  logIndex: "0x1",
+  removed: false,
+});
+/** True for an eth_getLogs item that asks for Approval logs. */
+const asksApproval = (it: { params?: unknown[] }) => (it.params?.[0] as { topics?: unknown[] })?.topics?.[0] === APPROVAL_TOPIC;
 /** A raw eth_getLogs entry: owner -> OTHER Transfer of TOKEN in block `n`. */
 const rawTransfer = (n: bigint) => ({
   address: TOKEN,
@@ -325,14 +455,35 @@ const noBlocks = { getBlock: async () => ({ transactions: [] }) };
 const OWNER_LC = OWNER.toLowerCase() as `0x${string}`;
 
 describe("watchOwner over the real batching client (Task 5 fix round 5)", () => {
-  it("sends exactly ONE POST per tick, carrying both eth_blockNumber and eth_getLogs", async () => {
+  it("sends exactly ONE POST per tick, carrying eth_blockNumber and the Transfer and Approval eth_getLogs", async () => {
     const { posts, fetchFn } = rpcFetch((it) => (it.method === "eth_blockNumber" ? { result: "0xa" } : { result: [] }));
     const w = watchOwner({ client: createWatchClient(fetchFn), blockClient: noBlocks as never, owner: OWNER_LC, tokens: [TOKEN], pollMs: 5, onTx: () => {} });
     await wait(80);
     w.stop();
     expect(posts.length).toBeGreaterThanOrEqual(4);
     expect(posts[0].map((i) => i.method)).toEqual(["eth_blockNumber"]); // start: the tip only
-    for (const p of posts.slice(1)) expect(p.map((i) => i.method).sort()).toEqual(["eth_blockNumber", "eth_getLogs"]);
+    for (const p of posts.slice(1)) {
+      expect(p.map((i) => i.method).sort()).toEqual(["eth_blockNumber", "eth_getLogs", "eth_getLogs"]);
+      expect(p.filter(asksApproval)).toHaveLength(1);
+    }
+  });
+
+  it("decodes an owner Approval through the real client: kind approval, spender as `to`, owner-filtered topics", async () => {
+    let tip = "0xa";
+    const { posts, fetchFn } = rpcFetch((it) => {
+      if (it.method === "eth_blockNumber") return { result: tip };
+      return { result: asksApproval(it) && BigInt((it.params![0] as { fromBlock: string }).fromBlock) <= 11n ? [rawApproval(11n, 2n ** 256n - 1n)] : [] };
+    });
+    const seen: unknown[] = [];
+    const w = watchOwner({ client: createWatchClient(fetchFn), blockClient: noBlocks as never, owner: OWNER_LC, tokens: [TOKEN], pollMs: 5, onTx: (t) => void seen.push(t) });
+    await wait(20);
+    tip = "0xb";
+    await until(() => seen.length >= 1, 300);
+    await wait(20);
+    w.stop();
+    expect(seen).toEqual([{ kind: "approval", hash: hashAt(2011n), block: 11n, token: TOKEN, to: SPENDER, amount: 2n ** 256n - 1n }]);
+    const q = posts.flat().find(asksApproval)!.params![0] as { topics: unknown[] };
+    expect(q.topics[1]).toBe(`0x${OWNER_LC.slice(2).padStart(64, "0")}`); // indexed owner = the watched account
   });
 
   it("a per-item eth_getLogs error is not retried on its own (it could reach another node) and does not move the cursor", async () => {
@@ -343,6 +494,7 @@ describe("watchOwner over the real batching client (Task 5 fix round 5)", () => 
       // A lone eth_getLogs is a retry that went to node B, which is behind and has no block 12 yet.
       if (batch.length === 1) return { result: [] };
       if (phase === "failing") return { error: { code: -32603, message: "internal error" } }; // retryable for viem
+      if (asksApproval(it)) return { result: [] };
       return { result: from <= 12n ? [rawTransfer(12n)] : [] };
     });
     const seen: bigint[] = [];
@@ -373,7 +525,7 @@ describe("watchOwner pacing", () => {
       getLogs: async () => [],
       getBlock: async () => ({ transactions: [] }),
     };
-    const w = watchOwner({ client: client as never, owner: OWNER, tokens: [TOKEN], onTx: () => {} });
+    const w = watchOwner({ client: transfersOnly(client), owner: OWNER, tokens: [TOKEN], onTx: () => {} });
     await vi.advanceTimersByTimeAsync(0);
     expect(polls).toBe(1);
     await vi.advanceTimersByTimeAsync(299);
