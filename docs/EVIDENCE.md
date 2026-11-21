@@ -141,3 +141,17 @@ Root owner `0xE871748C0922745Ad94d065a388e95eC420A67EB`, vault v3 `0x776913Abe05
 | Incident for the approval: `trigger.kind = "approval"`, `to` = spender, 1/1 rescued | Signed incident | `a753fcba-bb41-4cbe-abac-770ce19a70d2` |
 | **Review Focus 7**: owner key lowers the vault allowance, `approve(vault, 1)` | Alert-only incident, `rescues: []`, no rescue tx | tx `0x1ca3b1812d4ad28380a8f58c1a87146bc3861e3b8269b7db8543796c195e15b2`, incident `ea30c2ce-80d8-4ead-8f7b-1f429ffa4a5f` |
 | Restore `approve(vault, max)` | No action ("the owner's own setup") | `0x90429203dfd5b712c93d1096f94dc7deb03f74e70734fd645c417384a421e55e` |
+
+## Task 6C: alerts after the rescue on diana (2026-11-21)
+
+Fresh demo owner `0xcfA6Dcc9DC26e3F5C07A953aC8B8D641530A3cf5` (run `20261121T043142Z`), vault `0x575bb2c1a0e423e1ceb7b68d7eb0c88b89310be5`, guardian `0xFf82cAD6638a38d7009D0d5DfB757136B0C03850`, agent at `e139a6a` with Telegram configured (startup log `alerts: telegram`, template summaries). `./demo.sh` one run: PASS.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| First drain with the leaked ECDSA key (10 fUSD to the attacker) | Success, block 10473248 | `0x1ae2adf83cadfeccd69686f7b457491ae99f7e7adf431c6fd71cb425de848576` |
+| **Rescue latency unchanged with alerts on**: detected 04:32:43.151Z, sent 0.6 s later | Success, block 10473250 = **2 blocks** after the first drain (max 3); drains 2 and 3 reverted; 90% kept | `0x9dec4f3e74d800f999882dc1daa1df775f16dbc71d30923f1790745fd9b9581e` |
+| Incident signed and recorded | 1/1 rescued | `f0d526dc-8a04-44e9-8443-bb362f094282` |
+| **Telegram alert arrives after the rescue tx** (Review Focus 8) | Received by the builder: "Q-Day Guardian: RESCUE, 1/1 rescue tx(s) succeeded", trigger tx, reason, and the rescue tx `0x9dec4f3e…` marked OK, which the agent only knows from the receipt | Telegram chat, 2026-11-21 ~04:32:45 UTC |
+| Policy file per owner seeded from env on first start | `data/policy-0xcfa6dcc9dc26e3f5c07a953ac8b8d641530a3cf5.json`, mode 0600 | local file |
+| Forged withdraw (a) / agent-key misuse (b) | PASS / PASS | `0x2ecb2040…` reverted `BadSignature`; `6957CAF7…` "authenticator not permitted for this action" |
+| Recovery withdraw 1 fUSD to a fresh safe address | Success | `0x7c07521b3f191852ada7f36aba8cd85211591b97523058a5621e69e4a499bb96` |

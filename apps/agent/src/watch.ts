@@ -38,6 +38,8 @@ export type WatchOptions = {
   onTx: (tx: OutboundTx) => void | Promise<void>;
   pollMs?: number;
   onError?: (e: unknown) => void;
+  /** Called with each new highest tip, the start tip included (for /health). A throw goes to onError. */
+  onTip?: (block: bigint) => void;
   /** `timing:` lines (first sight of each item) for latency tuning. Optional. */
   log?: (line: string) => void;
   now?: () => Date;
@@ -85,6 +87,13 @@ export function watchOwner(opts: WatchOptions): { stop(): void } {
   /** Native loop: every block in (start, nativeCursor] was scanned. */
   let nativeCursor = 0n;
   const seen = new Set<string>();
+  const tipSeen = (block: bigint) => {
+    try {
+      opts.onTip?.(block);
+    } catch (e) {
+      onError(e);
+    }
+  };
 
   // Fire and forget: a slow pipeline (rescue + LLM) must never stall polling, or the guardian's
   // single-flight guard could never see a second trigger. Failures go to onError.
@@ -116,6 +125,7 @@ export function watchOwner(opts: WatchOptions): { stop(): void } {
   const logTick = async () => {
     if (start === undefined) {
       start = cursor = head = nativeCursor = await client.getBlockNumber({ cacheTime: 0 });
+      tipSeen(head);
       return;
     }
     const lowest = start + 1n;
@@ -138,7 +148,10 @@ export function watchOwner(opts: WatchOptions): { stop(): void } {
       getTransfers(from),
       getApprovals(from),
     ]);
-    if (tip.status === "fulfilled" && tip.value > head) head = tip.value;
+    if (tip.status === "fulfilled" && tip.value > head) {
+      head = tip.value;
+      tipSeen(head);
+    }
     emitSettled(transfers, approvals); // even without a tip
     // Any failed: the cursor stays (a too-large range is then caught up in MAX_RANGE parts, as head moved).
     if (tip.status === "rejected") throw tip.reason;

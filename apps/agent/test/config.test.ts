@@ -82,6 +82,49 @@ describe("loadAgentConfig", () => {
   });
 });
 
+describe("loadAgentConfig: alerts, gas threshold and dashboard origins (Task 6C)", () => {
+  const TOKEN = "123456:SECRET-bot-token_xyz";
+
+  it("defaults: no alert channel, 0.5 QOR gas threshold, the local Vite dashboard origins", async () => {
+    const c = await loadAgentConfig(base);
+    expect(c.telegram).toBeUndefined();
+    expect(c.webhookUrl).toBeUndefined();
+    expect(c.gasLowWei).toBe(5n * 10n ** 17n);
+    expect(c.dashboardOrigins).toEqual(["http://localhost:5173", "http://127.0.0.1:5173"]);
+  });
+
+  it("reads Telegram only as a pair, and never echoes the token", async () => {
+    const c = await loadAgentConfig({ ...base, TELEGRAM_BOT_TOKEN: ` ${TOKEN} `, TELEGRAM_CHAT_ID: " -1001 " });
+    expect(c.telegram).toEqual({ token: TOKEN, chatId: "-1001" });
+    await expect(loadAgentConfig({ ...base, TELEGRAM_CHAT_ID: "1" })).rejects.toThrow(/TELEGRAM_BOT_TOKEN.*TELEGRAM_CHAT_ID/);
+    const e = await loadAgentConfig({ ...base, TELEGRAM_BOT_TOKEN: TOKEN }).catch((x: Error) => x);
+    expect((e as Error).message).toMatch(/TELEGRAM_BOT_TOKEN.*TELEGRAM_CHAT_ID/);
+    expect((e as Error).message).not.toContain("SECRET");
+    const bad = await loadAgentConfig({ ...base, TELEGRAM_BOT_TOKEN: "SECRET/../x", TELEGRAM_CHAT_ID: "1" }).catch((x: Error) => x);
+    expect((bad as Error).message).toMatch(/TELEGRAM_BOT_TOKEN/);
+    expect((bad as Error).message).not.toContain("SECRET");
+  });
+
+  it("reads ALERT_WEBHOOK_URL as an http(s) URL", async () => {
+    expect((await loadAgentConfig({ ...base, ALERT_WEBHOOK_URL: "https://hooks.example/q?k=1" })).webhookUrl).toBe("https://hooks.example/q?k=1");
+    expect((await loadAgentConfig({ ...base, ALERT_WEBHOOK_URL: "http://127.0.0.1:9000/hook" })).webhookUrl).toBe("http://127.0.0.1:9000/hook");
+    await expect(loadAgentConfig({ ...base, ALERT_WEBHOOK_URL: "ftp://x/y" })).rejects.toThrow(/ALERT_WEBHOOK_URL/);
+    await expect(loadAgentConfig({ ...base, ALERT_WEBHOOK_URL: "not a url" })).rejects.toThrow(/ALERT_WEBHOOK_URL/);
+  });
+
+  it("reads GAS_LOW_WEI as a decimal integer", async () => {
+    expect((await loadAgentConfig({ ...base, GAS_LOW_WEI: "1000" })).gasLowWei).toBe(1000n);
+    await expect(loadAgentConfig({ ...base, GAS_LOW_WEI: "0.5" })).rejects.toThrow(/GAS_LOW_WEI/);
+  });
+
+  it("reads DASHBOARD_ORIGINS as comma-separated scheme://host[:port] origins", async () => {
+    const c = await loadAgentConfig({ ...base, DASHBOARD_ORIGINS: "https://guardian.example, http://localhost:4173" });
+    expect(c.dashboardOrigins).toEqual(["https://guardian.example", "http://localhost:4173"]);
+    await expect(loadAgentConfig({ ...base, DASHBOARD_ORIGINS: "http://localhost:5173/" })).rejects.toThrow(/DASHBOARD_ORIGINS/);
+    await expect(loadAgentConfig({ ...base, DASHBOARD_ORIGINS: "*" })).rejects.toThrow(/DASHBOARD_ORIGINS/);
+  });
+});
+
 describe("checkVaultGuardian", () => {
   const agent = "0x9858EfFD232B4033E47d90003D41EC34EcaEdA94";
 

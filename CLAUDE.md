@@ -151,6 +151,11 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSig
 - `./demo.sh --runs 3` needs ~2 QOR per run in the funder (root `OWNER_MNEMONIC`) and ~0.25 QOR per run in the
   guardian (`GAS_MNEMONIC`). `./demo.sh --resume <run.env>` finishes a funded run whose later step failed.
 
+- Agent alerts (Task 6C): `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` in root `.env` (the builder's bot; chat id from
+  `getUpdates`). The agent's API on :8787 serves `/incidents`, `/events`, `/health` and `/policy` (policy in
+  `data/policy-<owner>.json`, writes from loopback + dashboard origin only). Demo run logs in `~/.config/qday/runs/`
+  are not readable from this session: ask the builder for what they show.
+
 ## Hard rules
 - Testnet only. Never commit mnemonics, private keys or `.env`. Keys live in `spike/.keys/` or
   `~/.config/qday/`, never in the repo.

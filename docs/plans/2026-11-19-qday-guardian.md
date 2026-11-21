@@ -223,14 +223,18 @@ Work in `spike/`, never import from it.
   The review also found that the agent's ed25519 key went to the LLM inside the summary facts (since Task 4A); fixed here.
   Ruling: any vault allowance below `maxUint256` raises the alert, not only 0 (an attacker could lower it to 1).
 
-#### Task 6C: Agent API: policy, health, alerts (high tier for policy)
+#### Task 6C: Agent API: policy, health, alerts (high tier for policy), DONE 2026-11-21
 
 **Files:** `apps/agent/src/policy.ts` (reads and writes `data/policy.json`: trusted entries `{label, address, kind: wallet|app}`, `maxOutbound`; reloaded on change), `apps/agent/src/server.ts` (`GET/PUT /policy`, `GET /health`), `apps/agent/src/notify.ts` (Telegram bot + webhook), tests.
 
-- [ ] **Step 1:** Failing tests: `test_policyWriteRejectedFromNonLoopback` and `test_serverBindsLoopbackOnly` (Review Focus 6), `test_policyReloadChangesDecision`, `test_healthReportsTipWindowAndGas`, `test_notifierFailureDoesNotBlockRescue` (Review Focus 8), `test_gasLowAlertFiresOnceBelowThreshold`.
-- [ ] **Step 2:** Implement. `ALLOWLIST`/`MAX_OUTBOUND` in env stay as the seed for a missing `policy.json`. Run `pnpm -F agent test`. Expected: PASS.
-- [ ] **Step 3:** On diana: a fresh demo run with Telegram configured. Expected: the alert arrives after the rescue tx, and the rescue latency is unchanged (≤ 3 blocks).
-- [ ] **Step 4:** Review (fresh context) against Review Focus 6 and 8, then commit.
+- [x] **Step 1:** Failing tests: `test_policyWriteRejectedFromNonLoopback` and `test_serverBindsLoopbackOnly` (Review Focus 6), `test_policyReloadChangesDecision`, `test_healthReportsTipWindowAndGas`, `test_notifierFailureDoesNotBlockRescue` (Review Focus 8), `test_gasLowAlertFiresOnceBelowThreshold`.
+- [x] **Step 2:** Implement. `ALLOWLIST`/`MAX_OUTBOUND` in env stay as the seed for a missing `policy.json`. Run `pnpm -F agent test`. Expected: PASS.
+- [x] **Step 3:** On diana: a fresh demo run with Telegram configured. Expected: the alert arrives after the rescue tx, and the rescue latency is unchanged (≤ 3 blocks).
+  Run `20261121T043142Z`: rescue `0x9dec4f3e…` 2 blocks after the first drain, Telegram alert received after it.
+  Approved departures: policy file per owner (`data/policy-<owner>.json`); report and notify moved off the single-flight
+  path (a queued rescue used to wait for the previous incident's LLM summary); `/policy` also checks `Host`, `Origin` and
+  the JSON content type, since any web page can reach 127.0.0.1.
+- [x] **Step 4:** Review (fresh context) against Review Focus 6 and 8, then commit.
 
 #### Task 6D: Dashboard core: Overview, Incidents, Recover
 
@@ -238,7 +242,7 @@ Work in `spike/`, never import from it.
 **Consumes:** the agent's `/events`, `/incidents`, `/health`, `/policy`; `evmWindowStatus`, `fetchSpendingRules`, `fetchAuthenticators`, `verifyIncident` from core.
 
 - [ ] **Step 1:** Write `verify.test.ts`: `test_rejectsValidSigFromUnlinkedKey`. The pubkey must be in `fetchAuthenticators` and not revoked (Review Focus 5).
-- [ ] **Step 2:** Implement the three screens per the mockup: exposure banner ("Close EVM window now" shows the CLI command: `MsgCloseEVMWindow` is a hybrid tx, 6A gate), protected assets, Guardian health and gas tank, outgoing activity; incident list and detail with chain checks; Recover (load `withdrawal.json`, check, submit through MetaMask inside an owner window).
+- [ ] **Step 2:** Implement the three screens per the mockup: exposure banner ("Close EVM window now" shows the CLI command: `MsgCloseEVMWindow` is a hybrid tx, 6A gate), protected assets, Guardian health and gas tank, outgoing activity; incident list (sorted by `detectedAt`: since 6C incidents can be appended out of order; a trigger with no `kind` is a transfer) and detail with chain checks; Recover (load `withdrawal.json`, check, submit through MetaMask inside an owner window).
 - [ ] **Step 3:** Run `pnpm -F dashboard test && pnpm -F dashboard build`. Expected: PASS and the build succeeds.
 - [ ] **Step 4:** Run `demo.sh` with the dashboard open. Expected: the incident appears within ≤ 5 seconds and shows ✓.
 - [ ] **Step 5:** Commit.
