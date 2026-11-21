@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { verifyIncident, type OutboundTx } from "@qday/core";
 import { describe, expect, it, vi } from "vitest";
 import { mkdirSync, writeFileSync, appendFileSync } from "node:fs";
+import { decide } from "../src/rules";
 import { appendIncident, buildIncident, readIncidents, signAndRecord, summarize, templateSummary, type Facts } from "../src/report";
 
 const SK = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
@@ -78,6 +79,27 @@ describe("summarize", () => {
     expect(t).not.toMatch(/triggered a rescue|No tokens needed rescuing/);
   });
 
+  it("sends the LLM only the picked facts, whatever else the caller put on the object", async () => {
+    const llm = vi.fn(async () => ({ text: "ok", stopReason: "end_turn" }));
+    await summarize({ ...facts, alert: true, sk: SK, apiKey: "secret-api-key" } as unknown as Facts, llm);
+    const [, user] = llm.mock.calls[0] as unknown as [string, string];
+    expect(Object.keys(JSON.parse(user)).sort()).toEqual(["alert", "reason", "rescues", "trigger"]);
+    expect(user).not.toContain("secret-api-key");
+  });
+
+  it("template reads correctly for an alert on a vault allowance lowered to a non-zero value (decide's own reason)", () => {
+    const lowered = { ...trigger, kind: "approval" as const, token: FUSD, to: VAULT, amount: 1n };
+    const d = decide(lowered, { vault: VAULT, allowlist: [], maxOutbound: 0n });
+    expect(d.alert).toBe(true);
+    const t = templateSummary({ trigger: lowered, reason: d.reason, rescues: [], alert: true });
+    expect(t).toBe(
+      `Approval of 1 (token ${FUSD}) to spender ${VAULT} in tx ${trigger.hash} raised an alert: ${d.reason}. ` +
+        "No rescue was attempted: the rules flag this event for the owner, but moving funds would not undo it.",
+    );
+    expect(t).toMatch(/lowered to 1\b/);
+    expect(t).not.toMatch(/revoked/);
+  });
+
   it("passes the trigger kind (and the alert flag) to the LLM, which still only writes text", async () => {
     const llm = vi.fn(async () => ({ text: "An approval was revoked.", stopReason: "end_turn" }));
     await summarize({ ...facts, trigger: { ...trigger, kind: "approval", to: VAULT, amount: 0n }, rescues: [], alert: true }, llm);
@@ -93,6 +115,25 @@ describe("summarize", () => {
 });
 
 describe("incident build, sign and store", () => {
+  it("never sends the agent secret key (or any non-fact field) to the LLM on the production path", async () => {
+    const llm = vi.fn(async () => ({ text: "Funds were rescued.", stopReason: "end_turn" }));
+    const inc = await signAndRecord(
+      { ...facts, detectedAt: "2026-01-01T00:00:00.000Z", sk: SK, llm, log: () => {} },
+      join(mkdtempSync(join(tmpdir(), "qday-")), "i.jsonl"),
+    );
+    expect(inc.summarySource).toBe("llm");
+    const [system, user] = llm.mock.calls[0] as unknown as [string, string];
+    const skHex = Buffer.from(SK).toString("hex");
+    for (const msg of [system, user]) {
+      expect(msg).not.toContain('"sk"');
+      expect(msg).not.toContain(skHex);
+      expect(msg).not.toContain(JSON.stringify(Array.from(SK)).slice(1, -1)); // "1,2,3,…" as an array
+      expect(msg).not.toContain('"0":1'); // a Uint8Array serialized as an object
+    }
+    expect(Object.keys(JSON.parse(user)).sort()).toEqual(["detectedAt", "reason", "rescues", "trigger"]);
+    expect(verifyIncident(inc)).toBe(true);
+  });
+
   it("test_signedIncidentVerifies end to end", async () => {
     const inc = await signAndRecord({ ...facts, sk: SK }, join(mkdtempSync(join(tmpdir(), "qday-")), "i.jsonl"));
     expect(verifyIncident(inc)).toBe(true);

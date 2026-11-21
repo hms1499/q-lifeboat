@@ -123,7 +123,7 @@ describe("guardian", () => {
     await g.onTx(revoke("0xa"));
     expect(rescue).not.toHaveBeenCalled();
     expect(record).toHaveBeenCalledOnce();
-    expect(record.mock.calls[0][0]).toMatchObject({ trigger: revoke("0xa"), rescues: [], alert: true, reason: expect.stringMatching(/revoked the vault allowance/) });
+    expect(record.mock.calls[0][0]).toMatchObject({ trigger: revoke("0xa"), rescues: [], alert: true, reason: expect.stringMatching(/vault allowance was lowered to 0/) });
     expect(publish).toHaveBeenCalledOnce();
   });
 

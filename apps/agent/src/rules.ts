@@ -1,4 +1,4 @@
-import type { Hex } from "viem";
+import { maxUint256, type Hex } from "viem";
 import type { OutboundTx } from "@qday/core";
 
 export type { OutboundTx };
@@ -30,13 +30,19 @@ export function decide(tx: OutboundTx, policy: Policy): Decision {
   const trusted = policy.allowlist.some((a) => same(a, tx.to));
   if (tx.kind === "approval") {
     if (same(tx.to, policy.vault)) {
-      // Review Focus 7 (threat T5): an attacker holding the owner's ECDSA key revokes the vault's allowance so that
-      // rescue() can no longer pull this token. A rescue cannot undo that, so the owner gets an alert instead.
-      if (tx.amount === 0n) {
-        const reason = `approval of 0 to the vault: the owner key revoked the vault allowance on token ${tx.token}`;
-        return { rescue: false, alert: true, reason };
+      // The owner's own setup approves the vault for maxUint256 (apps/cli setup), and the vault's transferFrom never
+      // lowers an unlimited allowance. Anything below it is the allowance being lowered.
+      if (tx.amount === maxUint256) {
+        return { rescue: false, alert: false, reason: "unlimited approval to the vault (the owner's own setup)" };
       }
-      return { rescue: false, alert: false, reason: "approval to the vault (the owner's own setup)" };
+      // Review Focus 7 (threat T5): an attacker holding the owner's ECDSA key revokes (0) or lowers (e.g. 1) the
+      // vault's allowance so that rescue() can no longer pull this token. A rescue cannot undo that, so the owner
+      // gets an alert instead. Any value below maxUint256 alerts, so lowering to 1 instead of 0 is no bypass.
+      const what = tx.amount === 0n ? "lowered to 0 (revoked)" : `lowered to ${tx.amount}`;
+      const reason =
+        `approval of ${tx.amount} to the vault: the vault allowance was ${what} on token ${tx.token}, ` +
+        "so rescue() can pull at most that much";
+      return { rescue: false, alert: true, reason };
     }
     if (tx.amount === 0n) return { rescue: false, alert: false, reason: `approval of 0 to ${tx.to}: a revoke` };
     if (trusted) return { rescue: false, alert: false, reason: `approval to trusted spender ${tx.to}` };

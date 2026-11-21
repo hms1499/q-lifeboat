@@ -310,14 +310,15 @@ const approvalAt = (n: bigint, value = 7n) => ({
 });
 /** A mock with one owner Transfer log and one owner Approval log in every block. */
 function bothEvents(tipRef: () => bigint, failApproval: () => boolean = () => false) {
-  const reads: { event: string; fromBlock: bigint; toBlock?: bigint; args?: object }[] = [];
+  const reads: { event: string; fromBlock: bigint; toBlock?: bigint; args?: object; ok: boolean }[] = [];
   const client = {
     getBlockNumber: async () => tipRef(),
     getLogs: async ({ event, fromBlock, toBlock, args }: LogsArgs) => {
-      reads.push({ event: event!.name, fromBlock, toBlock, args });
+      const failing = event!.name === "Approval" && failApproval();
+      reads.push({ event: event!.name, fromBlock, toBlock, args, ok: !failing });
       const to = toBlock ?? tipRef();
       if (event!.name === "Transfer") return logsIn(fromBlock, to);
-      if (failApproval()) throw new Error("rpc 502 on approvals");
+      if (failing) throw new Error("rpc 502 on approvals");
       const out = [];
       for (let b = fromBlock; b <= to; b++) out.push(approvalAt(b));
       return out;
@@ -371,10 +372,12 @@ describe("watchOwner approvals (Task 6B)", () => {
     expect(errors.length).toBeGreaterThanOrEqual(1);
     expect(approvals).toEqual([11n, 12n, 13n, 14n]);
     expect(transfers).toEqual([11n, 12n, 13n, 14n]);
-    // The first good Approval read after the failures starts at or before block 11.
-    const firstOk = reads.filter((r) => r.event === "Approval" && r.fromBlock > 10n);
-    expect(firstOk.length).toBeGreaterThan(0);
-    expect(firstOk.every((r) => r.fromBlock >= 11n)).toBe(true);
+    // The first good Approval read after the failures re-reads from block 11 or earlier (the cursor did not move).
+    const approvalReads = reads.filter((r) => r.event === "Approval");
+    const firstFail = approvalReads.findIndex((r) => !r.ok);
+    expect(firstFail).toBeGreaterThanOrEqual(0);
+    const recovery = approvalReads.slice(firstFail).find((r) => r.ok);
+    expect(recovery!.fromBlock).toBeLessThanOrEqual(11n);
   });
 
   it("catch-up (gap > 50) reads both events per range and advances only when both succeeded", async () => {

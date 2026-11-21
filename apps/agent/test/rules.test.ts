@@ -94,14 +94,22 @@ describe("decide: approvals", () => {
     const d = decide(approval({ to: VAULT, amount: 0n }), policy);
     expect(d.rescue).toBe(false);
     expect(d.alert).toBe(true);
-    expect(d.reason).toMatch(/revoked the vault allowance/i);
+    expect(d.reason).toMatch(/revoked/i);
+    expect(d.reason).toMatch(/vault allowance was lowered to 0\b/i);
     expect(decide(approval({ to: VAULT.toLowerCase() as `0x${string}`, amount: 0n }), policy).alert).toBe(true);
   });
 
-  it("an approval to the vault with value > 0 (the owner's own setup) does nothing", () => {
-    for (const amount of [1n, MAX]) {
-      expect(decide(approval({ to: VAULT, amount }), policy)).toEqual({ rescue: false, alert: false, reason: expect.stringMatching(/vault/i) });
-    }
+  it("test_lowApprovalToVaultRaisesAlertOnly", () => {
+    // Review Focus 7 bypass: lowering the vault allowance to 1 (not 0) starves rescue() just the same.
+    const d = decide(approval({ to: VAULT, amount: 1n }), policy);
+    expect(d.rescue).toBe(false);
+    expect(d.alert).toBe(true);
+    expect(d.reason).toMatch(/vault allowance was lowered to 1\b/i);
+    expect(decide(approval({ to: VAULT, amount: MAX - 1n }), policy)).toMatchObject({ rescue: false, alert: true });
+  });
+
+  it("an unlimited approval to the vault (the owner's own setup, maxUint256) does nothing", () => {
+    expect(decide(approval({ to: VAULT, amount: MAX }), policy)).toEqual({ rescue: false, alert: false, reason: expect.stringMatching(/vault/i) });
   });
 
   it("an approval to an untrusted spender triggers even with an empty allowlist and a tiny value", () => {

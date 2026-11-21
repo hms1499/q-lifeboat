@@ -39,6 +39,14 @@ export function templateSummary(f: Facts): string {
 }
 
 /**
+ * The only data the LLM sees: an explicit pick of the facts. Whatever else a caller put on the object (the agent's
+ * secret key, an API key) is never sent.
+ */
+export function llmFacts(f: Facts): Facts {
+  return { trigger: f.trigger, reason: f.reason, rescues: f.rescues, detectedAt: f.detectedAt, alert: f.alert };
+}
+
+/**
  * Summary written by the LLM when available, the template otherwise (no LLM, error, refusal or empty
  * text). The cause of a fallback goes to `log`; the API key is never part of it.
  */
@@ -50,7 +58,7 @@ export async function summarize(
   const fallback = () => ({ text: templateSummary(f), source: "template" as const });
   if (!llm) return fallback();
   try {
-    const r = await llm(SYSTEM, canonicalJson(f));
+    const r = await llm(SYSTEM, canonicalJson(llmFacts(f)));
     const text = r.text.trim();
     if (r.stopReason === "refusal") {
       log("summary: LLM refusal, using template");
@@ -125,8 +133,9 @@ export async function signAndRecord(
   input: Facts & { sk: Uint8Array; llm?: Llm; log?: (line: string) => void },
   file: string,
 ): Promise<Incident> {
-  const { text, source } = await summarize(input, input.llm, input.log);
-  const signed = signIncident(buildIncident({ ...input, summary: text, summarySource: source }), input.sk);
+  const { sk, llm, log, ...facts } = input; // secrets and helpers never travel with the facts
+  const { text, source } = await summarize(facts, llm, log);
+  const signed = signIncident(buildIncident({ ...facts, summary: text, summarySource: source }), sk);
   appendIncident(file, signed);
   return signed;
 }
