@@ -155,3 +155,17 @@ Fresh demo owner `0xcfA6Dcc9DC26e3F5C07A953aC8B8D641530A3cf5` (run `20261121T043
 | Policy file per owner seeded from env on first start | `data/policy-0xcfa6dcc9dc26e3f5c07a953ac8b8d641530a3cf5.json`, mode 0600 | local file |
 | Forged withdraw (a) / agent-key misuse (b) | PASS / PASS | `0x2ecb2040…` reverted `BadSignature`; `6957CAF7…` "authenticator not permitted for this action" |
 | Recovery withdraw 1 fUSD to a fresh safe address | Success | `0x7c07521b3f191852ada7f36aba8cd85211591b97523058a5621e69e4a499bb96` |
+
+## Task 6D: dashboard core on diana (2026-11-21)
+
+Branch `task-6d-dashboard-core` at `4a65e4f`. Dashboard `pnpm -F dashboard dev` (Vite, 127.0.0.1:5173), observed in a Playwright browser with a DOM observer timestamping each incident and its "Report verified" badge.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| diana REST sends no CORS headers (no `Access-Control-Allow-Origin`, even for `Origin: https://dashboard.qorechain.io`; `OPTIONS` → 501); the EVM RPC answers `Access-Control-Allow-Origin: *` | Browser REST reads go through the Vite `/qore-rest` proxy | `curl -D -` read-only, 2026-11-21 |
+| `pnpm cli window open` for the root owner `0xE871…67EB` (1800 blocks, 5 txs, targets fUSD/fETH/fBTC/vault/guardian) | OK, "owner window live: 1799 blocks, 5 txs left" | `7D27B15C58861299F9750B0598DF9550816D74FD0E66AAB27033C1352883A9CC` |
+| `pnpm cli window close --expect 0x…0001` (wrong owner) | Refused before signing: "--expect … but OWNER_MNEMONIC is 0xE871…: refusing to sign", exit 1, no tx | local run |
+| `pnpm cli window close` | OK, "owner window closed" | `48DF539BBBBFDF0607615545074207080D71813F39E0470578BDADB98B5CEC5F` |
+| `./demo.sh` with the dashboard open on `#/incidents`: fresh owner `0x759FE6725A1C6C3951016f156249280301083A7E`, vault `0xbfabc2540eb3c7a9dd5574d2b02406aca568663a`, run `20261121T140955Z` | PASS: first drain block 10497500 (`0x1be0f37f…`), rescue block 10497502 = 2 blocks, 90% kept, (a) and (b) PASS | rescue `0xd06e65f596713e5edc84cc178bbb33e512dc8e84f4f03b122ad24bc5f321a809`, recovery `0xf6af61001fd48a39c37fa4801d8c66080e98c2a9aebaaef7b3acc683fba27e2d` |
+| **Incident on the dashboard within ≤ 5 s, ✓** (Task 6D Step 4): agent detected the drain 14:10:55.716Z, read the rescue receipt 14:10:59.009Z; the dashboard showed incident `6c092a4f` at 14:10:59.029Z and "Report verified" (signature, linked and active agent key, `Rescued` log from the vault) at 14:10:59.675Z | 4.0 s after detection, 0.7 s after the rescue receipt | incident `6c092a4f-5580-43c2-a5de-9d447bf52ffc` |
+| Recover through MetaMask: owner window reopened, `pnpm cli sign-withdraw 0xa88D… fUSD 1` (vault nonce 0), file loaded on `#/recover`, all checks ✓, the builder submitted from MetaMask as the owner | Success, block 10497758, gasUsed 500000, `to` = vault v3; vault nonce 0 → 1, vault fUSD 100 → 99 | window `676DBCC2A6AB88D65D88E6BFCFE8A2E93BCEC0AEE4E9884C5D777175BADD9CF6`, withdraw `0xf21e3904e003ee11c36f48b174888578749ed7e8d4be1f0ec6923c1bc87bd88c`, window closed `5DD46E03C7BFB7D3A09940FBDE84DAD567E7ED84FF0D64C7F6EB601FA5354C38` |
