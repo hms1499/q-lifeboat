@@ -8,7 +8,7 @@ import { runStatus } from "./status";
 import { runWithdraw } from "./withdraw";
 import { runWindow } from "./window";
 
-const USAGE = `Q-Day Guardian CLI (qorechain-diana testnet)
+const USAGE = `Q-Lifeboat CLI (qorechain-diana testnet)
 
   pnpm cli setup                              open the EVM window, link the agent, approve the vault
   pnpm cli sign-withdraw <to> <token> <amt>   Guardian Signer: write withdrawal.json (--out <file>)

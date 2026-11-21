@@ -18,13 +18,13 @@ const describeTrigger = (t: OutboundTx) =>
 export function formatAlert(e: AlertEvent): string {
   if (e.type === "gas-low") {
     return [
-      "Q-Day Guardian: guardian gas LOW",
+      "Q-Lifeboat: guardian gas LOW",
       `Guardian ${e.guardian} holds ${formatEther(e.balance)} QOR, below the ${formatEther(e.threshold)} QOR threshold.`,
       "Top it up: rescue txs are paid from this account.",
     ].join("\n");
   }
   if (e.type === "alert") {
-    return ["Q-Day Guardian: ALERT (no rescue attempted)", describeTrigger(e.trigger), `Reason: ${e.reason}`, `Detected: ${e.detectedAt}`].join("\n");
+    return ["Q-Lifeboat: ALERT (no rescue attempted)", describeTrigger(e.trigger), `Reason: ${e.reason}`, `Detected: ${e.detectedAt}`].join("\n");
   }
   const ok = e.rescues.filter((r) => r.success).length;
   const lines = e.rescues.map(
@@ -32,8 +32,8 @@ export function formatAlert(e: AlertEvent): string {
       `- token ${r.token}: moved ${r.amount} (expected ${r.expected}), tx ${r.hash} ${r.success ? "OK" : `FAILED${r.error ? ` (${r.error})` : ""}`}`,
   );
   const headline = e.error
-    ? `Q-Day Guardian: RESCUE FAILED: ${e.error}`
-    : `Q-Day Guardian: RESCUE, ${ok}/${e.rescues.length} rescue tx(s) succeeded`;
+    ? `Q-Lifeboat: RESCUE FAILED: ${e.error}`
+    : `Q-Lifeboat: RESCUE, ${ok}/${e.rescues.length} rescue tx(s) succeeded`;
   const none = e.error ? "Rescues: none sent" : "Rescues: none (nothing to move)";
   return [
     headline,

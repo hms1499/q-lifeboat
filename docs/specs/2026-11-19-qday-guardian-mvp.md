@@ -1,4 +1,4 @@
-# Q-Day Guardian: MVP Spec
+# Q-Lifeboat (formerly Q-Day Guardian): MVP Spec
 
 Hackathon: QoreChain Build Before Q-Day · Category: **Post-Quantum AI Agents** (+ Best AI-Native)
 Testnet: `qorechain-diana` (EVM chain ID 9800) · Team: solo · Deadline: 2026-12-02 23:59 UTC (feature freeze: 2026-11-30)
