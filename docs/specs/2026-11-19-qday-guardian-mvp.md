@@ -73,19 +73,23 @@ It does not replace closing the window; it covers the time the window has to be 
    - Alerts (added 2026-11-21): Telegram and/or a webhook on every rescue and when the gas tank runs
      low. Alerts go out after the rescue and can never delay or block it. `GET /health` reports the last
      block seen, the guardian window's budget and the gas tank balance.
-3. **Dashboard** (React + `@qorechain/react`). Product screens, not a demo script (direction A,
+3. **Dashboard** (React + `@qorechain/react` for reads, MetaMask for the owner's EVM-lane txs; changed
+   2026-11-21 after the Task 6A spike, see below). Product screens, not a demo script (direction A,
    2026-11-21). Mockup: https://claude.ai/artifact/J2uWP23zGnQYdxNQ2HHCfW (private)
    - **Overview:** exposure first (window open or closed, blocks and txs left, "Close EVM window now"),
      protected assets, Guardian health, gas tank, outgoing activity, trusted list. "Rescue now" lets the
-     owner call `vault.rescue` from QoreX when the agent is down (the vault already allows the owner).
+     owner call `vault.rescue` from MetaMask when the agent is down (the vault already allows the owner).
    - **Incidents:** signed reports, each checked against the chain (✓ or ✗), AI summary marked as such.
    - **Recover:** load `withdrawal.json` from the **Guardian Signer** (local CLI that signs ML-DSA with
-     `pqcSign`, because QoreX refuses `signArbitrary`), check it, submit through QoreX.
+     `pqcSign`, because QoreX refuses `signArbitrary`), check it, submit through MetaMask.
    - **Rules:** trusted wallets and apps, the transfer threshold, alert channels, the Guardian's
      on-chain permission (read only).
-   - **Protect:** self-serve onboarding: connect QoreX, create the vault, approve tokens, trusted
-     list, recovery address and alerts, link the Guardian and fund the gas tank. Depends on the QoreX
-     signing spike (plan Task 6A); without it this screen shows the CLI commands instead.
+   - **Protect:** self-serve onboarding: connect MetaMask, create the vault, approve tokens, trusted
+     list, recovery address and alerts, link the Guardian and fund the gas tank. The hybrid steps (open
+     the EVM window, link the Guardian) show the CLI command; the EVM steps sign in MetaMask.
+   - **Wallets (Task 6A, 2026-11-21):** no browser wallet signs a hybrid (secp256k1 + ML-DSA-87) tx on
+     diana today: the builder's QoreX build offers mainnet only, and MetaMask has no ML-DSA key. MetaMask
+     signs the owner's EVM txs, which the chain accepts only inside an EVM window opened by a hybrid tx.
    - **Fire drill:** runs the end-to-end attack on a throwaway account (`fresh-owner`, `attack`,
      `demo-check`) to prove the Guardian works without risking the owner's funds.
 

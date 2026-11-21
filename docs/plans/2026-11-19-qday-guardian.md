@@ -13,7 +13,7 @@
 - `@qorechain/evm` (`evmWindowStatus`, `erc20`)
 - viem, `@noble/curves/ed25519`
 - `@anthropic-ai/sdk` (model `claude-haiku-5-5`)
-- Vite + React + `@qorechain/react`
+- Vite + React + `@qorechain/react` (reads); MetaMask through viem + EIP-6963 for the owner's EVM-lane txs (Task 6A gate)
 
 **Spec:** `docs/specs/2026-11-19-qday-guardian-mvp.md`
 
@@ -192,16 +192,23 @@ shippable on its own.
 the CLI setup commands → drop "Turn off protection" in 6E → drop the Recover screen (CLI `withdraw`).
 Never cut 6B, 6C or 6D.
 
-#### Task 6A: QoreX signing spike (THROWAWAY, Nov 22, ½ day)
+#### Task 6A: Wallet signing spike (THROWAWAY, Nov 22, ½ day), DONE 2026-11-21
 
 Question: can the dashboard, through QoreX / `@qorechain/react`, get the owner to sign (1) the hybrid
 setup tx (`MsgOpenEVMWindow` + `linkAuthenticatorMsgs` + `MsgUpdateSpendingRules`), (2) EVM txs
 (vault deploy, `approve`, `vault.rescue`, `withdraw`) and (3) a QOR transfer to the guardian (gas tank)?
 Work in `spike/`, never import from it.
 
-- [ ] **Step 1:** Check `@qorechain/react` and QoreX typings for a hybrid-sign API. Record what exists.
-- [ ] **Step 2:** Try (1), (2) and (3) on diana from a minimal page. Record each tx hash or error in `docs/EVIDENCE.md`.
-- [ ] **Step 3 (gate):** (1) works → 6F signs in the browser. (1) fails → 6F shows the CLI commands. Write the result into CLAUDE.md "Chain facts".
+- [x] **Step 1:** Check `@qorechain/react` and QoreX typings for a hybrid-sign API. Record what exists.
+  `@qorechain/react` only has the CosmJS signer path (no hybrid layer). QoreX `window.qorex.native.signAndBroadcast`
+  adds the hybrid layer; its EVM provider refuses `eth_sendTransaction` in the typings (`@qorechain/qorex-types@0.1.0`).
+- [x] **Step 2:** Try (1), (2) and (3) on diana from a minimal page (`spike/qorex-sign/`). Record each tx hash or error in `docs/EVIDENCE.md`.
+  The builder's QoreX build offers mainnet only, so nothing could be signed on diana with it. Switched to MetaMask
+  (builder's call): with the owner's mnemonic imported, MetaMask signed (2) `approve` and `vault.rescue` and (3) the QOR
+  transfer to the guardian, all inside an owner window opened by CLI. Without a window the chain refuses at broadcast.
+- [x] **Step 3 (gate):** (1) fails (no wallet signs the hybrid tx on diana) → 6F shows the CLI commands for the hybrid
+  steps (open/close window, link the Guardian). (2) and (3) work in MetaMask → "Rescue now", Recover's `withdraw`,
+  the gas tank top-up and the token approvals sign in the browser, inside an owner window. Chain facts 16-17 in CLAUDE.md.
 
 #### Task 6B: Agent rules: trusted apps and the `Approval` trigger (high tier)
 
@@ -228,7 +235,7 @@ Work in `spike/`, never import from it.
 **Consumes:** the agent's `/events`, `/incidents`, `/health`, `/policy`; `evmWindowStatus`, `fetchSpendingRules`, `fetchAuthenticators`, `verifyIncident` from core.
 
 - [ ] **Step 1:** Write `verify.test.ts`: `test_rejectsValidSigFromUnlinkedKey`. The pubkey must be in `fetchAuthenticators` and not revoked (Review Focus 5).
-- [ ] **Step 2:** Implement the three screens per the mockup: exposure banner, protected assets, Guardian health and gas tank, outgoing activity; incident list and detail with chain checks; Recover (load `withdrawal.json`, check, submit through QoreX).
+- [ ] **Step 2:** Implement the three screens per the mockup: exposure banner ("Close EVM window now" shows the CLI command: `MsgCloseEVMWindow` is a hybrid tx, 6A gate), protected assets, Guardian health and gas tank, outgoing activity; incident list and detail with chain checks; Recover (load `withdrawal.json`, check, submit through MetaMask inside an owner window).
 - [ ] **Step 3:** Run `pnpm -F dashboard test && pnpm -F dashboard build`. Expected: PASS and the build succeeds.
 - [ ] **Step 4:** Run `demo.sh` with the dashboard open. Expected: the incident appears within ≤ 5 seconds and shows ✓.
 - [ ] **Step 5:** Commit.
@@ -236,14 +243,14 @@ Work in `spike/`, never import from it.
 #### Task 6E: Dashboard: Rules, Rescue now, gas tank top-up
 
 - [ ] **Step 1:** Rules screen: trusted wallets and apps (add, remove), threshold, alert channels, the on-chain permission read from `fetchSpendingRules` (read only). Writes go to `PUT /policy`.
-- [ ] **Step 2:** "Rescue now" on Overview: the owner sends `vault.rescue(token)` per protected token through QoreX. On diana: record the hash in `EVIDENCE.md`.
-- [ ] **Step 3:** Gas tank: show the guardian's QOR balance and a top-up (QOR transfer to the guardian) through QoreX, if 6A step 2 (3) works.
+- [ ] **Step 2:** "Rescue now" on Overview: the owner sends `vault.rescue(token)` per protected token through MetaMask (needs an open owner window; show the CLI command to open one when it is closed). On diana: record the hash in `EVIDENCE.md`.
+- [ ] **Step 3:** Gas tank: show the guardian's QOR balance and a top-up (QOR transfer to the guardian) through MetaMask (6A step 2 (3) works).
 - [ ] **Step 4 (optional):** "Turn off protection": `approve(vault, 0)` per token and `revokeAuthenticatorMsg`.
 - [ ] **Step 5:** `pnpm -F dashboard test && pnpm -F dashboard build`, then commit.
 
 #### Task 6F: Dashboard: Protect onboarding
 
-- [ ] **Step 1:** Six steps per the mockup: connect, create vault, approve tokens, trusted list, recovery address and alerts, link the Guardian and fund the gas tank. Signing path from 6A's gate.
+- [ ] **Step 1:** Six steps per the mockup: connect, create vault, approve tokens, trusted list, recovery address and alerts, link the Guardian and fund the gas tank. Signing path from 6A's gate: hybrid steps (open the window, link the Guardian) show the CLI command; EVM steps (vault deploy, `approve`, gas tank) sign in MetaMask inside that window.
 - [ ] **Step 2:** On diana: onboard a fresh owner from the browser (or with the shown CLI commands), then run `pnpm cli attack` and `demo-check` against it. Expected: PASS. Record the hashes.
 - [ ] **Step 3:** Commit.
 

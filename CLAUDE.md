@@ -119,6 +119,16 @@ checkboxes and the docs below are the handoff state, not the chat history.
     (tx `A665D9CB…`). Until its first link, the abstractaccount REST answers HTTP 404 "account … not found"
     for `authenticators`/spending rules (`auth_nonce` answers 200); treat that exact 404 as "none".
 
+16. Wallets (Task 6A, 2026-11-21): the builder's QoreX build offers mainnet (`qorechain-vladi`) only; every
+    `signAndBroadcast` for diana is refused "chain qorechain-diana does not match the active network". Its EVM
+    account (`0xa88D…`) differs from its native account (`0x4b86…`). It declares `signDirectAddsPqcLayer` and
+    `signArbitrary`, newer than `@qorechain/qorex-types@0.1.0`. `@qorechain/react` has no hybrid signing path.
+17. MetaMask (owner mnemonic imported, same `m/44'/60'/0'/0/0` address as `deriveUnifiedAccount`) signs the
+    owner's EVM txs on diana inside an open window (`approve` `0xf6fc5775…`, QOR to guardian `0x65282be0…`,
+    `vault.rescue` `0xb4119a4c…`). With no window, EVERY account is refused at broadcast ("no open EVM
+    authorisation window"), no hash and no gas. `wallet_addEthereumChain` for 9800 works. Hybrid txs (window,
+    link) still need the CLI.
+
 SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSign`, `EthNativeSigner`,
 `linkAuthenticatorMsgs`, `signAuthenticatorLinkEd25519`, `revokeAuthenticatorMsg`,
 `buildPhantomExecuteEvm`, `fetchAuthNonce`, `fetchSpendingRules`, `fetchAuthenticators`,
