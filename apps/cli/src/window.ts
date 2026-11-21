@@ -15,9 +15,10 @@ export const OWNER_WINDOW_TXS = 5;
 const PER_TX_GAS = 3_000_000n;
 const PER_TX_MAX_FEE = 112_500_000_000n;
 
-export type WindowArgs = { action: "open"; blocks: number; txs: number } | { action: "close" };
+/** `expect`: the owner the caller means (the dashboard's watched owner); the command refuses any other account. */
+export type WindowArgs = { action: "open"; blocks: number; txs: number; expect?: string } | { action: "close"; expect?: string };
 
-const USAGE = "usage: window open [--blocks N] [--txs N] | window close";
+const USAGE = "usage: window open [--blocks N] [--txs N] [--expect 0xOWNER] | window close [--expect 0xOWNER]";
 
 function readInt(name: string, raw: string | undefined, max: bigint): number {
   if (raw === undefined || !/^\d+$/.test(raw)) throw new Error(`${name} needs a positive integer (${USAGE})`);
@@ -26,29 +27,45 @@ function readInt(name: string, raw: string | undefined, max: bigint): number {
   return Number(n);
 }
 
-/** `window open [--blocks N] [--txs N]` or `window close`. Throws on anything else. */
+/** `window open [--blocks N] [--txs N] [--expect 0x…]` or `window close [--expect 0x…]`. Throws on anything else. */
 export function parseWindowArgs(args: string[]): WindowArgs {
   const [action, ...rest] = args;
-  if (action === "close") {
-    if (rest.length) throw new Error(USAGE);
-    return { action: "close" };
-  }
-  if (action !== "open") throw new Error(USAGE);
+  if (action !== "open" && action !== "close") throw new Error(USAGE);
   let blocks: number | undefined;
   let txs: number | undefined;
+  let expect: string | undefined;
   for (let i = 0; i < rest.length; i += 2) {
     const flag = rest[i];
-    if (flag === "--blocks" && blocks === undefined) blocks = readInt("--blocks", rest[i + 1], MAX_EVM_WINDOW_BLOCKS);
-    else if (flag === "--txs" && txs === undefined) txs = readInt("--txs", rest[i + 1], MAX_EVM_WINDOW_TXS);
+    if (flag === "--expect" && expect === undefined) {
+      const v = rest[i + 1];
+      if (v === undefined || !/^0x[0-9a-fA-F]{40}$/.test(v)) throw new Error(`--expect needs the owner's 0x address (${USAGE})`);
+      expect = v;
+    } else if (action === "open" && flag === "--blocks" && blocks === undefined) blocks = readInt("--blocks", rest[i + 1], MAX_EVM_WINDOW_BLOCKS);
+    else if (action === "open" && flag === "--txs" && txs === undefined) txs = readInt("--txs", rest[i + 1], MAX_EVM_WINDOW_TXS);
     else throw new Error(`unexpected "${flag}" (${USAGE})`);
   }
-  return { action: "open", blocks: blocks ?? OWNER_WINDOW_BLOCKS, txs: txs ?? OWNER_WINDOW_TXS };
+  if (action === "close") return { action: "close", expect };
+  return { action: "open", blocks: blocks ?? OWNER_WINDOW_BLOCKS, txs: txs ?? OWNER_WINDOW_TXS, expect };
 }
 
 /**
- * The owner's hand-driven window: scoped to the three tokens, the vault and the guardian, so a withdraw, a manual
- * rescue, an approve and a QOR top-up of the guardian fit, and nothing else. `maxValue` covers fees only: against a
- * leaked ECDSA key the window budget is the only cap (chain fact 4), so it carries no value headroom.
+ * Refuse, before anything is signed, when OWNER_MNEMONIC is not the owner the caller means. The root .env owner is not
+ * a demo.sh run's fresh owner: without this, `window close` could close another account's window and report success.
+ */
+export function checkExpectedOwner(derived: string, expect: string | undefined): void {
+  if (expect !== undefined && expect.toLowerCase() !== derived.toLowerCase()) {
+    throw new Error(
+      `--expect ${expect} but OWNER_MNEMONIC is ${derived}: refusing to sign. For a demo.sh owner, load its env first: ` +
+        "(set -a && . ~/.config/qday/runs/<run id>/run.env && set +a && pnpm cli window …)",
+    );
+  }
+}
+
+/**
+ * The owner's hand-driven window: scoped to the three tokens, the vault and the guardian. A withdraw, a manual rescue
+ * and an approve fit. `maxValue` covers fees only: against a leaked ECDSA key the window budget is the only cap (chain
+ * fact 4), so it carries no value headroom, and a QOR top-up of the guardian does NOT fit yet. The guardian target is
+ * there for 6E, which will add the value budget a top-up needs.
  */
 export function buildOwnerWindowParams(ownerCosmos: string, tokens: Tokens, vault: string, guardian: string, size: { blocks: number; txs: number }) {
   const allowedTargets = [tokens.fUSD, tokens.fETH, tokens.fBTC, vault, guardian];
@@ -68,6 +85,8 @@ export function buildOwnerWindowParams(ownerCosmos: string, tokens: Tokens, vaul
 export async function runWindow(args: string[], env: Env = process.env): Promise<void> {
   const parsed = parseWindowArgs(args);
   const owner = await loadOwner(env);
+  checkExpectedOwner(owner.evm, parsed.expect);
+  console.log(`owner ${owner.evm} (${owner.cosmos})`);
 
   if (parsed.action === "close") {
     const hash = await broadcast(owner, [closeEvmWindowMsg(owner.cosmos)], "qday: close owner window");

@@ -15,9 +15,12 @@ const USAGE = `Q-Day Guardian CLI (qorechain-diana testnet)
   pnpm cli withdraw <withdrawal.json>         submit a signed withdrawal from any funded wallet
   pnpm cli agent-misuse <token> <to> <wei>    negative gate: agent key tries token.transfer directly (must be REFUSED)
   pnpm cli status                             read-only snapshot (window, rules, keys, balances)
-  pnpm cli window open [--blocks N] [--txs N] open the owner's EVM window (default 1800 blocks, 5 txs), scoped to
-                                              fUSD, fETH, fBTC, the vault and the guardian
-  pnpm cli window close                       close the owner's EVM window (a leaked ECDSA key can then send nothing)
+  pnpm cli window open [--blocks N] [--txs N] [--expect 0xOWNER]
+                                              open the owner's EVM window (default 1800 blocks, 5 txs), scoped to
+                                              fUSD, fETH, fBTC, the vault and the guardian; maxValue covers fees only
+  pnpm cli window close [--expect 0xOWNER]    close the owner's EVM window (a leaked ECDSA key can then send nothing)
+                                              --expect: refuse unless OWNER_MNEMONIC is that owner (demo.sh owners:
+                                              set -a && . ~/.config/qday/runs/<run id>/run.env && set +a first)
 
 Demo (Task 5, run by ./demo.sh):
   pnpm cli fresh-owner                        new owner funded by FUNDER_MNEMONIC (default OWNER_MNEMONIC): ML-DSA key,
