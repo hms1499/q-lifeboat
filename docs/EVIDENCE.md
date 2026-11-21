@@ -125,3 +125,19 @@ Throwaway page `spike/qorex-sign/` (gitignored). Builder's QoreX build and MetaM
 | MetaMask: owner calls `vault.rescue(fUSD)` ("Rescue now") | Success, block 10469972, gasUsed 100000 of 200000 | `0xb4119a4cef70c4e5c48bd94afcdbc6088893b04f023b4844e4df34095cc5034b` |
 | Window after the 4 txs | `usedTxs` 4/4, `live: false`, 60625 uqor used | `evmWindowStatus`, 03:15 UTC |
 | Not tested: `vault.withdraw` through MetaMask (window spent) | Same EVM path as `rescue`; to prove in Task 6D step 4 | |
+
+## Task 6B: `Approval` trigger on diana (2026-11-21)
+
+Root owner `0xE871748C0922745Ad94d065a388e95eC420A67EB`, vault v3 `0x776913Abe058941d4c8ac097EE47E29F528f71e6`, agent at `b305196` (root `.env`, template summaries). Owner txs signed in MetaMask (Task 6A) inside a CLI-opened window.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| Funding: `FUNDER_MNEMONIC` (`qor14zxae5fs0rks778qpdwwlr0aaw48jd4pk5dupt`, `0xa88D…`) signs hybrid; its SDK-derived ML-DSA key equals the registered one (possession not proven, still accepted). 5 QOR each to owner and guardian | OK | `20BBB9CE3E44CF378D24819D21FCA6CD66CFFEB5C1882AFCF6485742266E4B7D` |
+| Owner window 600 blocks expired before use (~14 min); MetaMask txs refused at broadcast: "does not admit this transaction (remaining: 0 blocks …): EVM authorisation window exhausted". No hash, no gas | Refused | Page log 03:57 UTC; first window `A239CE82…`, reopened 1800 blocks `C5290997010127437495A5E36A95FE38E43C3DAE9C89BFC50FC1827E942F6585` |
+| Guardian window (agent at start) | OK | `0EE681A678902D0E80B9D7CDC3DA737569C14555FA0168CB997B0530BD54FE13` |
+| Owner mints 100 fUSD | Success, block 10471875 | `0x89395a3ea368a297786745553e5a45ecfe5bb740ac369856c85e7480f7851fb3` |
+| **Approve phishing**: owner `approve(0x5555…5555, max)` on fUSD | Success, block 10471888 | `0xc3b2c4e0e87292bbe676aaa850819c8041b5ba668ad0d01ea1dda2248f9c2cd9` |
+| **Guardian rescue on the `Approval`**: seen 0.0 s after the block reached the RPC, sent 0.6 s later | Success, block 10471889 = **1 block** after the approval; owner 100 → 0 fUSD, vault 0 → 100 | `0x27a7bb043e2c9c7135b7a2b7f471407cad07b67be5400244684b6ff25206a278` |
+| Incident for the approval: `trigger.kind = "approval"`, `to` = spender, 1/1 rescued | Signed incident | `a753fcba-bb41-4cbe-abac-770ce19a70d2` |
+| **Review Focus 7**: owner key lowers the vault allowance, `approve(vault, 1)` | Alert-only incident, `rescues: []`, no rescue tx | tx `0x1ca3b1812d4ad28380a8f58c1a87146bc3861e3b8269b7db8543796c195e15b2`, incident `ea30c2ce-80d8-4ead-8f7b-1f429ffa4a5f` |
+| Restore `approve(vault, max)` | No action ("the owner's own setup") | `0x90429203dfd5b712c93d1096f94dc7deb03f74e70734fd645c417384a421e55e` |
