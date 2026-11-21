@@ -1,8 +1,13 @@
 import { ed25519 } from "@noble/curves/ed25519";
 import { bytesToHex, hexToBytes, type Hex } from "viem";
 
-/** An outbound transfer from the owner account (token is the zero address for native QOR). */
-export type OutboundTx = { hash: Hex; block: bigint; token: Hex; to: Hex; amount: bigint };
+/**
+ * An outbound event from the owner account.
+ * - `kind: "transfer"`: an ERC-20 `Transfer(from=owner)` or a native QOR tx (token is the zero address).
+ *   `to` is the recipient, `amount` the value moved.
+ * - `kind: "approval"`: an ERC-20 `Approval(owner, spender, value)`. `to` is the spender, `amount` the approved value.
+ */
+export type OutboundTx = { kind: "transfer" | "approval"; hash: Hex; block: bigint; token: Hex; to: Hex; amount: bigint };
 
 /**
  * One rescue attempt. `amount` is what the vault actually moved (sum of its `Rescued` logs in the tx's

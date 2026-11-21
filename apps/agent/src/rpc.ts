@@ -18,9 +18,9 @@ export function createBatchClient(fetchFn?: typeof fetch, retryCount?: number) {
 
 /**
  * The watcher's log-loop client: batching, and NO retries. The watcher moves its cursor to the tip only because
- * one node answered both the tip and the `getLogs(from, latest)` in the same request. viem retries a failed item
- * on its own, in a new request that may reach another node whose `latest` is lower, and the cursor would then
- * skip the blocks between. The loop itself retries the whole tick `pollMs` later.
+ * one node answered the tip and both `getLogs(from, latest)` (Transfer and Approval) in the same request. viem
+ * retries a failed item on its own, in a new request that may reach another node whose `latest` is lower, and the
+ * cursor would then skip the blocks between. The loop itself retries the whole tick `pollMs` later.
  */
 export function createWatchClient(fetchFn?: typeof fetch) {
   return createBatchClient(fetchFn, 0);

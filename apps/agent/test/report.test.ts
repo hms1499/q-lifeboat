@@ -7,7 +7,10 @@ import { mkdirSync, writeFileSync, appendFileSync } from "node:fs";
 import { appendIncident, buildIncident, readIncidents, signAndRecord, summarize, templateSummary, type Facts } from "../src/report";
 
 const SK = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
+const FUSD = "0x00000000000000000000000000000000000000a1" as const;
+const VAULT = "0x17d867860a0A0Ff528dF655439ff59176b061B3C" as const;
 const trigger: OutboundTx = {
+  kind: "transfer",
   hash: "0xabc0000000000000000000000000000000000000000000000000000000000001",
   block: 10n,
   token: "0x0000000000000000000000000000000000000000",
@@ -47,6 +50,40 @@ describe("summarize", () => {
     const [system, user] = llm.mock.calls[0] as unknown as [string, string];
     expect(system).toMatch(/do not decide/i);
     expect(JSON.parse(user).reason).toBe(facts.reason);
+  });
+
+  it("template describes an outbound transfer that triggered a rescue", () => {
+    expect(templateSummary(facts)).toBe(
+      `Outbound transfer of 5 (token ${trigger.token}) to ${trigger.to} in tx ${trigger.hash} triggered a rescue: recipient not in allowlist. Rescued 1 of 1 token balance(s) into the vault.`,
+    );
+  });
+
+  it("template describes an approval that triggered a rescue", () => {
+    const approval: Facts = { ...facts, trigger: { ...trigger, kind: "approval", token: FUSD, amount: 7n }, reason: "approval of 7 to spender X" };
+    expect(templateSummary(approval)).toBe(
+      `Approval of 7 (token ${FUSD}) to spender ${trigger.to} in tx ${trigger.hash} triggered a rescue: approval of 7 to spender X. Rescued 1 of 1 token balance(s) into the vault.`,
+    );
+  });
+
+  it("template describes an alert-only incident: no rescue attempted, and why", () => {
+    const alert: Facts = {
+      trigger: { ...trigger, kind: "approval", token: FUSD, to: VAULT, amount: 0n },
+      reason: "the owner key revoked the vault allowance",
+      rescues: [],
+      alert: true,
+    };
+    const t = templateSummary(alert);
+    expect(t).toMatch(new RegExp(`^Approval of 0 \\(token ${FUSD}\\) to spender ${VAULT} in tx ${trigger.hash} raised an alert: the owner key revoked the vault allowance\\. `));
+    expect(t).toMatch(/no rescue was attempted/i);
+    expect(t).not.toMatch(/triggered a rescue|No tokens needed rescuing/);
+  });
+
+  it("passes the trigger kind (and the alert flag) to the LLM, which still only writes text", async () => {
+    const llm = vi.fn(async () => ({ text: "An approval was revoked.", stopReason: "end_turn" }));
+    await summarize({ ...facts, trigger: { ...trigger, kind: "approval", to: VAULT, amount: 0n }, rescues: [], alert: true }, llm);
+    const [, user] = llm.mock.calls[0] as unknown as [string, string];
+    expect(JSON.parse(user).trigger.kind).toBe("approval");
+    expect(JSON.parse(user).alert).toBe(true);
   });
 
   it("template mentions the outcome counts", () => {
