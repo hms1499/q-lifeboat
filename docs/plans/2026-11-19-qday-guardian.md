@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** An AI agent on testnet `qorechain-diana` that sweeps an owner's EVM assets into a vault that only opens with ML-DSA-87 when the ECDSA key leaks.
+**Goal:** An AI agent on testnet `qorechain-diana` that, when an owner's ECDSA key leaks during an open EVM window, sweeps their ERC-20 tokens into a vault that only opens with the owner's ML-DSA-87 key.
 
 **Architecture:** One Foundry contract (`GuardianVault`), one Node/TS agent and a set of CLIs (setup, signer, attacker, withdraw) sharing `packages/core`, plus a mostly read-only Vite/React dashboard. The agent acts for the owner through the authenticator lane (`MsgExecuteEVM` signed with ed25519) under the spending rule `allowedEvmCalls = ["<vault>/<rescue selector>"]`. No backend or DB: the agent writes incidents to `data/incidents.jsonl` and serves them over HTTP/SSE.
 
