@@ -185,3 +185,23 @@ Root owner `0xE871748C0922745Ad94d065a388e95eC420A67EB`, vault v3 `0x776913Abe05
 | **Rules** screen writes through `PUT /policy` from the dashboard origin | Agent log: `policy updated: 1 trusted` (add) → `0 trusted` (remove) → `maxOutbound 500000000000000000000` → `1000000000000000000000` | agent log 02:05:21Z-02:10:09Z |
 | The diana explorer has no EVM tx page: `explore.qore.network/tx/0x7eec…` shows "Transaction not found: encoding/hex: invalid byte: U+0078 'x'" (its LCD call `/cosmos/tx/v1beta1/txs/0x…` answers 500), and the same hash without `0x` shows "tx not found" (404) | The dashboard shows EVM hashes as copyable text, checked by their receipts from the EVM RPC | browser check, 2026-11-23 02:13Z |
 | `pnpm cli window close --expect 0xE871…` | OK, "owner window closed" | `3AAA928C69B2F17705BA2FF899A6074347B622E42B0EC85DAF9069ABF8D384AE` |
+
+## Task 6F: Protect onboarding on diana (2026-11-23)
+
+Fresh owner `0xd823806154A2546184D23BE2cf775d14497adF1E` (`qor1mq3cqc255f2xrpxj803v7a6az3yh4hc768p2vn`, run `20261123T025547Z`), onboarded
+from the dashboard's Protect screen (`127.0.0.1:5173/#/protect`) with MetaMask and the CLI commands it shows. Guardian
+`0xFf82cAD6638a38d7009D0d5DfB757136B0C03850`. Branch `task-6f-protect` at `f495ba2`. The builder imported the fresh mnemonic into
+MetaMask and clicked the txs.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| `pnpm cli fresh-owner --no-vault` (FRESH_FUND_UQOR=3000000): fund, register ML-DSA-87 key, mint 100 fUSD, no vault | fund `A45DC73C…`, register `DB8BF57E…`, deploy window `329B6E00…`, mint | `0xf868ff893db995695c9af6e66b4b9ee937fb9245b254a41fd8e0c82e6cf16753` |
+| `pnpm cli window open --onboard --topup 0.1 --expect 0xd823…`: UNSCOPED owner window (no `allowedTargets`), 1800 blocks, 5 txs | OK, "1799 blocks, 5 txs left" | `E4CA473F9F16803544CEE411161ACDA8BFC941C9A56912F9B90F5F5AD167E8CB` |
+| **Deploy vault from MetaMask** inside the unscoped window: `GuardianVault(owner = connected wallet, guardian)`, gas limit 950000; the screen read `owner()`/`guardian()` back before saving it | Success, block 10590803, gasUsed 725168, vault `0x4c53a244eb1747916b10e4fd669bbe6760e779a8` | `0x469bba2ae862da412de909ca8a3f3fdd8aa0d5bd34df7cf16a954743eb34f3c3` |
+| **Approve** fUSD, fETH, fBTC to the vault (`maxUint256`, gas limit 100000 each) from MetaMask | 3 × success, gasUsed 50000 each, blocks 10590809 / 10590819 / 10590823 | `0x2731e678a791ebd2ec0a4e8f78681737c6af5ae6e6e07b0dfe7f96960646ccb3`, `0x864a39944bb4e24b20c589e23447891b68ab1719303fb7c4dec45f54d4f5d7ac`, `0x7badaa580ee980d254f2776b56fbd945d199cc01ff37d6ab4cf5648b29964d3a` |
+| `pnpm cli link --expect 0xd823…` (run.env loaded, `VAULT_ADDRESS` exported): vault roles checked on chain before signing, 2 link msgs, no window msg | rule read back: `0x4c53…79a8/0x839006f2 (denoms uqor)` | `AAC92F42B956B5553B08A6426612FF79532245813FA1F2F75E1DD8AC7FF71128` |
+| Agent started for this owner (run.env + `VAULT_ADDRESS`); `/config` names the new owner and vault; the Guardian step turned ✓ | `/health`: guardian window live, gas 4.0 QOR, not low | `GET /config`, `GET /health` 03:13Z |
+| **Gas tank top-up** 0.1 QOR from MetaMask (5th and last tx of the onboarding window, which then showed "used up its txs") | Success, block 10590948, gasUsed 25000; gas tank 4.1 QOR | `0x1364b48306711ec92c5e387ab3a52501e5d29327bae7fb259db8f079b7b5c4bc` |
+| Trusted list step closed with "Continue without" (`GET /policy`: 0 trusted), recovery address saved locally; all 6 steps ✓, Overview "No exposure right now" | builder screenshot 10:15 local | `GET /policy` 03:2xZ |
+| Attack on the onboarded owner: scoped `window open` `A9EC2216…`, `pnpm cli attack`, `demo-check --wait 60` | drain 1 `0x695756c8…` (block 10591084) landed, drains 2-3 reverted; rescue 2 blocks later; (a) forged withdraw `BadSignature` `0x780c98bf…` reverted; (b) agent-key `transfer` refused `F67DF2EA…` | rescue `0x3c1a274902ff3fd9e207127f79f4020ae955ac8935630a7da35dc42d2303df3a`, incident `2e32c49c-2817-4eb2-95fc-0cc44a78f548` |
+| Recovery: `sign-withdraw` 1 fUSD to the safe address + `withdraw` from the owner's window; final `demo-check` | withdraw success (to 0 → 1), **RESULT PASS**: 2 blocks (max 3), 90.00% kept, (a) PASS, (b) PASS | `0x73c1f69465ebfb68b30828a379df1beaffde6ec0e9fc3dedf213fccf02b29f25` |

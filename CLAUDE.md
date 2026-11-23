@@ -28,6 +28,9 @@ spike/            THROWAWAY Task 0 probes + workshop clone. Gitignored. Never im
 - TS workspaces: `pnpm -F <core|agent|cli|dashboard> test`
 - E2E: `./demo.sh` (must pass 3 runs in a row from fresh accounts)
 - CLI (diana, reads root `.env`): `pnpm cli status | setup | sign-withdraw <to> <fUSD|fETH|fBTC|QOR|0x…> <amount> | withdraw <file>`
+- Browser onboarding (Task 6F): `pnpm cli fresh-owner --no-vault`, `pnpm cli window open --onboard [--topup QOR] --expect <0x>`
+  (UNSCOPED, for the MetaMask vault deploy), `pnpm cli link --expect <0x>` (run.env loaded + `VAULT_ADDRESS` exported).
+- The dashboard imports the forge artifact: run `cd contracts && forge build` before `pnpm -F dashboard build|test|dev`.
 
 Run the real command and read its output before claiming anything passes.
 
@@ -135,6 +138,8 @@ checkboxes and the docs below are the handoff state, not the chat history.
     byte 'x'" and the hash without `0x` is "tx not found" (2026-11-23). Never link an EVM tx hash to it; show the hash and
     check its receipt on the EVM RPC. A window's `maxValue` bounds value PLUS each tx's gas limit × fee cap (uqor), so a
     QOR send needs headroom: `pnpm cli window open --topup <QOR>`.
+20. MetaMask deploys a contract (GuardianVault, gasUsed 725168 of 950000) inside an owner window opened with NO `allowedTargets`
+    (`0x469bba2a…`, 2026-11-23). A window whose txs are used up shows closed ("used up its txs"), like an expired one.
 
 SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSign`, `EthNativeSigner`,
 `linkAuthenticatorMsgs`, `signAuthenticatorLinkEd25519`, `revokeAuthenticatorMsg`,

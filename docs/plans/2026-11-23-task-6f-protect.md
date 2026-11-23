@@ -54,7 +54,7 @@ trusted list, recovery address and alerts. Hybrid steps show a CLI command (6A g
 
 **Files:** `apps/cli/src/window.ts`, `apps/cli/test/window.test.ts`, `apps/cli/src/index.ts` (usage text).
 
-- [ ] **Step 1:** Failing tests in `window.test.ts`:
+- [x] **Step 1:** Failing tests in `window.test.ts`:
   - `parseWindowArgs(["open","--onboard"])` → `{action:"open", onboard:true, blocks:1800, txs:5, topupUqor:0n}`;
     `--onboard` combines with `--blocks`, `--txs`, `--topup`, `--expect`; a second `--onboard` and
     `close --onboard` throw. Without `--onboard`, `onboard` is `false` (existing tests keep passing).
@@ -64,11 +64,11 @@ trusted list, recovery address and alerts. Hybrid steps show a CLI command (6A g
   - `runWindow(["open","--onboard"], env)` with an env that has `OWNER_MNEMONIC` but no `VAULT_ADDRESS` and no
     token addresses does not throw for a missing vault (make `runWindow` testable by injecting the broadcast and the
     status read the way the other CLI tests inject deps; follow the existing pattern in `apps/cli/test`).
-- [ ] **Step 2:** Implement. `--onboard` default txs is `ONBOARD_WINDOW_TXS = 5` (1 vault deploy, 3 approvals,
+- [x] **Step 2:** Implement. `--onboard` default txs is `ONBOARD_WINDOW_TXS = 5` (1 vault deploy, 3 approvals,
   1 guardian top-up). The open line prints `window open (onboard, UNSCOPED: any target, N blocks, M txs[, top-up
   headroom X QOR]): <hash>` and then one warning line: `unscoped: until it expires or you run \`pnpm cli window close\`,
   a leaked ECDSA key can send any tx within this budget`. Update the usage text in `index.ts`.
-- [ ] **Step 3:** `pnpm -F cli test && pnpm -F cli typecheck`. Expected: all pass. Commit
+- [x] **Step 3:** `pnpm -F cli test && pnpm -F cli typecheck`. Expected: all pass. Commit
   `feat(cli): window open --onboard opens an unscoped onboarding window (Task 6F)`.
 
 ### Task 2: CLI `link` and `fresh-owner --no-vault` (high tier)
@@ -77,7 +77,7 @@ trusted list, recovery address and alerts. Hybrid steps show a CLI command (6A g
 `demo.sh`, tests `apps/cli/test/link.test.ts`, `setup.test.ts`, `fresh.test.ts`, `scripts/test-demo.sh` if it covers
 `--resume`.
 
-- [ ] **Step 1:** Failing tests:
+- [x] **Step 1:** Failing tests:
   - `link.test.ts`: `checkLinkTarget({owner, guardian}, {owner, guardian?})` throws when the vault's `owner()` differs
     from the signer's EVM address (message names both), when `GUARDIAN_ADDRESS` is set and `guardian()` differs,
     and passes otherwise (case-insensitive). `runLink` (deps injected) refuses with `--expect` naming another owner
@@ -91,7 +91,7 @@ trusted list, recovery address and alerts. Hybrid steps show a CLI command (6A g
     (`RUN_COMPLETE="1"`, `ATTACKER_ADDR`, `SAFE_ADDR`) WITHOUT `VAULT_ADDRESS`; it prints `RUN_ENV=` and a next-step
     line naming the Protect screen (`http://127.0.0.1:5173/#/protect`) and that `OWNER_MNEMONIC` in that run.env is
     what MetaMask imports (never the mnemonic itself).
-- [ ] **Step 2:** Implement:
+- [x] **Step 2:** Implement:
   - `buildGuardianLinkMsgs(owner: UnifiedAccount, vault, agent, existing, nowUnix?)` in `setup.ts`, extracted from
     `runSetup`, which keeps its behaviour.
   - `pnpm cli link [--expect 0xOWNER]` in `link.ts`: env `OWNER_MNEMONIC`, `VAULT_ADDRESS`, `AGENT_ED25519_SK`,
@@ -103,7 +103,7 @@ trusted list, recovery address and alerts. Hybrid steps show a CLI command (6A g
   - `demo.sh --resume` refuses a run.env without a `VAULT_ADDRESS=` line with the message
     `refusing --resume: <file> has no VAULT_ADDRESS (a --no-vault run is onboarded from the dashboard's Protect screen)`.
   - Usage text in `index.ts` for both.
-- [ ] **Step 3:** `pnpm -F cli test && pnpm -F cli typecheck` (and `bash scripts/test-demo.sh` if it exists).
+- [x] **Step 3:** `pnpm -F cli test && pnpm -F cli typecheck` (and `bash scripts/test-demo.sh` if it exists).
   Expected: all pass. Commit `feat(cli): link command and fresh-owner --no-vault for browser onboarding (Task 6F)`.
 
 ### Task 3: Dashboard Protect logic (lib, TDD)
@@ -114,7 +114,7 @@ only if the artifact import needs it.
 
 Pure functions only; the UI (Task 4) calls them with chain and agent reads.
 
-- [ ] **Step 1:** Failing tests:
+- [x] **Step 1:** Failing tests:
   - `vaultArtifact.test.ts`: the forge artifact `contracts/out/GuardianVault.sol/GuardianVault.json` loads through
     `vaultArtifact.ts` (Vite JSON import), has a `constructor(address,address)` and `0x` creation bytecode;
     `parseVaultArtifact` throws on a wrong constructor or missing bytecode (same checks as `loadVaultArtifact` in
@@ -143,9 +143,9 @@ Pure functions only; the UI (Task 4) calls them with chain and agent reads.
     tokens as targets when the window is scoped. A closed or too-small window yields the `--onboard` command.
   - Per-owner local storage helpers (`loadProtectState`/`saveProtectState`, key `qday.protect.v1.<owner lowercase>`,
     fields `vault`, `recovery`, `trustedReviewed`), tolerant of missing/blocked storage and of malformed JSON.
-- [ ] **Step 2:** Implement. Reuse `senderBlockers` from `actions.ts` (export it; Rescue now and top-up keep their
+- [x] **Step 2:** Implement. Reuse `senderBlockers` from `actions.ts` (export it; Rescue now and top-up keep their
   behaviour and tests).
-- [ ] **Step 3:** `pnpm -F dashboard test && pnpm -F dashboard build`. Expected: all pass. Commit
+- [x] **Step 3:** `pnpm -F dashboard test && pnpm -F dashboard build`. Expected: all pass. Commit
   `feat(dashboard): Protect step logic, vault artifact and onboarding planners (Task 6F)`.
 
 ### Task 4: Dashboard Protect screen (UI)
@@ -154,7 +154,7 @@ Pure functions only; the UI (Task 4) calls them with chain and agent reads.
 route `#/protect`), possibly a `TrustedEditor` component extracted from `Rules.tsx`, `Recover.tsx` (recovery note),
 `styles.css`.
 
-- [ ] **Step 1:** Screen per the mockup layout (step list left, current step card right; mockup source:
+- [x] **Step 1:** Screen per the mockup layout (step list left, current step card right; mockup source:
   `Protect.dc.html` in the design canvas, layout and copy only, not its QoreX wording): driven by the connected
   wallet (`WalletConnect`), not by the agent's `/config`.
   - Connect: wallet, chain, PQC status, QOR balance.
@@ -171,14 +171,14 @@ route `#/protect`), possibly a `TrustedEditor` component extracted from `Rules.t
     using it, alert channels from `/health` (read only, as in Rules).
   - Done: "You're protected" with links to Overview and Recover.
   - Recover shows a warning when the loaded withdrawal's `to` differs from the saved recovery address.
-- [ ] **Step 2:** `pnpm -F dashboard test && pnpm -F dashboard build`; open the screen with `pnpm -F dashboard dev`
+- [x] **Step 2:** `pnpm -F dashboard test && pnpm -F dashboard build`; open the screen with `pnpm -F dashboard dev`
   and check it renders with and without a wallet. Commit `feat(dashboard): Protect onboarding screen (Task 6F)`.
 
 ### Task 5: On diana (controller + builder, not a subagent)
 
-- [ ] **Step 1:** `pnpm cli fresh-owner --no-vault`; the builder imports its mnemonic into MetaMask; onboard it from
+- [x] **Step 1:** `pnpm cli fresh-owner --no-vault`; the builder imports its mnemonic into MetaMask; onboard it from
   `#/protect` (window `--onboard`, deploy, approvals, `link`, agent, top-up, trusted list, recovery).
-- [ ] **Step 2:** `pnpm cli window open --expect <owner>` (scoped, for the attack), `pnpm cli attack`,
+- [x] **Step 2:** `pnpm cli window open --expect <owner>` (scoped, for the attack), `pnpm cli attack`,
   `pnpm cli demo-check --wait 60`. Expected: PASS. Record every hash in `docs/EVIDENCE.md`.
-- [ ] **Step 3:** Update `docs/THREAT_MODEL.md` (the unscoped onboarding window), `AI_USAGE.md`, CLAUDE.md commands,
+- [x] **Step 3:** Update `docs/THREAT_MODEL.md` (the unscoped onboarding window), `AI_USAGE.md`, CLAUDE.md commands,
   tick the main plan's 6F, commit.
