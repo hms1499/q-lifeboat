@@ -1,7 +1,8 @@
+import { NETWORK } from "@qday/core";
 import { useEffect, useState } from "react";
 import type { Hex } from "viem";
 import { errorText } from "../lib/format";
-import { connectWallet, discoverWallets, walletChainId, type DiscoveredWallet } from "../lib/wallet";
+import { connectWallet, discoverWallets, ensureDiana, walletChainId, type DiscoveredWallet } from "../lib/wallet";
 import { useApp, type WalletState } from "../state";
 
 export type WalletConnectState = {
@@ -13,6 +14,8 @@ export type WalletConnectState = {
   choices: DiscoveredWallet[] | null;
   pick: () => Promise<void>;
   connect: (d: DiscoveredWallet) => Promise<void>;
+  /** Put the connected wallet on diana (adding the network if needed), then re-read its chain. */
+  switchToDiana: () => Promise<void>;
 };
 
 /** Connect a browser wallet (EIP-6963) into the shared `wallet` state, and follow its account and chain. */
@@ -61,7 +64,18 @@ export function useWalletConnect(): WalletConnectState {
     setChoices(list);
   }
 
-  return { wallet, chainId: wallet ? chainId : null, error, choices, pick, connect };
+  async function switchToDiana() {
+    if (!wallet) return;
+    setError(null);
+    try {
+      await ensureDiana(wallet.provider);
+    } catch (e) {
+      setError(errorText(e));
+    }
+    setChainId(await walletChainId(wallet.provider).catch(() => null));
+  }
+
+  return { wallet, chainId: wallet ? chainId : null, error, choices, pick, connect, switchToDiana };
 }
 
 /** "Connect MetaMask", then the wallet picker when several wallets announce themselves. */
@@ -82,5 +96,15 @@ export function WalletConnect({ w, label = "Connect MetaMask", small = false }: 
         </div>
       ) : null}
     </>
+  );
+}
+
+/** "Switch to diana" when the connected wallet is on another chain. */
+export function SwitchToDiana({ w }: { w: WalletConnectState }) {
+  if (!w.wallet || w.chainId === NETWORK.evmChainId) return null;
+  return (
+    <button type="button" className="btn small" onClick={() => void w.switchToDiana()}>
+      Switch to diana
+    </button>
   );
 }

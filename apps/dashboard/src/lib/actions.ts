@@ -25,9 +25,21 @@ type Sender = { cfg: Cfg; configOk: boolean; wallet: string | null; chainId: num
 const lc = (s: string) => s.toLowerCase();
 const txs = (n: bigint) => `${n} tx${n === 1n ? "" : "s"}`;
 
-/** Why the owner's wallet can't send `n` txs to `target` costing `cost` uqor of window budget right now. */
-function senderBlockers(s: Sender, notOwner: string, target: { address: string; name: string }, n: bigint, cost: bigint): string[] {
+/**
+ * Why the owner's wallet can't send `n` txs to `target` costing `cost` uqor of window budget right now. `reopen`: the
+ * owner window is closed, lacks the target, or has too few txs or too little budget, all of which reopening it fixes
+ * (a new MsgOpenEVMWindow replaces the current one, chain fact 10). `budgetHint` is appended to the budget blocker.
+ */
+function senderBlockers(
+  s: Sender,
+  notOwner: string,
+  target: { address: string; name: string },
+  n: bigint,
+  cost: bigint,
+  budgetHint = "",
+): { blockers: string[]; reopen: boolean } {
   const out: string[] = [];
+  let reopen = false;
   if (!s.configOk) out.push("the agent config must match the vault on chain");
   if (!s.wallet) out.push("connect the owner's wallet");
   else {
@@ -36,42 +48,54 @@ function senderBlockers(s: Sender, notOwner: string, target: { address: string; 
   }
   const w = s.window;
   if (!w) out.push("reading the owner's EVM window");
-  else if (!w.live) out.push("the owner's EVM window is closed");
-  else {
+  else if (!w.live) {
+    out.push("the owner's EVM window is closed");
+    reopen = true;
+  } else {
     // An empty allowedTargets list means any recipient (chain v3.2.3).
-    if (w.allowedTargets.length && !w.allowedTargets.some((t) => lc(t) === lc(target.address))) out.push(`the owner's EVM window does not allow the ${target.name}`);
-    if (w.remainingTxs < n) out.push(`the owner's EVM window has ${txs(w.remainingTxs)} left, ${n} needed`);
+    if (w.allowedTargets.length && !w.allowedTargets.some((t) => lc(t) === lc(target.address))) {
+      out.push(`the owner's EVM window does not allow the ${target.name}`);
+      reopen = true;
+    }
+    if (w.remainingTxs < n) {
+      out.push(`the owner's EVM window has ${txs(w.remainingTxs)} left, ${n} needed`);
+      reopen = true;
+    }
     if (s.maxFeePerGas !== undefined && w.remainingValue < cost) {
-      out.push(`the owner's EVM window has ${fmtUqor(w.remainingValue)} QOR of budget left, ${fmtUqor(cost)} QOR needed`);
+      out.push(`the owner's EVM window has ${fmtUqor(w.remainingValue)} QOR of budget left, ${fmtUqor(cost)} QOR needed${budgetHint}`);
+      reopen = true;
     }
   }
   if (s.maxFeePerGas === undefined) out.push("reading the network fee");
-  return out;
+  return { blockers: out, reopen };
 }
 
+/** What `vault.rescue(token)` moves: the owner's balance, up to the allowance. 0 means skip the token. */
+export const rescuable = (balance: bigint, allowance: bigint): bigint => (balance < allowance ? balance : allowance);
+
 export type RescueRow = { sym: string; token: string; owner: bigint; allowance: bigint };
-export type RescuePlan = { tokens: { sym: string; token: string; amount: bigint }[]; cost: bigint; blockers: string[] };
+/** `reopen`: show the CLI command that opens the owner window (a window blocker it fixes). */
+export type RescuePlan = { tokens: { sym: string; token: string; amount: bigint }[]; cost: bigint; blockers: string[]; reopen: boolean };
 
 /**
  * "Rescue now" from the owner's wallet: one `vault.rescue(token)` per token with something to move (never an empty
  * rescue: it still burns a window tx and its fee). `cost` is the window budget (uqor) the txs can consume.
  */
 export function planRescueNow(i: Sender & { rows: RescueRow[] }): RescuePlan {
-  const tokens = i.rows
-    .map((r) => ({ sym: r.sym, token: r.token, amount: r.owner < r.allowance ? r.owner : r.allowance }))
-    .filter((t) => t.amount > 0n);
-  if (!tokens.length) return { tokens, cost: 0n, blockers: ["nothing to move: your tokens are already in the vault (or not approved)"] };
+  const tokens = i.rows.map((r) => ({ sym: r.sym, token: r.token, amount: rescuable(r.owner, r.allowance) })).filter((t) => t.amount > 0n);
+  if (!tokens.length) return { tokens, cost: 0n, blockers: ["nothing to move: your tokens are already in the vault (or not approved)"], reopen: false };
   const n = BigInt(tokens.length);
   const cost = i.maxFeePerGas === undefined ? 0n : n * evmWindowCost({ gas: RESCUE_GAS, maxFeePerGas: i.maxFeePerGas });
   const notOwner = "connect the owner account: the vault accepts rescue only from the owner or the guardian";
-  return { tokens, cost, blockers: senderBlockers(i, notOwner, { address: i.cfg.vault, name: "vault" }, n, cost) };
+  return { tokens, cost, ...senderBlockers(i, notOwner, { address: i.cfg.vault, name: "vault" }, n, cost) };
 }
 
 export type TopUpPlan = { value: bigint | null; cost: bigint; blockers: string[]; command: string | null };
 
 /**
  * A QOR transfer from the owner's wallet to the guardian. The owner window carries fees only unless it was opened with
- * `--topup`: when the value does not fit (or the window is closed), `command` is the CLI line that opens one that fits.
+ * `--topup`: when reopening it would fix a window blocker (closed, no guardian target, no tx or budget left),
+ * `command` is the CLI line that opens one that fits.
  */
 export function planTopUp(i: Sender & { amountText: string }): TopUpPlan {
   let value: bigint;
@@ -84,16 +108,9 @@ export function planTopUp(i: Sender & { amountText: string }): TopUpPlan {
   if (value > MAX_TOPUP_WEI) return { value, cost: 0n, blockers: ["at most 100 QOR per top-up (the CLI's --topup cap)"], command: null };
   const cost = i.maxFeePerGas === undefined ? 0n : evmWindowCost({ value, gas: TOPUP_GAS, maxFeePerGas: i.maxFeePerGas });
   const notOwner = "connect the owner account: the CLI opens the owner's window only";
-  const blockers = senderBlockers(i, notOwner, { address: i.cfg.guardian, name: "guardian" }, 1n, cost);
   const command = `pnpm cli window open --topup ${formatUnits(value, 18)} --expect ${i.cfg.owner}`;
-  const w = i.window;
-  const closed = !!w && !w.live;
-  const short = !!w?.live && i.maxFeePerGas !== undefined && w.remainingValue < cost;
-  if (short) {
-    const k = blockers.findIndex((b) => b.includes("QOR of budget left"));
-    blockers[k] = `${blockers[k]}: reopen it with top-up headroom (${command})`;
-  }
-  return { value, cost, blockers, command: closed || short ? command : null };
+  const { blockers, reopen } = senderBlockers(i, notOwner, { address: i.cfg.guardian, name: "guardian" }, 1n, cost, `: reopen it with top-up headroom (${command})`);
+  return { value, cost, blockers, command: reopen ? command : null };
 }
 
 /** Recover's hint for a refusal that names the window or an authorisation. */

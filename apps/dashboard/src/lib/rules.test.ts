@@ -1,7 +1,7 @@
 import { RESCUE_SELECTOR } from "@qday/core";
 import { describe, expect, it } from "vitest";
 import type { Policy } from "./agent";
-import { addTrusted, describeRuleDetail, MAX_TRUSTED, parseQorAmount, removeTrusted } from "./rules";
+import { addTrusted, describeRuleDetail, latestPolicy, MAX_TRUSTED, parseQorAmount, removeTrusted } from "./rules";
 
 const VAULT = "0x17d867860a0A0Ff528dF655439ff59176b061B3C";
 const cfg = {
@@ -134,5 +134,26 @@ describe("describeRuleDetail", () => {
   it("no enabled rule → a single 'no spending rule on this account' row, not ok", () => {
     expect(describeRuleDetail({ rules: [], authenticatorRules: [] }, VAULT)).toEqual([{ k: "Rule", v: "no spending rule on this account", ok: false }]);
     expect(describeRuleDetail({ rules: [rule({ enabled: false })], authenticatorRules: [] }, VAULT)).toHaveLength(1);
+  });
+});
+
+describe("latestPolicy (edits build on the newest policy: the PUT answer until a poll started after it lands)", () => {
+  const before: Policy = { trusted: [], maxOutbound: "0" };
+  const after: Policy = { trusted: policy.trusted, maxOutbound: "1" };
+
+  it("no save yet: the poll", () => {
+    expect(latestPolicy({ p: before, gen: 0 }, null)).toBe(before);
+    expect(latestPolicy(undefined, null)).toBeUndefined();
+  });
+
+  it("a poll started before the save (lower generation) never hides the saved policy", () => {
+    expect(latestPolicy({ p: before, gen: 0 }, { p: after, gen: 1 })).toBe(after);
+    expect(latestPolicy(undefined, { p: after, gen: 1 })).toBe(after);
+  });
+
+  it("a poll started after the save wins (it may carry an outside edit)", () => {
+    const outside: Policy = { trusted: [], maxOutbound: "9" };
+    expect(latestPolicy({ p: outside, gen: 1 }, { p: after, gen: 1 })).toBe(outside);
+    expect(latestPolicy({ p: outside, gen: 2 }, { p: after, gen: 1 })).toBe(outside);
   });
 });

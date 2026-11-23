@@ -1,6 +1,6 @@
 import { evmWindowCost } from "@qorechain/evm/window";
 import { describe, expect, it } from "vitest";
-import { planRescueNow, planTopUp, RESCUE_GAS, TOPUP_GAS, withWindowHint, type WindowView } from "./actions";
+import { planRescueNow, planTopUp, RESCUE_GAS, rescuable, TOPUP_GAS, withWindowHint, type WindowView } from "./actions";
 
 const OWNER = "0x7777777777777777777777777777777777777777";
 const VAULT = "0x17d867860a0A0Ff528dF655439ff59176b061B3C";
@@ -86,6 +86,16 @@ describe("planRescueNow", () => {
     expect(pricier.cost).toBe(4n * RESCUE_COST);
   });
 
+  it("reopen: true when reopening the owner window (it replaces the current one) would fix the window blocker", () => {
+    expect(rescue().reopen).toBe(false);
+    expect(rescue({ window: undefined }).reopen).toBe(false);
+    expect(rescue({ window: win({ live: false }) }).reopen).toBe(true);
+    expect(rescue({ window: win({ remainingTxs: 1n }) }).reopen).toBe(true);
+    expect(rescue({ window: win({ remainingValue: 1n }) }).reopen).toBe(true);
+    expect(rescue({ window: win({ allowedTargets: [fUSD] }) }).reopen).toBe(true);
+    expect(rescue({ window: win({ live: false }), rows: [{ sym: "fUSD", token: fUSD, owner: 0n, allowance: 5n }] }).reopen).toBe(false);
+  });
+
   it("fee unknown yet", () => {
     const p = rescue({ maxFeePerGas: undefined });
     expect(p.blockers).toEqual(["reading the network fee"]);
@@ -135,7 +145,11 @@ describe("planTopUp", () => {
     expect(closed.command).toBe(`pnpm cli window open --topup 0.1 --expect ${OWNER}`);
     expect(topup({ window: win({ allowedTargets: [VAULT] }) }).blockers).toEqual(["the owner's EVM window does not allow the guardian"]);
     expect(topup({ window: win({ allowedTargets: [] }) }).blockers).toEqual([]);
-    expect(topup({ window: win({ remainingTxs: 0n }) }).blockers).toEqual(["the owner's EVM window has 0 txs left, 1 needed"]);
+    const noTx = topup({ window: win({ remainingTxs: 0n }) });
+    expect(noTx.blockers).toEqual(["the owner's EVM window has 0 txs left, 1 needed"]);
+    expect(noTx.command).toBe(`pnpm cli window open --topup 0.1 --expect ${OWNER}`);
+    expect(topup({ window: win({ allowedTargets: [VAULT] }) }).command).toBe(`pnpm cli window open --topup 0.1 --expect ${OWNER}`);
+    expect(topup({ window: undefined }).command).toBeNull();
   });
 
   it("a value that does not fit the window budget names the CLI fix", () => {
@@ -149,6 +163,15 @@ describe("planTopUp", () => {
 
   it("fee unknown yet", () => {
     expect(topup({ maxFeePerGas: undefined }).blockers).toEqual(["reading the network fee"]);
+  });
+});
+
+describe("rescuable (re-checked right before each rescue tx)", () => {
+  it("is min(balance, allowance); 0 means skip the token", () => {
+    expect(rescuable(5n, 2n)).toBe(2n);
+    expect(rescuable(2n, 5n)).toBe(2n);
+    expect(rescuable(0n, 2n ** 256n - 1n)).toBe(0n);
+    expect(rescuable(7n, 0n)).toBe(0n);
   });
 });
 

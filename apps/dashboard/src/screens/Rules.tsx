@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { formatUnits } from "viem";
 import { ExtLink } from "../components/ui";
 import { AGENT_URL, fetchHealth, fetchPolicy, putPolicy, type Policy } from "../lib/agent";
@@ -6,7 +6,7 @@ import { explorerAddress, readSpendingRules } from "../lib/chain";
 import { errorText, fmtAmount } from "../lib/format";
 import { usePoll } from "../lib/hooks";
 import { big } from "../lib/incidents";
-import { addTrusted, describeRuleDetail, parseQorAmount, removeTrusted } from "../lib/rules";
+import { addTrusted, describeRuleDetail, latestPolicy, parseQorAmount, removeTrusted, type PolicyAt } from "../lib/rules";
 import { useApp } from "../state";
 
 const EMPTY_FORM = { label: "", address: "", kind: "wallet" as "wallet" | "app" };
@@ -29,7 +29,14 @@ function FixedRow({ label, address, note }: { label: string; address: string; no
 export function Rules() {
   const { config } = useApp();
   const cfg = config.cfg;
-  const policy = usePoll(fetchPolicy, 15_000, "policy");
+  // Each PUT bumps `gen`; a read is tagged with the generation current when it STARTED, so a poll that was in flight
+  // during a PUT never replaces the PUT's answer (each write replaces the whole policy: building on an older read would
+  // drop the previous edit).
+  const gen = useRef(0);
+  const policy = usePoll(async (): Promise<PolicyAt> => {
+    const g = gen.current;
+    return { p: await fetchPolicy(), gen: g };
+  }, 15_000, "policy");
   const health = usePoll(fetchHealth, 15_000, "health");
   const rules = usePoll(() => readSpendingRules(cfg!.owner), 30_000, cfg ? cfg.owner : null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -37,11 +44,11 @@ export function Rules() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // The agent's answer to the last write, shown until the next poll lands (so a quick second edit builds on it).
-  const [saved, setSaved] = useState<{ p: Policy; at: number | null } | null>(null);
+  // The agent's answer to the last write, used until a poll started after it lands.
+  const [saved, setSaved] = useState<PolicyAt | null>(null);
 
   if (!cfg) return null;
-  const current = saved && saved.at === policy.at ? saved.p : policy.data;
+  const current = latestPolicy(policy.data, saved);
   const online = config.agentOnline;
   const canEdit = online && !!current && !busy;
   const h = online ? health.data : undefined;
@@ -51,7 +58,9 @@ export function Rules() {
     setError(null);
     setNotice(null);
     try {
-      setSaved({ p: await putPolicy(next), at: policy.at });
+      const p = await putPolicy(next);
+      gen.current += 1;
+      setSaved({ p, gen: gen.current });
       setNotice(what);
       policy.refresh();
       return true;

@@ -1,8 +1,8 @@
 import { vaultAbi } from "@qday/core";
 import type { EvmWindow } from "@qorechain/evm/window";
 import { useState } from "react";
-import type { Hex } from "viem";
-import { planRescueNow, RESCUE_GAS, withWindowHint, type RescueRow } from "../lib/actions";
+import { erc20Abi, type Hex } from "viem";
+import { planRescueNow, RESCUE_GAS, rescuable, withWindowHint, type RescueRow } from "../lib/actions";
 import { explorerTx, publicClient, readFees } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { errorText, fmtAmount, fmtUqor, shortHash } from "../lib/format";
@@ -10,9 +10,10 @@ import { usePoll, type Polled } from "../lib/hooks";
 import { ensureDiana, walletClientFor } from "../lib/wallet";
 import { useApp } from "../state";
 import { ExtLink, WindowCommand } from "./ui";
-import { useWalletConnect, WalletConnect } from "./WalletConnect";
+import { SwitchToDiana, useWalletConnect, WalletConnect } from "./WalletConnect";
 
-type Sent = { sym: string; hash: Hex; status: "pending" | "success" | "reverted" };
+/** "skipped": re-read right before sending, the token had nothing left to move (no tx, no window tx burnt). */
+type Sent = { sym: string; hash?: Hex; status: "pending" | "success" | "reverted" | "skipped" };
 type Run = { state: "idle" | "busy" | "done" | "error"; step?: string; sent: Sent[]; unsent: string[]; error?: string };
 
 const IDLE: Run = { state: "idle", sent: [], unsent: [] };
@@ -62,6 +63,16 @@ export function RescueNow({ cfg, rows, win, onSent }: { cfg: AgentConfig; rows: 
       await ensureDiana(wallet.provider);
       const client = walletClientFor(wallet.provider, wallet.account);
       for (const [k, t] of tokens.entries()) {
+        // The plan comes from a poll up to 10 s old (the agent may have rescued meanwhile): never send an empty rescue.
+        busyStep(`Re-reading ${t.sym}…`);
+        const [balance, allowance] = await Promise.all([
+          publicClient.readContract({ address: t.token as Hex, abi: erc20Abi, functionName: "balanceOf", args: [cfg.owner] }),
+          publicClient.readContract({ address: t.token as Hex, abi: erc20Abi, functionName: "allowance", args: [cfg.owner, cfg.vault] }),
+        ]);
+        if (rescuable(balance, allowance) === 0n) {
+          sent.push({ sym: t.sym, status: "skipped" });
+          continue;
+        }
         busyStep(`Simulating the ${t.sym} rescue…`);
         const { request } = await publicClient.simulateContract({
           account: wallet.account,
@@ -90,7 +101,6 @@ export function RescueNow({ cfg, rows, win, onSent }: { cfg: AgentConfig; rows: 
     }
   }
 
-  const windowClosed = !!win.data && !win.data.live;
   return (
     <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--line-soft)" }}>
       <div className="between">
@@ -136,20 +146,37 @@ export function RescueNow({ cfg, rows, win, onSent }: { cfg: AgentConfig; rows: 
           <WalletConnect w={wc} small />
         </div>
       ) : null}
+      {!busy ? (
+        <div style={{ marginBottom: 12 }}>
+          <SwitchToDiana w={wc} />
+        </div>
+      ) : null}
       {wc.error ? <div className="err">{wc.error}</div> : null}
-      {windowClosed && plan.tokens.length > 0 && !busy ? (
+      {plan.reopen && !busy ? (
         <WindowCommand action="open" owner={cfg.owner}>
-          Every EVM tx on diana needs a live window, opened by a hybrid tx the browser can't sign. Run this in the repo root, then come back.
+          Every EVM tx on diana needs a live window with enough txs and budget, opened by a hybrid tx the browser can't sign. Run this in the repo root
+          (it replaces the current window), then come back.
         </WindowCommand>
       ) : null}
 
       {run.sent.length ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 4, margin: "12px 0" }}>
           {run.sent.map((s) => (
-            <div key={s.hash} className="mono wrap-any" style={{ fontSize: 12, color: "var(--ink-2)" }}>
-              {s.sym}: <ExtLink href={explorerTx(s.hash)}>{shortHash(s.hash)}</ExtLink> ·{" "}
+            <div key={s.sym} className="mono wrap-any" style={{ fontSize: 12, color: "var(--ink-2)" }}>
+              {s.sym}:{" "}
+              {s.hash ? (
+                <>
+                  <ExtLink href={explorerTx(s.hash)}>{shortHash(s.hash)}</ExtLink> ·{" "}
+                </>
+              ) : null}
               <span style={s.status === "reverted" ? { color: "var(--red)" } : undefined}>
-                {s.status === "pending" ? (busy ? "waiting…" : "status unknown: check the explorer") : s.status}
+                {s.status === "skipped"
+                  ? "skipped: nothing left to move"
+                  : s.status === "pending"
+                    ? busy
+                      ? "waiting…"
+                      : "status unknown: check the explorer"
+                    : s.status}
               </span>
             </div>
           ))}
@@ -157,7 +184,10 @@ export function RescueNow({ cfg, rows, win, onSent }: { cfg: AgentConfig; rows: 
       ) : null}
 
       {run.state === "done" ? (
-        <div className="ok-note">Done: {run.sent.length} rescue{run.sent.length === 1 ? "" : "s"} confirmed. Balances above refresh.</div>
+        <div className="ok-note">
+          Done: {run.sent.filter((s) => s.hash).length} rescue{run.sent.filter((s) => s.hash).length === 1 ? "" : "s"} confirmed
+          {run.sent.some((s) => s.status === "skipped") ? `, ${run.sent.filter((s) => s.status === "skipped").length} skipped` : ""}. Balances above refresh.
+        </div>
       ) : (
         <>
           <div style={{ marginTop: 12 }}>

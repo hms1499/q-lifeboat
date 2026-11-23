@@ -11,7 +11,7 @@ import { big } from "../lib/incidents";
 import { ensureDiana, walletClientFor } from "../lib/wallet";
 import { useApp } from "../state";
 import { Command, ExtLink } from "./ui";
-import { useWalletConnect, WalletConnect } from "./WalletConnect";
+import { SwitchToDiana, useWalletConnect, WalletConnect } from "./WalletConnect";
 
 type Send =
   | { state: "idle" }
@@ -88,9 +88,11 @@ export function GasTank({ cfg, health, win }: { cfg: AgentConfig; health: Health
         The guardian account <span className="mono">{shortAddr(cfg.guardian)}</span> pays every rescue tx and its own window. Balance read on chain
         {balance.error ? ` (last read failed: ${balance.error})` : ""}.
       </p>
-      <div className={`bar ${low ? "low" : ""}`}>
-        <div style={{ width: `${pct}%` }} />
-      </div>
+      {threshold > 0n && b !== null ? (
+        <div className={`bar ${low ? "low" : ""}`}>
+          <div style={{ width: `${pct}%` }} />
+        </div>
+      ) : null}
       <div className="between" style={{ marginTop: 12, fontSize: 12, color: "var(--muted)" }}>
         <span>{health ? `You get an alert below ${fmtAmount(threshold)} QOR` : "Agent offline: no alert threshold"}</span>
         {low ? <span className="tag orange">Low</span> : null}
@@ -116,6 +118,7 @@ export function GasTank({ cfg, health, win }: { cfg: AgentConfig; health: Health
             ) : (
               <WalletConnect w={wc} small />
             )}
+            {!busy ? <SwitchToDiana w={wc} /> : null}
             {!busy ? (
               <button
                 type="button"

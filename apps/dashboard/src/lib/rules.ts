@@ -38,6 +38,18 @@ export function removeTrusted(policy: Policy, address: string): Policy {
   return { ...policy, trusted: policy.trusted.filter((t) => lc(t.address) !== lc(address)) };
 }
 
+/** A policy tagged with the save generation current when its read (poll) or write (PUT) started. */
+export type PolicyAt = { p: Policy; gen: number };
+
+/**
+ * The policy edits must build on: the agent's answer to the last PUT, until a poll that started after that PUT lands
+ * (each write replaces the whole policy, so building on an older read would drop the previous edit).
+ */
+export function latestPolicy(polled: PolicyAt | undefined, saved: PolicyAt | null): Policy | undefined {
+  if (saved && (!polled || polled.gen < saved.gen)) return saved.p;
+  return polled?.p;
+}
+
 /** A decimal QOR amount (≤ 18 decimals; 0 allowed) as wei, a decimal integer string of at most 78 digits. */
 export function parseQorAmount(text: string): string {
   const t = text.trim();
