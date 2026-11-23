@@ -255,7 +255,10 @@ describe("freshOwner", () => {
       expect(next).toBeDefined();
       expect(next).toContain("OWNER_MNEMONIC");
       expect(next).toContain(out.runEnv);
-      expect(lines.join("\n")).not.toContain(MNEMONIC);
+      const all = lines.join("\n");
+      expect(all).toMatch(/unscoped deploy window stays open \(~14 min, 600 blocks\).*pnpm cli window close/);
+      expect(all).toMatch(/pnpm cli link.*pnpm agent.*run\.env loaded.*VAULT_ADDRESS=<vault> exported/);
+      expect(all).not.toContain(MNEMONIC);
     });
 
     it("without noVault, GUARDIAN_ADDRESS is still required and the vault is deployed", async () => {

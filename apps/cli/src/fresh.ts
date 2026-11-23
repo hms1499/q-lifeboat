@@ -160,7 +160,8 @@ async function waitFor<T>(deps: FreshDeps, read: () => Promise<T>, ok: (v: T) =>
 /**
  * Provision a brand-new demo owner (Task 5, decision 1): fund it from the FUNDER, register its ML-DSA-87 key
  * (own tx), open an unscoped deploy window, deploy its own GuardianVault(owner, GUARDIAN_ADDRESS), mint it
- * 100 fUSD. With `noVault` (`--no-vault`) no vault is deployed: the owner is onboarded from the dashboard's Protect screen. A fresh agent ed25519 key is generated too (an authenticator key binds to one account).
+ * 100 fUSD. With `noVault` (`--no-vault`) no vault is deployed: the owner is onboarded from the dashboard's
+ * Protect screen. A fresh agent ed25519 key is generated too (an authenticator key binds to one account).
  * `~/.config/qday/runs/<runId>/run.env` is written with both secrets and RUN_COMPLETE=0 BEFORE the fund
  * tx, and completed (vault, attacker, safe, RUN_COMPLETE=1) only when every step succeeded; only then is the
  * `RUN_ENV=` line printed. On failure the incomplete run dir is printed so its QOR can be recovered.
@@ -238,6 +239,13 @@ export async function freshOwner(env: Env, deps: FreshDeps, opts: { noVault?: bo
     if (noVault) {
       deps.log(
         `next: open http://127.0.0.1:5173/#/protect and import OWNER_MNEMONIC from ${runEnv} into MetaMask (the file holds it; it is not printed)`,
+      );
+      deps.log(
+        `the unscoped deploy window stays open (~14 min, ${DEPLOY_WINDOW_BLOCKS} blocks); close it with: set -a && . ${runEnv} && set +a && pnpm cli window close`,
+      );
+      deps.log(
+        `after the browser deploy, \`pnpm cli link\` and \`pnpm agent\` need this run.env loaded AND VAULT_ADDRESS=<vault> exported ` +
+          "(the root .env's VAULT_ADDRESS would otherwise fill in: tsx --env-file does not override set vars)",
       );
     }
     return { runId, runEnv, owner, vault: vault?.address, attacker, safe };
