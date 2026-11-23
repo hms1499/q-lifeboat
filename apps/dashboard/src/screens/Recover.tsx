@@ -127,7 +127,7 @@ export function Recover() {
 
   if (!cfg) return null;
 
-  const savedRecovery = [wallet?.account, cfg.owner].map((o) => (o ? loadProtectState(browserStorage(), o).recovery : null)).find((r) => !!r) ?? null;
+  const savedRecovery = [cfg.owner, wallet?.account].map((o) => (o ? loadProtectState(browserStorage(), o).recovery : null)).find((r) => !!r) ?? null;
   const recoveryNote = file ? recoveryWarning(file.w.to, savedRecovery) : null;
   const allPass = !!checks && checks.every((c) => c.status === "pass");
   const win = submitterWindow.data;

@@ -1,5 +1,5 @@
 import { NETWORK, RESCUE_SELECTOR, vaultAbi } from "@qday/core";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { erc20Abi, maxUint256, type Hex } from "viem";
 import { GasTank } from "../components/GasTank";
 import { EditorMessages, TrustedEditor, usePolicyEditor } from "../components/TrustedEditor";
@@ -13,6 +13,7 @@ import { usePoll } from "../lib/hooks";
 import {
   APPROVE_GAS,
   DEPLOY_GAS,
+  deployOffer,
   hasLiveAuthenticator,
   loadProtectState,
   planApprove,
@@ -178,6 +179,12 @@ export function Protect() {
   const [existingRun, setExistingRun] = useState<Run>(IDLE);
   const [approveRun, setApproveRun] = useState<Run>(IDLE);
   const [existing, setExisting] = useState("");
+  // A result belongs to the wallet that sent it: a different account starts clean.
+  useEffect(() => {
+    setDeployRun(IDLE);
+    setApproveRun(IDLE);
+    setExistingRun(IDLE);
+  }, [account]);
   const [recoveryText, setRecoveryText] = useState("");
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
 
@@ -193,6 +200,7 @@ export function Protect() {
     const owner = wallet.account;
     const guard = cfg.guardian; // shown above the button; the roles read back are held against exactly these
     let hash: Hex | undefined;
+    let deployed: Hex | undefined;
     try {
       setDeployRun({ state: "busy", step: "Switching the wallet to diana…", hashes: [] });
       await ensureDiana(wallet.provider);
@@ -210,6 +218,7 @@ export function Protect() {
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success" || !receipt.contractAddress) throw new Error("the deploy reverted on chain; nothing was saved");
       const address = receipt.contractAddress;
+      deployed = address;
       const read = await readRoles(address);
       const bad = vaultRoleProblems(read, { owner, guardian: guard });
       if (bad.length) {
@@ -219,7 +228,10 @@ export function Protect() {
       patchLocal(owner, { vault: address });
       setDeployRun({ state: "done", message: `Vault created at ${address}: owner and guardian read back from the chain match.`, hashes: [hash] });
     } catch (e) {
-      setDeployRun({ state: "error", message: withWindowHint(errorText(e)), hashes: hash ? [hash] : [] });
+      const message = deployed
+        ? `The vault was deployed at ${deployed}, but its roles could not be read: ${errorText(e)}. Nothing was saved: paste ${deployed} into "I already have a vault" to retry.`
+        : withWindowHint(errorText(e));
+      setDeployRun({ state: "error", message, hashes: hash ? [hash] : [] });
     } finally {
       win.refresh();
       qor.refresh();
@@ -345,6 +357,14 @@ export function Protect() {
     );
   }
 
+  const cachedConfig = !!cfg && (!online || config.source !== "agent");
+  const roleOffer = deployOffer({
+    vault,
+    vaultState: stateOf("vault").state,
+    rolesLoaded: !!roles.data,
+    rolesError: !!roles.error,
+  });
+
   function vaultCard() {
     const st = stateOf("vault");
     return (
@@ -363,7 +383,9 @@ export function Protect() {
             <dt>Guardian</dt>
             <dd className="mono wrap-any">
               {guardian ?? "unknown"}
-              <small>from the agent's /config; check it is the agent you run</small>
+              <small>
+                {cachedConfig ? "from the agent's last served config (agent offline); check it is the agent you run" : "from the agent's /config; check it is the agent you run"}
+              </small>
             </dd>
           </div>
           {vault ? (
@@ -383,19 +405,25 @@ export function Protect() {
               </div>
             ) : null}
             <div className="actions" style={{ marginTop: 16 }}>
-              <button type="button" className="btn primary" disabled={deployBlockers.length > 0 || deployRun.state === "busy"} onClick={() => void deploy()}>
-                {deployRun.state === "busy" ? deployRun.step : wallet ? `Deploy vault with ${wallet.name}` : "Deploy vault"}
-              </button>
+              {roleOffer === "checking" && deployRun.state !== "busy" ? (
+                <span style={{ fontSize: 14, color: "var(--muted)" }} role="status">
+                  checking vault {vault} …
+                </span>
+              ) : (
+                <button type="button" className="btn primary" disabled={deployBlockers.length > 0 || deployRun.state === "busy"} onClick={() => void deploy()}>
+                  {deployRun.state === "busy" ? deployRun.step : wallet ? `Deploy vault with ${wallet.name}` : "Deploy vault"}
+                </button>
+              )}
               {local.vault ? (
                 <button type="button" className="btn small" disabled={deployRun.state === "busy"} onClick={() => account && patchLocal(account, { vault: null })}>
                   Forget the saved vault
                 </button>
               ) : null}
             </div>
-            {deployBlockers.length && deployRun.state !== "busy" ? (
+            {roleOffer === "offer" && deployBlockers.length && deployRun.state !== "busy" ? (
               <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 8 }}>To deploy: {deployBlockers.join("; ")}.</div>
             ) : null}
-            {windowCommand && deployRun.state !== "busy" ? (
+            {roleOffer === "offer" && windowCommand && deployRun.state !== "busy" ? (
               <Cmd c={windowCommand}>
                 <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5 }}>
                   A deploy is a contract creation, which a window scoped to named addresses refuses, so this opens an unscoped one (replacing the current
@@ -558,7 +586,7 @@ export function Protect() {
   }
 
   function trustedCard() {
-    const ready = !!account && !!vault && !!cfg && served && online;
+    const ready = !!account && !!vault && !!cfg && served && online && same(cfg.vault, vault);
     return (
       <>
         <Hint>

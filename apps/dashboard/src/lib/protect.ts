@@ -234,6 +234,19 @@ export function recoveryWarning(to: string, recovery: string | null): string | n
   return `This withdrawal pays ${to}, not your saved recovery address ${recovery}. Check it is the address you mean before you submit.`;
 }
 
+/**
+ * Whether the vault step offers "Deploy": only with no vault in use, or one that is blocked (roles differ) or can't be
+ * read. While the roles of a vault in use are still loading it is "checking": a second click would deploy a second
+ * vault and overwrite the first.
+ */
+export function deployOffer(i: { vault: string | null; vaultState: StepState; rolesLoaded: boolean; rolesError: boolean }): "offer" | "checking" | "done" {
+  if (!i.vault) return "offer";
+  if (i.vaultState === "done") return "done";
+  if (i.vaultState === "blocked") return "offer";
+  if (!i.rolesLoaded && i.rolesError) return "offer";
+  return "checking";
+}
+
 /** Signs a withdrawal from the vault to the recovery address with the local Guardian Signer. */
 export const signWithdrawCommand = (recovery: string, token: string, amount: string): string => `pnpm cli sign-withdraw ${recovery} ${token} ${amount}`;
 

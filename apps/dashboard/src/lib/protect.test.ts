@@ -7,6 +7,7 @@ import type { AgentConfig } from "./config";
 import {
   APPROVE_GAS,
   DEPLOY_GAS,
+  deployOffer,
   loadProtectState,
   planApprove,
   planDeploy,
@@ -416,4 +417,18 @@ describe("vaultRoleProblems", () => {
     expect(vaultRoleProblems({ owner: OWNER, guardian: OTHER }, want)).toEqual([expect.stringContaining("guardian")]);
     expect(vaultRoleProblems({ owner: OTHER, guardian: OTHER }, want)).toHaveLength(2);
   });
+});
+
+describe("deployOffer", () => {
+  const base = { vault: VAULT, vaultState: "current" as const, rolesLoaded: false, rolesError: false };
+  it("offers a deploy with no vault in use", () => expect(deployOffer({ ...base, vault: null })).toBe("offer"));
+  it("waits while the roles of a vault in use are loading (no second vault)", () => {
+    expect(deployOffer(base)).toBe("checking");
+    expect(deployOffer({ ...base, rolesLoaded: true })).toBe("checking");
+  });
+  it("offers again when the vault is blocked or its roles can't be read", () => {
+    expect(deployOffer({ ...base, vaultState: "blocked", rolesLoaded: true })).toBe("offer");
+    expect(deployOffer({ ...base, rolesError: true })).toBe("offer");
+  });
+  it("is done once the vault step is done", () => expect(deployOffer({ ...base, vaultState: "done", rolesLoaded: true })).toBe("done"));
 });
