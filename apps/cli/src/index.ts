@@ -1,6 +1,7 @@
 import { runAttack } from "./attacker";
 import { runDemoCheck } from "./democheck";
 import { runFreshOwner } from "./fresh";
+import { runLink } from "./link";
 import { runAgentMisuse } from "./misuse";
 import { runSetup } from "./setup";
 import { runSignWithdraw } from "./signer";
@@ -11,6 +12,9 @@ import { runWindow } from "./window";
 const USAGE = `Q-Lifeboat CLI (qorechain-diana testnet)
 
   pnpm cli setup                              open the EVM window, link the agent, approve the vault
+  pnpm cli link [--expect 0xOWNER]            link the Guardian's key to a vault deployed from the browser (reads
+                                              OWNER_MNEMONIC, VAULT_ADDRESS, AGENT_ED25519_SK; refuses a vault the owner
+                                              does not own); one hybrid tx, no window
   pnpm cli sign-withdraw <to> <token> <amt>   Guardian Signer: write withdrawal.json (--out <file>)
   pnpm cli withdraw <withdrawal.json>         submit a signed withdrawal from any funded wallet
   pnpm cli agent-misuse <token> <to> <wei>    negative gate: agent key tries token.transfer directly (must be REFUSED)
@@ -20,15 +24,16 @@ const USAGE = `Q-Lifeboat CLI (qorechain-diana testnet)
                                               fUSD, fETH, fBTC, the vault and the guardian; maxValue covers fees only
                                               --topup: add that much value headroom (<= 100 QOR) for a QOR top-up of
                                               the guardian; a leaked ECDSA key can spend it while the window is open
-  pnpm cli window close [--expect 0xOWNER]    close the owner's EVM window (a leaked ECDSA key can then send nothing)
                                               --onboard: UNSCOPED window (any target, default 5 txs) so the browser wallet can
                                               deploy the vault; needs no VAULT_ADDRESS. Close it with window close.
+  pnpm cli window close [--expect 0xOWNER]    close the owner's EVM window (a leaked ECDSA key can then send nothing)
                                               --expect: refuse unless OWNER_MNEMONIC is that owner (demo.sh owners:
                                               set -a && . ~/.config/qday/runs/<run id>/run.env && set +a first)
 
 Demo (Task 5, run by ./demo.sh):
-  pnpm cli fresh-owner                        new owner funded by FUNDER_MNEMONIC (default OWNER_MNEMONIC): ML-DSA key,
+  pnpm cli fresh-owner [--no-vault]           new owner funded by FUNDER_MNEMONIC (default OWNER_MNEMONIC): ML-DSA key,
                                               own vault, 100 fUSD; writes ~/.config/qday/runs/<id>/run.env
+                                              --no-vault: skip the vault (onboard it from the dashboard's Protect screen)
   pnpm cli attack                             leaked owner ECDSA key drains 3 x 10 fUSD, then (a) forged withdraw,
                                               (b) agent key misuse; writes attack.json in the run dir
   pnpm cli demo-check [--wait <s>]            verdict: rescue <= 3 blocks, >= 80% kept, (a) and (b) refused
@@ -49,6 +54,9 @@ async function main(): Promise<number> {
       return 0;
     case "agent-misuse":
       return runAgentMisuse(args);
+    case "link":
+      await runLink(args);
+      return 0;
     case "window":
       await runWindow(args);
       return 0;
@@ -56,7 +64,7 @@ async function main(): Promise<number> {
       await runStatus();
       return 0;
     case "fresh-owner":
-      await runFreshOwner();
+      await runFreshOwner(args);
       return 0;
     case "attack":
       await runAttack();

@@ -48,7 +48,7 @@ function readTopup(raw: string | undefined): bigint {
   return (wei + WEI_PER_UQOR - 1n) / WEI_PER_UQOR;
 }
 
-/** `window open [--blocks N] [--txs N] [--topup QOR] [--expect 0x…]` or `window close [--expect 0x…]`. Throws on anything else. */
+/** `window open [--onboard] [--blocks N] [--txs N] [--topup QOR] [--expect 0x…]` or `window close [--expect 0x…]`. Throws on anything else. */
 export function parseWindowArgs(args: string[]): WindowArgs {
   const [action, ...rest] = args;
   if (action !== "open" && action !== "close") throw new Error(USAGE);

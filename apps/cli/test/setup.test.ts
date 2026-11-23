@@ -1,8 +1,10 @@
-import { RESCUE_SELECTOR } from "@qday/core";
+import { loadAgentKey, RESCUE_SELECTOR } from "@qday/core";
 import { evmWindowCost } from "@qorechain/evm";
 import { linkAuthenticatorMsgs, signAuthenticatorLinkEd25519, ruleBoundsEveryDenom, validateSpendingRules } from "@qorechain/sdk";
+import type { UnifiedAccount } from "@qorechain/sdk";
+import { toHex } from "viem";
 import { describe, expect, it } from "vitest";
-import { buildSetupRule, buildWindowParams, selectLinkMsgs } from "../src/setup";
+import { buildGuardianLinkMsgs, buildSetupRule, buildWindowParams, selectLinkMsgs } from "../src/setup";
 
 const VAULT = "0x17d867860a0A0Ff528dF655439ff59176b061B3C";
 const TOKENS = {
@@ -97,5 +99,28 @@ describe("selectLinkMsgs", () => {
 
   it("throws if the rules message is missing", () => {
     expect(() => selectLinkMsgs([{ typeUrl: REG }], [auth("abcd", false)], pk, NOW)).toThrow(/MsgUpdateSpendingRules/);
+  });
+});
+
+describe("buildGuardianLinkMsgs", () => {
+  const NOW = 1_800_000_000;
+  const owner = { cosmos: "qor1owner" } as UnifiedAccount;
+  const agent = loadAgentKey({ AGENT_ED25519_SK: "07".repeat(32) });
+  const REG = "/qorechain.abstractaccount.v1.MsgRegisterAuthenticator";
+  const RULES = "/qorechain.abstractaccount.v1.MsgUpdateSpendingRules";
+
+  it("is what setup and link both send: rules update + registration for a new key, never a window message", () => {
+    const msgs = buildGuardianLinkMsgs(owner, VAULT, agent, [], NOW);
+    expect(msgs.map((m) => m.typeUrl).sort()).toEqual([REG, RULES]);
+    expect(msgs.some((m) => m.typeUrl.endsWith("MsgOpenEVMWindow"))).toBe(false);
+    const rules = (msgs.find((m) => m.typeUrl === RULES)!.value as { rules: { allowedEvmCalls: string[]; allowedDenoms: string[] }[] }).rules;
+    expect(rules).toHaveLength(1);
+    expect(rules[0].allowedEvmCalls).toEqual([`${VAULT.toLowerCase()}/${RESCUE_SELECTOR}`]);
+    expect(rules[0].allowedDenoms).toEqual(["uqor"]);
+  });
+
+  it("sends only the rules update when the key is already linked and live", () => {
+    const linked = [{ pubkeyHex: toHex(agent.pk), revoked: false, expiryUnix: BigInt(NOW + 86_400) }];
+    expect(buildGuardianLinkMsgs(owner, VAULT, agent, linked, NOW).map((m) => m.typeUrl)).toEqual([RULES]);
   });
 });

@@ -56,6 +56,10 @@ if [[ -n "$RESUME" ]]; then
     echo "refusing --resume: $RESUME is not a complete run (no RUN_COMPLETE=1; fresh-owner stopped early)" >&2
     exit 2
   fi
+  if ! grep -Eq '^VAULT_ADDRESS="?0x[0-9a-fA-F]{40}"?$' "$RESUME"; then
+    echo "refusing --resume: $RESUME has no VAULT_ADDRESS (a --no-vault run is onboarded from the dashboard's Protect screen)" >&2
+    exit 2
+  fi
   if ! grep -Eq '^AGENT_ED25519_SK="?(0x)?[0-9a-fA-F]{64}"?$' "$RESUME"; then
     echo "refusing --resume: $RESUME has no AGENT_ED25519_SK. An agent key can be bound to ONE account only, so each" >&2
     echo "run needs the per-run key fresh-owner writes (older runs lack it): start a fresh run instead" >&2

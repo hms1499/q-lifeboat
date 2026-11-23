@@ -6,6 +6,7 @@ import {
   signAuthenticatorLinkEd25519,
   type AuthenticatorView,
   type SpendingRuleInput,
+  type UnifiedAccount,
 } from "@qorechain/sdk";
 import { createWalletClient, erc20Abi, http, maxUint256, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -77,6 +78,31 @@ export function selectLinkMsgs<T extends { typeUrl: string }>(
   return [rules];
 }
 
+/**
+ * The messages that link the Guardian's ed25519 key with the agent's spending rule (`buildSetupRule`): the rules
+ * update plus, unless the key is already linked and live, its registration. No window message. `setup` and
+ * `link` both build their link messages here, so the rule cannot drift between them.
+ */
+export function buildGuardianLinkMsgs(
+  owner: Pick<UnifiedAccount, "cosmos">,
+  vault: string,
+  agent: { sk: Uint8Array; pk: Uint8Array },
+  existing: Pick<AuthenticatorView, "pubkeyHex" | "revoked" | "expiryUnix">[],
+  nowUnix: number = Math.floor(Date.now() / 1000),
+) {
+  const proof = signAuthenticatorLinkEd25519({ chainId: NETWORK.chainId, account: owner.cosmos, privateKey: agent.sk });
+  const all = linkAuthenticatorMsgs({
+    owner: owner.cosmos,
+    chainId: NETWORK.chainId,
+    ...proof,
+    permissions: ["evm"],
+    expiryUnix: nowUnix + AGENT_TTL_SECONDS,
+    label: "qday-guardian agent",
+    spendingRule: buildSetupRule(vault),
+  });
+  return selectLinkMsgs(all, existing, agent.pk, nowUnix);
+}
+
 /** `pnpm cli setup`: hybrid tx (window + link), then token approvals. */
 export async function runSetup(env: Env = process.env): Promise<void> {
   const owner = await loadOwner(env);
@@ -90,19 +116,9 @@ export async function runSetup(env: Env = process.env): Promise<void> {
     if (!code || code === "0x") throw new Error(`${symbol} (${address}) has no contract code on diana`);
   }
 
-  const proof = signAuthenticatorLinkEd25519({ chainId: NETWORK.chainId, account: owner.cosmos, privateKey: agent.sk });
-  const all = linkAuthenticatorMsgs({
-    owner: owner.cosmos,
-    chainId: NETWORK.chainId,
-    ...proof,
-    permissions: ["evm"],
-    expiryUnix: Math.floor(Date.now() / 1000) + AGENT_TTL_SECONDS,
-    label: "qday-guardian agent",
-    spendingRule: buildSetupRule(vault),
-  });
   // A fresh owner has no abstractaccount record until this first link: that 404 means "no keys linked".
   const existing = await fetchOwnerAuthenticators(owner.cosmos);
-  const linkMsgs = selectLinkMsgs(all, existing, agent.pk);
+  const linkMsgs = buildGuardianLinkMsgs(owner, vault, agent, existing);
 
   const window = openEvmWindowMsg(buildWindowParams(owner.cosmos, tokens, vault));
   const hash = await broadcast(owner, [window, ...linkMsgs], "qday: open window + link guardian");
