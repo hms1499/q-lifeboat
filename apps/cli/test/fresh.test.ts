@@ -218,6 +218,57 @@ describe("freshOwner", () => {
     expect(lines.some((l) => l.includes("TX1"))).toBe(true); // each step logs its tx hash
   });
 
+  describe("noVault (onboarded from the dashboard's Protect screen)", () => {
+    const envNoGuardian = { FUNDER_MNEMONIC, FUSD_ADDRESS: FUSD };
+
+    it("funds, registers, opens the deploy window and mints, never deploys or reads roles, needs no GUARDIAN_ADDRESS", async () => {
+      const { d, calls } = deps();
+      await freshOwner(envNoGuardian, d, { noVault: true });
+      expect(calls).toEqual([
+        "funder:MsgSend:hybrid",
+        "fresh:MsgRegisterPQCKeyV2:classical",
+        "fresh:MsgOpenEVMWindow:hybrid",
+        `mint:${FUSD}:${fresh.evm}:${MINT_AMOUNT}`,
+      ]);
+      expect(d.deployVault).not.toHaveBeenCalled();
+      expect(d.readRoles).not.toHaveBeenCalled();
+    });
+
+    it("writes a complete run.env WITHOUT VAULT_ADDRESS, prints RUN_ENV= and the Protect next step, never the mnemonic", async () => {
+      const { d, lines } = deps();
+      const out = await freshOwner(envNoGuardian, d, { noVault: true });
+      expect(readFileSync(out.runEnv, "utf8")).toBe(
+        [
+          'RUN_ID="20261120T080509Z"',
+          `OWNER_MNEMONIC="${MNEMONIC}"`,
+          `OWNER_EVM_ADDRESS="${fresh.evm}"`,
+          `AGENT_ED25519_SK="${AGENT_SK}"`,
+          `ATTACKER_ADDR="${ATTACKER}"`,
+          `SAFE_ADDR="${SAFE}"`,
+          'RUN_COMPLETE="1"',
+          "",
+        ].join("\n"),
+      );
+      expect(out.vault).toBeUndefined();
+      expect(lines).toContain(`RUN_ENV=${out.runEnv}`);
+      const next = lines.find((l) => l.includes("http://127.0.0.1:5173/#/protect"));
+      expect(next).toBeDefined();
+      expect(next).toContain("OWNER_MNEMONIC");
+      expect(next).toContain(out.runEnv);
+      const all = lines.join("\n");
+      expect(all).toMatch(/unscoped deploy window stays open \(~14 min, 600 blocks\).*pnpm cli window close/);
+      expect(all).toMatch(/pnpm agent` can run with the root \.env now.*guardian address/);
+      expect(all).toMatch(/pnpm cli link.*pnpm agent.*run\.env loaded.*VAULT_ADDRESS=<vault> exported/);
+      expect(all).not.toContain(MNEMONIC);
+    });
+
+    it("without noVault, GUARDIAN_ADDRESS is still required and the vault is deployed", async () => {
+      const { d } = deps();
+      await expect(freshOwner(envNoGuardian, d)).rejects.toThrow(/GUARDIAN_ADDRESS/);
+      expect(d.deployVault).not.toHaveBeenCalled();
+    });
+  });
+
   it("writes a valid per-run agent key that differs between two runs (the real generator) and never logs it", async () => {
     const keys: string[] = [];
     const logged: string[] = [];

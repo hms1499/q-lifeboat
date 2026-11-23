@@ -8,6 +8,7 @@ import type { AgentConfig } from "../lib/config";
 import { errorText, fmtAmount, fmtUqor, shortAddr, shortHash } from "../lib/format";
 import { usePoll, type Polled } from "../lib/hooks";
 import { big } from "../lib/incidents";
+import { ownerEnvNote } from "../lib/protect";
 import { ensureDiana, walletClientFor } from "../lib/wallet";
 import { useApp } from "../state";
 import { Command, TxHash } from "./ui";
@@ -144,6 +145,7 @@ export function GasTank({ cfg, health, win }: { cfg: AgentConfig; health: Health
                 The default owner window covers fees only. This opens one (replacing the current one) with exactly this much extra value budget. A leaked
                 ECDSA key could spend that headroom while the window is open, so keep it small and close the window when you are done.
               </div>
+              <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5, marginTop: 6 }}>{ownerEnvNote(cfg.vault)}</div>
             </Command>
           ) : null}
           {fees.error && !fees.data ? <div className="err">Could not read the network fee: {fees.error}</div> : null}

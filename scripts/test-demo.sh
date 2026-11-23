@@ -134,9 +134,12 @@ expect "fresh-owner temp file removed" tmp_clean
 no_stub_calls() { ! grep -q '\[stub\]' "$WORK/$1.out"; }
 mkdir -p "$WORK/re sumed" "$WORK/partial"
 FAKE_SK="$(printf '7%.0s' $(seq 64))" # a fake 64-hex agent key
-printf 'RUN_ID="rres"\nOWNER_MNEMONIC="resumed owner words"\nAGENT_ED25519_SK="%s"\nSAFE_ADDR="0x5afe"\nRUN_COMPLETE="1"\n' "$FAKE_SK" >"$WORK/re sumed/run.env"
+FAKE_VAULT="0x$(printf 'a%.0s' $(seq 40))" # a fake vault address
+printf 'RUN_ID="rres"\nOWNER_MNEMONIC="resumed owner words"\nAGENT_ED25519_SK="%s"\nVAULT_ADDRESS="%s"\nSAFE_ADDR="0x5afe"\nRUN_COMPLETE="1"\n' "$FAKE_SK" "$FAKE_VAULT" >"$WORK/re sumed/run.env"
 mkdir -p "$WORK/nokey"
-printf 'RUN_ID="rold"\nOWNER_MNEMONIC="nokey owner words"\nSAFE_ADDR="0x5afe"\nRUN_COMPLETE="1"\n' >"$WORK/nokey/run.env"
+printf 'RUN_ID="rold"\nOWNER_MNEMONIC="nokey owner words"\nVAULT_ADDRESS="%s"\nSAFE_ADDR="0x5afe"\nRUN_COMPLETE="1"\n' "$FAKE_VAULT" >"$WORK/nokey/run.env"
+mkdir -p "$WORK/novault"
+printf 'RUN_ID="rnov"\nOWNER_MNEMONIC="novault owner words"\nAGENT_ED25519_SK="%s"\nSAFE_ADDR="0x5afe"\nRUN_COMPLETE="1"\n' "$FAKE_SK" >"$WORK/novault/run.env"
 printf 'RUN_ID="rpart"\nOWNER_MNEMONIC="partial owner words"\nRUN_COMPLETE="0"\n' >"$WORK/partial/run.env"
 
 echo "--resume a complete run (path with a space)"
@@ -154,6 +157,11 @@ run_demo incomplete -- --resume "$WORK/partial/run.env"
 expect "incomplete run.env (RUN_COMPLETE=0): exit 2" test "$RC" -eq 2
 expect "says it is not a complete run" has incomplete 'not a complete run'
 expect "nothing ran" no_stub_calls incomplete
+run_demo novault -- --resume "$WORK/novault/run.env"
+expect "complete run.env without VAULT_ADDRESS (--no-vault): exit 2" test "$RC" -eq 2
+expect "says it has no VAULT_ADDRESS and points to the Protect screen" has novault "refusing --resume: .*run.env has no VAULT_ADDRESS (a --no-vault run is onboarded from the dashboard's Protect screen)"
+expect "nothing ran" no_stub_calls novault
+expect "prints no secret" bash -c "! grep -q 'novault owner words' '$WORK/novault.out'"
 run_demo nokey -- --resume "$WORK/nokey/run.env"
 expect "complete run.env without AGENT_ED25519_SK: exit 2" test "$RC" -eq 2
 expect "says why (an agent key binds to one account)" has nokey 'no AGENT_ED25519_SK.*bound to ONE account'

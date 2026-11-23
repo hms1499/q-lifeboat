@@ -5,6 +5,7 @@ import { shortAddr } from "./lib/format";
 import { useHashRoute } from "./lib/hooks";
 import { Incidents } from "./screens/Incidents";
 import { Overview } from "./screens/Overview";
+import { Protect } from "./screens/Protect";
 import { Recover } from "./screens/Recover";
 import { Rules } from "./screens/Rules";
 import { useApp } from "./state";
@@ -13,10 +14,11 @@ const NAV = [
   { id: "overview", label: "Overview", href: "#/" },
   { id: "incidents", label: "Incidents", href: "#/incidents" },
   { id: "recover", label: "Recover", href: "#/recover" },
+  { id: "protect", label: "Protect", href: "#/protect" },
   { id: "rules", label: "Rules", href: "#/rules" },
 ] as const;
-/** Task 6F-6G screens: shown, not yet linked. */
-const SOON = ["Fire drill", "Protect"];
+/** Later-task screens: shown, not yet linked. */
+const SOON = ["Fire drill"];
 
 function TopBar({ active }: { active: string }) {
   const { config, wallet } = useApp();
@@ -87,14 +89,14 @@ function Banners() {
 
 export function App() {
   const [screen = "", id] = useHashRoute();
-  const active = screen === "incidents" || screen === "recover" || screen === "rules" ? screen : "overview";
+  const active = screen === "incidents" || screen === "recover" || screen === "rules" || screen === "protect" ? screen : "overview";
   return (
     <>
       <TopBar active={active} />
       <main>
         <Banners />
         <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
-          {active === "incidents" ? <Incidents selected={id} /> : active === "recover" ? <Recover /> : active === "rules" ? <Rules /> : <Overview />}
+          {active === "incidents" ? <Incidents selected={id} /> : active === "recover" ? <Recover /> : active === "rules" ? <Rules /> : active === "protect" ? <Protect /> : <Overview />}
         </ScreenBoundary>
       </main>
     </>

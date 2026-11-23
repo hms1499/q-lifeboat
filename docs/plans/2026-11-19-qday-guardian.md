@@ -267,11 +267,16 @@ Work in `spike/`, never import from it.
   a trigger, `a4ed21d`), confirmed by top-up `0x7eec8c6d…`. The diana explorer has no EVM tx page (chain fact 19), so EVM
   hashes are shown as copyable text.
 
-#### Task 6F: Dashboard: Protect onboarding
+#### Task 6F: Dashboard: Protect onboarding, DONE 2026-11-23
 
-- [ ] **Step 1:** Six steps per the mockup: connect, create vault, approve tokens, trusted list, recovery address and alerts, link the Guardian and fund the gas tank. Signing path from 6A's gate: hybrid steps (open the window, link the Guardian) show the CLI command; EVM steps (vault deploy, `approve`, gas tank) sign in MetaMask inside that window.
-- [ ] **Step 2:** On diana: onboard a fresh owner from the browser (or with the shown CLI commands), then run `pnpm cli attack` and `demo-check` against it. Expected: PASS. Record the hashes.
-- [ ] **Step 3:** Commit.
+- [x] **Step 1:** Six steps per the mockup: connect, create vault, approve tokens, trusted list, recovery address and alerts, link the Guardian and fund the gas tank. Signing path from 6A's gate: hybrid steps (open the window, link the Guardian) show the CLI command; EVM steps (vault deploy, `approve`, gas tank) sign in MetaMask inside that window.
+- [x] **Step 2:** On diana: onboard a fresh owner from the browser (or with the shown CLI commands), then run `pnpm cli attack` and `demo-check` against it. Expected: PASS. Record the hashes.
+- [x] **Step 3:** Commit.
+  Sub-plan `docs/plans/2026-11-23-task-6f-protect.md`. Approved departures (Explore, 2026-11-23): `window open --onboard` (unscoped,
+  for the MetaMask deploy), `pnpm cli link`, `fresh-owner --no-vault`; the Guardian step comes before the trusted list (`PUT /policy`
+  writes only for the owner the agent watches); the diana run onboards a fresh owner imported into MetaMask. The final review found
+  that an owner without an ML-DSA-87 key could create a vault (a leaked-key holder could register theirs): every vault step now
+  waits for step 1. Diana: deploy `0x469bba2a…`, link `AAC92F42…`, attack PASS (rescue 2 blocks, 90% kept).
 
 #### Task 6G: Dashboard: Fire drill (lowest priority)
 

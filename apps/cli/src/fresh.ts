@@ -160,14 +160,17 @@ async function waitFor<T>(deps: FreshDeps, read: () => Promise<T>, ok: (v: T) =>
 /**
  * Provision a brand-new demo owner (Task 5, decision 1): fund it from the FUNDER, register its ML-DSA-87 key
  * (own tx), open an unscoped deploy window, deploy its own GuardianVault(owner, GUARDIAN_ADDRESS), mint it
- * 100 fUSD. A fresh agent ed25519 key is generated too (an authenticator key binds to one account).
+ * 100 fUSD. With `noVault` (`--no-vault`) no vault is deployed: the owner is onboarded from the dashboard's
+ * Protect screen. A fresh agent ed25519 key is generated too (an authenticator key binds to one account).
  * `~/.config/qday/runs/<runId>/run.env` is written with both secrets and RUN_COMPLETE=0 BEFORE the fund
  * tx, and completed (vault, attacker, safe, RUN_COMPLETE=1) only when every step succeeded; only then is the
  * `RUN_ENV=` line printed. On failure the incomplete run dir is printed so its QOR can be recovered.
  * Logs addresses and tx hashes only, never a secret.
  */
-export async function freshOwner(env: Env, deps: FreshDeps) {
-  const guardian = readAddress(env, "GUARDIAN_ADDRESS");
+export async function freshOwner(env: Env, deps: FreshDeps, opts: { noVault?: boolean } = {}) {
+  const noVault = opts.noVault === true;
+  // --no-vault: the owner deploys its own vault from MetaMask, so no guardian is needed here.
+  const guardian = noVault ? undefined : readAddress(env, "GUARDIAN_ADDRESS");
   const fusd = readAddress(env, "FUSD_ADDRESS");
   const fund = parseFundUqor(env);
   const funderMnemonic = env.FUNDER_MNEMONIC?.trim() || env.OWNER_MNEMONIC?.trim();
@@ -216,10 +219,13 @@ export async function freshOwner(env: Env, deps: FreshDeps) {
     // Opening the window advances the account's EVM nonce; wait until the EVM RPC sees it.
     await waitFor(deps, () => deps.evmNonce(owner), (n) => n > nonceBefore, "the EVM nonce to advance after the window open");
 
-    // 5. Deploy GuardianVault(owner, guardian), check it, mint 100 fUSD.
-    const vault = await deps.deployVault(fresh, owner, guardian);
-    deps.log(`deploy GuardianVault ${vault.address}: ${vault.hash}`);
-    checkVaultRoles(await deps.readRoles(vault.address), { owner, guardian });
+    // 5. Deploy GuardianVault(owner, guardian), check it (unless --no-vault), mint 100 fUSD.
+    let vault: { hash: Hex; address: Hex } | undefined;
+    if (!noVault) {
+      vault = await deps.deployVault(fresh, owner, guardian!);
+      deps.log(`deploy GuardianVault ${vault.address}: ${vault.hash}`);
+      checkVaultRoles(await deps.readRoles(vault.address), { owner, guardian: guardian! });
+    }
     const mintTx = await deps.mint(fresh, fusd, owner, MINT_AMOUNT);
     deps.log(`mint 100 fUSD to ${owner}: ${mintTx}`);
 
@@ -227,10 +233,26 @@ export async function freshOwner(env: Env, deps: FreshDeps) {
     writeRunFile(
       dir,
       "run.env",
-      formatRunEnv({ ...base, VAULT_ADDRESS: vault.address, ATTACKER_ADDR: attacker, SAFE_ADDR: safe, RUN_COMPLETE: "1" }),
+      formatRunEnv({ ...base, ...(vault ? { VAULT_ADDRESS: vault.address } : {}), ATTACKER_ADDR: attacker, SAFE_ADDR: safe, RUN_COMPLETE: "1" }),
     );
     deps.log(`RUN_ENV=${runEnv}`); // only for a complete run: demo.sh keys on this line
-    return { runId, runEnv, owner, vault: vault.address, attacker, safe };
+    if (noVault) {
+      deps.log(
+        `next: open http://127.0.0.1:5173/#/protect and import OWNER_MNEMONIC from ${runEnv} into MetaMask (the file holds it; it is not printed)`,
+      );
+      deps.log(
+        `the unscoped deploy window stays open (~14 min, ${DEPLOY_WINDOW_BLOCKS} blocks); close it with: set -a && . ${runEnv} && set +a && pnpm cli window close`,
+      );
+      deps.log(
+        "the Protect screen needs the agent's /config for the guardian before this owner has a vault: `pnpm agent` can run with the root .env now " +
+          "(any running agent serves the guardian address)",
+      );
+      deps.log(
+        `after the browser deploy, \`pnpm cli link\` and \`pnpm agent\` need this run.env loaded AND VAULT_ADDRESS=<vault> exported ` +
+          "(the root .env's VAULT_ADDRESS would otherwise fill in: tsx --env-file does not override set vars)",
+      );
+    }
+    return { runId, runEnv, owner, vault: vault?.address, attacker, safe };
   } catch (e) {
     deps.log(`incomplete run: ${dir} (run.env has RUN_COMPLETE=0 and the fresh owner's key, to inspect or recover its QOR)`);
     throw e;
@@ -276,7 +298,8 @@ export function productionFreshDeps(): FreshDeps {
   };
 }
 
-/** `pnpm cli fresh-owner`. */
-export async function runFreshOwner(env: Env = process.env): Promise<void> {
-  await freshOwner(env, productionFreshDeps());
+/** `pnpm cli fresh-owner [--no-vault]`. */
+export async function runFreshOwner(args: string[] = [], env: Env = process.env): Promise<void> {
+  if (args.some((a) => a !== "--no-vault") || args.length > 1) throw new Error("usage: fresh-owner [--no-vault]");
+  await freshOwner(env, productionFreshDeps(), { noVault: args.length === 1 });
 }

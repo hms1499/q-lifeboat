@@ -6,7 +6,7 @@ const { broadcast } = vi.hoisted(() => ({ broadcast: vi.fn(async () => "HASH") }
 vi.mock("../src/chain", () => ({ broadcast, publicClient: { readContract: vi.fn(async () => "0x4444444444444444444444444444444444444444") } }));
 vi.mock("@qorechain/evm", async (orig) => ({ ...(await orig<object>()), evmWindowStatus: vi.fn(async () => ({ live: false })) }));
 
-import { buildOwnerWindowParams, checkExpectedOwner, OWNER_WINDOW_BLOCKS, OWNER_WINDOW_TXS, parseWindowArgs, runWindow } from "../src/window";
+import { buildOnboardWindowParams, buildOwnerWindowParams, checkExpectedOwner, ONBOARD_WINDOW_TXS, OWNER_WINDOW_BLOCKS, OWNER_WINDOW_TXS, parseWindowArgs, runWindow } from "../src/window";
 
 const VAULT = "0x17d867860a0A0Ff528dF655439ff59176b061B3C";
 const GUARDIAN = "0x4444444444444444444444444444444444444444";
@@ -21,12 +21,12 @@ describe("parseWindowArgs", () => {
   it("open defaults to 1800 blocks and 5 txs", () => {
     expect(OWNER_WINDOW_BLOCKS).toBe(1800);
     expect(OWNER_WINDOW_TXS).toBe(5);
-    expect(parseWindowArgs(["open"])).toEqual({ action: "open", blocks: 1800, txs: 5, topupUqor: 0n, expect: undefined });
+    expect(parseWindowArgs(["open"])).toEqual({ action: "open", onboard: false, blocks: 1800, txs: 5, topupUqor: 0n, expect: undefined });
   });
 
   it("open takes --blocks and --txs in any order", () => {
-    expect(parseWindowArgs(["open", "--blocks", "600", "--txs", "3"])).toEqual({ action: "open", blocks: 600, txs: 3, topupUqor: 0n, expect: undefined });
-    expect(parseWindowArgs(["open", "--txs", "2"])).toEqual({ action: "open", blocks: 1800, txs: 2, topupUqor: 0n, expect: undefined });
+    expect(parseWindowArgs(["open", "--blocks", "600", "--txs", "3"])).toEqual({ action: "open", onboard: false, blocks: 600, txs: 3, topupUqor: 0n, expect: undefined });
+    expect(parseWindowArgs(["open", "--txs", "2"])).toEqual({ action: "open", onboard: false, blocks: 1800, txs: 2, topupUqor: 0n, expect: undefined });
   });
 
   it("close takes no option", () => {
@@ -51,7 +51,7 @@ describe("parseWindowArgs", () => {
     ]) {
       expect(() => parseWindowArgs(bad), bad.join(" ")).toThrow();
     }
-    expect(parseWindowArgs(["open", "--blocks", "17280", "--txs", "1000"])).toEqual({ action: "open", blocks: 17280, txs: 1000, topupUqor: 0n, expect: undefined });
+    expect(parseWindowArgs(["open", "--blocks", "17280", "--txs", "1000"])).toEqual({ action: "open", onboard: false, blocks: 17280, txs: 1000, topupUqor: 0n, expect: undefined });
   });
 });
 
@@ -64,7 +64,7 @@ describe("parseWindowArgs --topup <QOR>", () => {
     expect(topup("100")).toBe(100_000_000n);
     expect(topup("0.000001")).toBe(1n);
     expect(topup("1.123456")).toBe(1_123_456n);
-    expect(parseWindowArgs(["open", "--txs", "3", "--topup", "1", "--expect", DERIVED])).toEqual({ action: "open", blocks: 1800, txs: 3, topupUqor: 1_000_000n, expect: DERIVED });
+    expect(parseWindowArgs(["open", "--txs", "3", "--topup", "1", "--expect", DERIVED])).toEqual({ action: "open", onboard: false, blocks: 1800, txs: 3, topupUqor: 1_000_000n, expect: DERIVED });
   });
 
   it("rounds UP to the next uqor past 6 decimals (at most 18)", () => {
@@ -150,7 +150,7 @@ describe("--expect <owner> (the dashboard's watched owner)", () => {
 
   it("parses --expect on open and close; refuses a malformed address or a repeat", () => {
     expect(parseWindowArgs(["close", "--expect", DERIVED])).toEqual({ action: "close", expect: DERIVED });
-    expect(parseWindowArgs(["open", "--expect", DERIVED, "--txs", "2"])).toEqual({ action: "open", blocks: 1800, txs: 2, topupUqor: 0n, expect: DERIVED });
+    expect(parseWindowArgs(["open", "--expect", DERIVED, "--txs", "2"])).toEqual({ action: "open", onboard: false, blocks: 1800, txs: 2, topupUqor: 0n, expect: DERIVED });
     expect(() => parseWindowArgs(["close", "--expect", "0x12"])).toThrow(/--expect/);
     expect(() => parseWindowArgs(["close", "--expect"])).toThrow(/--expect/);
     expect(() => parseWindowArgs(["close", "--expect", DERIVED, "--expect", DERIVED])).toThrow();
@@ -198,5 +198,56 @@ describe("--expect <owner> (the dashboard's watched owner)", () => {
     const out = log.mock.calls.map((c) => c.join(" ")).join("\n");
     expect(out).not.toContain("top-up");
     expect(out).toContain("window open (1800 blocks, 5 txs, targets fUSD fETH fBTC vault guardian): HASH");
+  });
+});
+
+describe("window open --onboard (unscoped onboarding window)", () => {
+  it("parses with the onboard defaults and combines with --blocks, --txs, --topup, --expect", () => {
+    expect(ONBOARD_WINDOW_TXS).toBe(5);
+    expect(parseWindowArgs(["open", "--onboard"])).toEqual({ action: "open", onboard: true, blocks: 1800, txs: 5, topupUqor: 0n, expect: undefined });
+    expect(parseWindowArgs(["open", "--blocks", "600", "--onboard", "--txs", "3", "--topup", "1", "--expect", DERIVED])).toEqual({
+      action: "open", onboard: true, blocks: 600, txs: 3, topupUqor: 1_000_000n, expect: DERIVED,
+    });
+  });
+
+  it("onboard is false without the flag; a second --onboard and close --onboard throw", () => {
+    expect((parseWindowArgs(["open"]) as { onboard: boolean }).onboard).toBe(false);
+    expect(() => parseWindowArgs(["open", "--onboard", "--onboard"])).toThrow(/usage/);
+    expect(() => parseWindowArgs(["close", "--onboard"])).toThrow(/usage/);
+  });
+
+  it("buildOnboardWindowParams has the same per-tx budget, plus top-up headroom, and no allowedTargets key", () => {
+    const one = evmWindowCost({ gas: 3_000_000n, maxFeePerGas: 112_500_000_000n });
+    const p = buildOnboardWindowParams(OWNER, { blocks: 1800, txs: 5, topupUqor: 500_000n });
+    expect(p).toEqual({ sender: OWNER, blocks: 1800, maxTxs: 5, maxValue: (one * 5n + 500_000n).toString() });
+    expect("allowedTargets" in p).toBe(false);
+    expect(buildOnboardWindowParams(OWNER, { blocks: 10, txs: 2, topupUqor: 0n }).maxValue).toBe((one * 2n).toString());
+    expect(() => checkOpenEvmWindowParams(p)).not.toThrow();
+  });
+
+  it("runWindow open --onboard needs no VAULT_ADDRESS or tokens, warns (env has no vault)", async () => {
+    const fakeBroadcast = vi.fn(async () => "OHASH");
+    const lines: string[] = [];
+    await runWindow(["open", "--onboard", "--topup", "0.5", "--expect", DERIVED], { OWNER_MNEMONIC: MNEMONIC }, {
+      broadcast: fakeBroadcast as never,
+      windowStatus: async () => ({ live: true, remainingBlocks: 1800n, remainingTxs: 5n }),
+      log: (l) => lines.push(l),
+    });
+    expect(fakeBroadcast).toHaveBeenCalledTimes(1);
+    const [, msgs] = fakeBroadcast.mock.calls[0] as unknown as [unknown, { value: Record<string, unknown> }[]];
+    // The protobuf message encodes "no targets" as an empty list: unscoped.
+    expect((msgs[0].value.allowedTargets as string[] | undefined) ?? []).toEqual([]);
+    const out = lines.join("\n");
+    expect(out).toContain("window open (onboard, UNSCOPED: any target, 1800 blocks, 5 txs, top-up headroom 0.5 QOR): OHASH");
+    expect(out).toContain("unscoped: until it expires or you run `pnpm cli window close`, a leaked ECDSA key can send any tx within this budget");
+    expect(out).toContain("owner window live: 1800 blocks, 5 txs left");
+  });
+
+  it("onboard refuses another --expect owner before broadcasting", async () => {
+    const fakeBroadcast = vi.fn(async () => "X");
+    await expect(
+      runWindow(["open", "--onboard", "--expect", "0x7777777777777777777777777777777777777777"], { OWNER_MNEMONIC: MNEMONIC }, { broadcast: fakeBroadcast as never, log: () => {} }),
+    ).rejects.toThrow(/--expect/);
+    expect(fakeBroadcast).not.toHaveBeenCalled();
   });
 });

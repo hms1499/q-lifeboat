@@ -9,6 +9,8 @@ import type { AgentConfig } from "../lib/config";
 import { errorText, fmtAmount, fmtInt, shortAddr, shortHash, tokenSymbol } from "../lib/format";
 import { usePoll } from "../lib/hooks";
 import { windowTargetsLabel } from "../lib/overview";
+import { loadProtectState, recoveryWarning } from "../lib/protect";
+import { browserStorage } from "../lib/storage";
 import { ensureDiana, walletClientFor } from "../lib/wallet";
 import { checkWithdrawal, parseWithdrawalJson, type ParsedWithdrawal, type WithdrawalCheck } from "../lib/withdrawal";
 import { useApp } from "../state";
@@ -125,6 +127,8 @@ export function Recover() {
 
   if (!cfg) return null;
 
+  const savedRecovery = [cfg.owner, wallet?.account].map((o) => (o ? loadProtectState(browserStorage(), o).recovery : null)).find((r) => !!r) ?? null;
+  const recoveryNote = file ? recoveryWarning(file.w.to, savedRecovery) : null;
   const allPass = !!checks && checks.every((c) => c.status === "pass");
   const win = submitterWindow.data;
   const winAllowsVault = !!win && (win.allowedTargets.length === 0 || win.allowedTargets.some((t) => t.toLowerCase() === cfg.vault.toLowerCase()));
@@ -212,6 +216,11 @@ export function Recover() {
                       </div>
                     ))}
                   </div>
+                  {recoveryNote ? (
+                    <div className="banner warn" role="alert" style={{ marginTop: 14 }}>
+                      {recoveryNote}
+                    </div>
+                  ) : null}
                   <div className="between" style={{ margin: "18px 0 8px" }}>
                     <span className="lbl">Checks before you submit</span>
                     <button type="button" className="btn small" onClick={() => setFile({ ...file })}>
