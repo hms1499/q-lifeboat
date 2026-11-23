@@ -15,12 +15,14 @@ const USAGE = `Q-Lifeboat CLI (qorechain-diana testnet)
   pnpm cli withdraw <withdrawal.json>         submit a signed withdrawal from any funded wallet
   pnpm cli agent-misuse <token> <to> <wei>    negative gate: agent key tries token.transfer directly (must be REFUSED)
   pnpm cli status                             read-only snapshot (window, rules, keys, balances)
-  pnpm cli window open [--blocks N] [--txs N] [--topup QOR] [--expect 0xOWNER]
+  pnpm cli window open [--onboard] [--blocks N] [--txs N] [--topup QOR] [--expect 0xOWNER]
                                               open the owner's EVM window (default 1800 blocks, 5 txs), scoped to
                                               fUSD, fETH, fBTC, the vault and the guardian; maxValue covers fees only
                                               --topup: add that much value headroom (<= 100 QOR) for a QOR top-up of
                                               the guardian; a leaked ECDSA key can spend it while the window is open
   pnpm cli window close [--expect 0xOWNER]    close the owner's EVM window (a leaked ECDSA key can then send nothing)
+                                              --onboard: UNSCOPED window (any target, default 5 txs) so the browser wallet can
+                                              deploy the vault; needs no VAULT_ADDRESS. Close it with window close.
                                               --expect: refuse unless OWNER_MNEMONIC is that owner (demo.sh owners:
                                               set -a && . ~/.config/qday/runs/<run id>/run.env && set +a first)
 
