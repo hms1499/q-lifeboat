@@ -20,7 +20,7 @@ export type WindowView = Pick<EvmWindow, "live" | "remainingTxs" | "remainingVal
  * `configOk`: the agent's /config matches the vault's immutable owner and guardian on chain (`checkConfigOnChain`). The
  * vault the owner calls and the guardian the QOR goes to come from that config, so nothing is sent until it does.
  */
-type Sender = { cfg: Cfg; configOk: boolean; wallet: string | null; chainId: number | null; window: WindowView | undefined; maxFeePerGas: bigint | undefined };
+export type Sender = { cfg: Cfg; configOk: boolean; wallet: string | null; chainId: number | null; window: WindowView | undefined; maxFeePerGas: bigint | undefined };
 
 const lc = (s: string) => s.toLowerCase();
 const txs = (n: bigint) => `${n} tx${n === 1n ? "" : "s"}`;
@@ -29,11 +29,12 @@ const txs = (n: bigint) => `${n} tx${n === 1n ? "" : "s"}`;
  * Why the owner's wallet can't send `n` txs to `target` costing `cost` uqor of window budget right now. `reopen`: the
  * owner window is closed, lacks the target, or has too few txs or too little budget, all of which reopening it fixes
  * (a new MsgOpenEVMWindow replaces the current one, chain fact 10). `budgetHint` is appended to the budget blocker.
+ * `target` null skips the target check (the caller checks targets itself, e.g. a contract creation has none).
  */
-function senderBlockers(
+export function senderBlockers(
   s: Sender,
   notOwner: string,
-  target: { address: string; name: string },
+  target: { address: string; name: string } | null,
   n: bigint,
   cost: bigint,
   budgetHint = "",
@@ -53,7 +54,7 @@ function senderBlockers(
     reopen = true;
   } else {
     // An empty allowedTargets list means any recipient (chain v3.2.3).
-    if (w.allowedTargets.length && !w.allowedTargets.some((t) => lc(t) === lc(target.address))) {
+    if (target && w.allowedTargets.length && !w.allowedTargets.some((t) => lc(t) === lc(target.address))) {
       out.push(`the owner's EVM window does not allow the ${target.name}`);
       reopen = true;
     }
