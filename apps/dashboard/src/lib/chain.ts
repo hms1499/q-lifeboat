@@ -15,7 +15,11 @@ export function restBase(): string {
 }
 
 export const EXPLORER = "https://explore.qore.network";
-export const explorerTx = (hash: string) => `${EXPLORER}/tx/${hash}`;
+/**
+ * The explorer page of a tx, or null. diana's explorer reads the Cosmos LCD only (/cosmos/tx/v1beta1/txs/<hash>): a
+ * native-lane hash (64 hex, no 0x) has a page, a 0x EVM hash has none ("invalid byte" / "tx not found").
+ */
+export const explorerTxUrl = (hash: string): string | null => (/^[0-9a-fA-F]{64}$/.test(hash) ? `${EXPLORER}/tx/${hash}` : null);
 export const explorerAddress = (address: string) => `${EXPLORER}/address/${address}`;
 
 export const diana = defineChain({
@@ -29,6 +33,16 @@ export const diana = defineChain({
 
 /** `cacheTime: 0`: viem would otherwise cache the block number for 4 s on a chain without `blockTime`. */
 export const publicClient = createPublicClient({ chain: diana, transport: http(NETWORK.evmRpc, { batch: true }), cacheTime: 0 });
+
+/**
+ * EIP-1559 fees for a MetaMask tx. The caller plans the window cost with this `maxFeePerGas` and sends the same values,
+ * so the window budget check matches what the chain charges.
+ */
+export type Fees = { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint };
+export async function readFees(): Promise<Fees> {
+  const f = await publicClient.estimateFeesPerGas();
+  return { maxFeePerGas: f.maxFeePerGas, maxPriorityFeePerGas: f.maxPriorityFeePerGas };
+}
 
 export const qorAddress = (evm: string) => toQorAddress(evm);
 

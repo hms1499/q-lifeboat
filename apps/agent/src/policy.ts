@@ -67,9 +67,9 @@ export function seedPolicy(allowlist: Hex[], maxOutbound: bigint): PolicyFile {
   return { trusted, maxOutbound: maxOutbound.toString() };
 }
 
-/** The rules.ts view: wallets and apps alike go to the allowlist. */
-export function toRulesPolicy(vault: Hex, p: PolicyFile): Policy {
-  return { vault, allowlist: p.trusted.map((t) => t.address), maxOutbound: BigInt(p.maxOutbound) };
+/** The rules.ts view: wallets and apps alike go to the allowlist. `guardian`: the vault's immutable guardian. */
+export function toRulesPolicy(vault: Hex, guardian: Hex, p: PolicyFile): Policy {
+  return { vault, guardian, allowlist: p.trusted.map((t) => t.address), maxOutbound: BigInt(p.maxOutbound) };
 }
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));

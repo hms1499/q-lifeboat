@@ -76,7 +76,8 @@ describe("policy helpers", () => {
   });
 
   it("toRulesPolicy maps to the rules.ts Policy", () => {
-    expect(toRulesPolicy(VAULT, good)).toEqual({ vault: VAULT, allowlist: [A], maxOutbound: 1000n });
+    const G = "0xFf82cAD6638a38d7009D0d5DfB757136B0C03850";
+    expect(toRulesPolicy(VAULT, G, good)).toEqual({ vault: VAULT, guardian: G, allowlist: [A], maxOutbound: 1000n });
   });
 });
 

@@ -28,7 +28,7 @@
 html, body { margin: 0; background: var(--page); color: var(--ink); font-family: var(--body); }
 a { color: var(--blue); }
 a:hover { color: var(--blue-dark); }
-button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .mono { font-family: var(--mono); }
 .h { font-family: var(--head); }
 .muted { color: var(--muted); }
@@ -159,6 +159,12 @@ dl.kv dd small { display: block; color: var(--muted); font-weight: 400; font-siz
 .field .k { font-size: 12px; color: var(--muted); }
 .field .v { font-family: var(--mono); font-size: 13px; font-weight: 500; margin-top: 2px; overflow-wrap: anywhere; }
 .done-box { display: flex; gap: 12px; align-items: flex-start; padding: 16px; border-radius: 12px; background: #eef2fd; border: 1px solid var(--blue-line); }
+.input { font: 15px var(--body); min-height: 44px; padding: 8px 12px; border: 1px solid #d6d3cb; border-radius: 10px; background: var(--card); color: var(--ink); box-sizing: border-box; min-width: 0; }
+.input.mono { font-family: var(--mono); font-size: 13px; }
+.form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
+.copy-mini { font: 600 11px var(--body); padding: 2px 8px; margin-left: 6px; border-radius: 6px; border: 1px solid #d6d3cb; background: var(--card); color: var(--ink-2); cursor: pointer; vertical-align: baseline; }
+.ok-note { color: var(--blue); font-size: 14px; margin-top: 10px; }
 .err { color: var(--red); font-size: 14px; margin-top: 10px; overflow-wrap: anywhere; }
 
 @media (max-width: 640px) {

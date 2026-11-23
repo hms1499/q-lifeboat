@@ -36,6 +36,29 @@ export async function fetchPolicy(): Promise<Policy> {
   return p;
 }
 
+/**
+ * PUT /policy with the whole edited policy. The agent is the authority (`parsePolicy`); its refusal, e.g. "origin not
+ * allowed", is thrown verbatim. Returns the policy the agent saved.
+ */
+export async function putPolicy(policy: Policy, timeoutMs = 5000): Promise<Policy> {
+  const r = await fetch(`${AGENT_URL}/policy`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(policy),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  let body: unknown = null;
+  try {
+    body = await r.json();
+  } catch {
+    // a non-JSON body: the status says enough
+  }
+  const o = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : null;
+  if (!r.ok) throw new Error(typeof o?.error === "string" ? o.error : `HTTP ${r.status}`);
+  if (!o || !Array.isArray(o.trusted) || typeof o.maxOutbound !== "string") throw new Error("agent PUT /policy: unexpected body");
+  return o as unknown as Policy;
+}
+
 /** Live incidents (SSE). `onOpen` fires on every (re)connect: the caller refetches what it may have missed. */
 export function subscribeIncidents(onIncident: (i: Incident) => void, onOpen: () => void, onDown: () => void): () => void {
   const es = new EventSource(`${AGENT_URL}/events`);

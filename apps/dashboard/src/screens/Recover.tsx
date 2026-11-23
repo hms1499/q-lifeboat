@@ -1,13 +1,15 @@
 import { NETWORK, vaultAbi, WITHDRAW_GAS } from "@qday/core";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { erc20Abi, zeroAddress, type Hex } from "viem";
-import { CheckRow, Command, ExtLink, WindowCommand } from "../components/ui";
-import { explorerTx, publicClient, readPqcStatus, readWindow } from "../lib/chain";
+import { CheckRow, Command, TxHash, WindowCommand } from "../components/ui";
+import { useWalletConnect, WalletConnect } from "../components/WalletConnect";
+import { withWindowHint } from "../lib/actions";
+import { publicClient, readPqcStatus, readWindow } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { errorText, fmtAmount, fmtInt, shortAddr, shortHash, tokenSymbol } from "../lib/format";
 import { usePoll } from "../lib/hooks";
 import { windowTargetsLabel } from "../lib/overview";
-import { connectWallet, discoverWallets, ensureDiana, walletChainId, walletClientFor, type DiscoveredWallet } from "../lib/wallet";
+import { ensureDiana, walletClientFor } from "../lib/wallet";
 import { checkWithdrawal, parseWithdrawalJson, type ParsedWithdrawal, type WithdrawalCheck } from "../lib/withdrawal";
 import { useApp } from "../state";
 
@@ -40,15 +42,14 @@ function Dot({ n, on, done }: { n: number; on: boolean; done: boolean }) {
 }
 
 export function Recover() {
-  const { config, wallet, setWallet } = useApp();
+  const { config } = useApp();
+  const wc = useWalletConnect();
+  const { wallet, chainId, error: walletError } = wc;
   const cfg = config.cfg;
   const [file, setFile] = useState<{ name: string; w: ParsedWithdrawal } | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [checks, setChecks] = useState<WithdrawalCheck[] | null>(null);
   const [over, setOver] = useState(false);
-  const [wallets, setWallets] = useState<DiscoveredWallet[] | null>(null);
-  const [walletError, setWalletError] = useState<string | null>(null);
-  const [chainId, setChainId] = useState<number | null>(null);
   const [submit, setSubmit] = useState<Submit>({ state: "idle" });
   const input = useRef<HTMLInputElement>(null);
 
@@ -75,25 +76,6 @@ export function Recover() {
     };
   }, [cfg, file]);
 
-  // Follow the wallet's account and chain.
-  useEffect(() => {
-    if (!wallet) return;
-    const p = wallet.provider;
-    const onAccounts = (a: unknown) => {
-      const list = a as string[];
-      if (!list?.length) setWallet(null);
-      else setWallet({ ...wallet, account: list[0] as Hex });
-    };
-    const onChain = (id: unknown) => setChainId(Number(id));
-    void walletChainId(p).then(setChainId, () => setChainId(null));
-    p.on?.("accountsChanged", onAccounts as never);
-    p.on?.("chainChanged", onChain as never);
-    return () => {
-      p.removeListener?.("accountsChanged", onAccounts as never);
-      p.removeListener?.("chainChanged", onChain as never);
-    };
-  }, [wallet, setWallet]);
-
   async function load(f: File | undefined) {
     setFile(null);
     setFileError(null);
@@ -111,26 +93,6 @@ export function Recover() {
     e.preventDefault();
     setOver(false);
     void load(e.dataTransfer.files[0]);
-  }
-
-  async function pickWallet() {
-    setWalletError(null);
-    const list = await discoverWallets();
-    if (!list.length) return setWalletError("No browser wallet found. Install MetaMask, import the account, then reload.");
-    if (list.length === 1) return connect(list[0]);
-    setWallets(list);
-  }
-
-  async function connect(d: DiscoveredWallet) {
-    setWallets(null);
-    setWalletError(null);
-    try {
-      const account = await connectWallet(d.provider);
-      setWallet({ provider: d.provider, name: d.info.name, account });
-      setChainId(await walletChainId(d.provider));
-    } catch (e) {
-      setWalletError(errorText(e));
-    }
   }
 
   async function send() {
@@ -157,11 +119,7 @@ export function Recover() {
       setSubmit({ state: "done", hash, status: receipt.status, nonceBefore, nonceAfter, w });
       vault.refresh();
     } catch (e) {
-      const msg = errorText(e);
-      setSubmit({
-        state: "error",
-        message: /window|authori[sz]/i.test(msg) ? `${msg} (the submitting account needs a live EVM window)` : msg,
-      });
+      setSubmit({ state: "error", message: withWindowHint(errorText(e)) });
     }
   }
 
@@ -279,21 +237,7 @@ export function Recover() {
             </p>
             <div className="indent">
               {!wallet ? (
-                <>
-                  <button type="button" className="btn" onClick={() => void pickWallet()}>
-                    Connect MetaMask
-                  </button>
-                  {wallets ? (
-                    <div className="actions" style={{ marginTop: 10 }}>
-                      {wallets.map((d) => (
-                        <button key={d.info.uuid} type="button" className="btn small" onClick={() => void connect(d)}>
-                          {d.info.icon ? <img src={d.info.icon} alt="" width={18} height={18} style={{ marginRight: 8 }} /> : null}
-                          {d.info.name}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </>
+                <WalletConnect w={wc} />
               ) : (
                 <dl className="kv" style={{ marginTop: 0, marginBottom: 14 }}>
                   <div>
@@ -344,7 +288,7 @@ export function Recover() {
                         : "The withdraw reverted on chain"}
                     </div>
                     <div className="mono wrap-any" style={{ fontSize: 12, color: "var(--ink-2)", marginTop: 4 }}>
-                      tx <ExtLink href={explorerTx(submit.hash)}>{submit.hash}</ExtLink> · vault nonce {submit.nonceBefore.toString()} →{" "}
+                      tx <TxHash hash={submit.hash} full /> · vault nonce {submit.nonceBefore.toString()} →{" "}
                       {submit.nonceAfter === null ? "?" : submit.nonceAfter.toString()}
                     </div>
                   </div>

@@ -131,6 +131,10 @@ checkboxes and the docs below are the handoff state, not the chat history.
 18. diana's REST (`api-testnet.qore.host`) sends NO CORS headers (OPTIONS → 501), even for Origin
     `https://dashboard.qorechain.io`; the EVM RPC sends `Access-Control-Allow-Origin: *` (2026-11-21). Browser code
     reads REST through the dashboard's same-origin Vite proxy `/qore-rest` (dev and preview).
+19. The diana explorer (`explore.qore.network`) shows Cosmos-lane txs only: `/tx/0x<EVM hash>` fails "encoding/hex: invalid
+    byte 'x'" and the hash without `0x` is "tx not found" (2026-11-23). Never link an EVM tx hash to it; show the hash and
+    check its receipt on the EVM RPC. A window's `maxValue` bounds value PLUS each tx's gas limit × fee cap (uqor), so a
+    QOR send needs headroom: `pnpm cli window open --topup <QOR>`.
 
 SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSign`, `EthNativeSigner`,
 `linkAuthenticatorMsgs`, `signAuthenticatorLinkEd25519`, `revokeAuthenticatorMsg`,

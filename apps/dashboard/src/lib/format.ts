@@ -14,6 +14,9 @@ export function fmtAmount(wei: bigint, digits = 2): string {
   return f ? `${intPart}.${f}` : intPart;
 }
 
+/** A uqor amount (1 QOR = 10^6 uqor) as QOR, up to 6 decimals. */
+export const fmtUqor = (uqor: bigint) => fmtAmount(uqor * 1_000_000_000_000n, 6);
+
 export const fmtInt = (v: bigint | number | string) => {
   try {
     return BigInt(v).toLocaleString("en-US");

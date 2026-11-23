@@ -8,7 +8,8 @@ const ZERO = "0x0000000000000000000000000000000000000000" as const;
 const DAPP = "0x2222222222222222222222222222222222222222" as const;
 const FUSD = "0x00000000000000000000000000000000000000a1" as const;
 const MAX = 2n ** 256n - 1n;
-const policy = { vault: VAULT, allowlist: [FRIEND, DAPP], maxOutbound: 1000n };
+const GUARDIAN = "0xFf82cAD6638a38d7009D0d5DfB757136B0C03850" as const;
+const policy = { vault: VAULT, guardian: GUARDIAN, allowlist: [FRIEND, DAPP], maxOutbound: 1000n };
 
 const tx = (over: Partial<OutboundTx> = {}): OutboundTx => ({
   kind: "transfer",
@@ -21,6 +22,28 @@ const tx = (over: Partial<OutboundTx> = {}): OutboundTx => ({
 });
 
 describe("decide", () => {
+  it("test_nativeTopUpToGuardianDoesNotTrigger (also above maxOutbound)", () => {
+    for (const amount of [10n, 100_000_000_000_000_000n]) {
+      const d = decide(tx({ token: ZERO, to: GUARDIAN.toLowerCase() as `0x${string}`, amount }), policy);
+      expect(d).toEqual({ rescue: false, alert: false, reason: "gas tank top-up to the guardian" });
+    }
+    expect(100_000_000_000_000_000n > policy.maxOutbound).toBe(true);
+  });
+
+  it("test_tokenTransferToGuardianStillTriggers", () => {
+    const d = decide(tx({ token: FUSD, to: GUARDIAN, amount: 10n }), policy);
+    expect(d.rescue).toBe(true);
+    expect(d.reason).toMatch(/allowlist/i);
+    expect(decide(tx({ token: FUSD, to: GUARDIAN, amount: 10n }), { ...policy, allowlist: [GUARDIAN] }).rescue).toBe(false);
+  });
+
+  it("test_approvalToGuardianStillTriggers", () => {
+    const approve = (amount: bigint): OutboundTx => ({ ...tx({ token: FUSD, to: GUARDIAN, amount }), kind: "approval" });
+    expect(decide(approve(MAX), policy).rescue).toBe(true);
+    expect(decide(approve(5n), policy).rescue).toBe(true);
+    expect(decide(approve(5n), { ...policy, allowlist: [GUARDIAN] }).rescue).toBe(false);
+  });
+
   it("test_rescueOnUnknownRecipient", () => {
     const d = decide(tx({ to: STRANGER }), policy);
     expect(d.rescue).toBe(true);

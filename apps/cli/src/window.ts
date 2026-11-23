@@ -1,7 +1,7 @@
 import { loadOwner, loadTokens, loadVault, NETWORK, vaultAbi } from "@qday/core";
 import { evmWindowCost, evmWindowStatus, MAX_EVM_WINDOW_BLOCKS, MAX_EVM_WINDOW_TXS } from "@qorechain/evm";
 import { closeEvmWindowMsg, openEvmWindowMsg } from "@qorechain/sdk";
-import type { Hex } from "viem";
+import { formatUnits, type Hex } from "viem";
 import { broadcast, publicClient } from "./chain";
 
 type Env = Record<string, string | undefined>;
@@ -15,10 +15,18 @@ export const OWNER_WINDOW_TXS = 5;
 const PER_TX_GAS = 3_000_000n;
 const PER_TX_MAX_FEE = 112_500_000_000n;
 
-/** `expect`: the owner the caller means (the dashboard's watched owner); the command refuses any other account. */
-export type WindowArgs = { action: "open"; blocks: number; txs: number; expect?: string } | { action: "close"; expect?: string };
+/** The most `--topup` headroom one window may carry: a leaked ECDSA key can spend it while the window is open. */
+export const MAX_TOPUP_QOR = 100n;
+const UQOR_PER_QOR = 1_000_000n;
+const WEI_PER_UQOR = 1_000_000_000_000n;
 
-const USAGE = "usage: window open [--blocks N] [--txs N] [--expect 0xOWNER] | window close [--expect 0xOWNER]";
+/**
+ * `expect`: the owner the caller means (the dashboard's watched owner); the command refuses any other account.
+ * `topupUqor`: value headroom for a QOR top-up of the guardian, on top of the fee budget (0n without `--topup`).
+ */
+export type WindowArgs = { action: "open"; blocks: number; txs: number; topupUqor: bigint; expect?: string } | { action: "close"; expect?: string };
+
+const USAGE = "usage: window open [--blocks N] [--txs N] [--topup QOR] [--expect 0xOWNER] | window close [--expect 0xOWNER]";
 
 function readInt(name: string, raw: string | undefined, max: bigint): number {
   if (raw === undefined || !/^\d+$/.test(raw)) throw new Error(`${name} needs a positive integer (${USAGE})`);
@@ -27,12 +35,23 @@ function readInt(name: string, raw: string | undefined, max: bigint): number {
   return Number(n);
 }
 
-/** `window open [--blocks N] [--txs N] [--expect 0x…]` or `window close [--expect 0x…]`. Throws on anything else. */
+/** A decimal QOR amount (e.g. `0.5`, `2`), > 0, at most 18 decimals and 100 QOR, in uqor rounded UP. */
+function readTopup(raw: string | undefined): bigint {
+  if (raw === undefined || !/^\d+(\.\d{1,18})?$/.test(raw)) throw new Error(`--topup needs a QOR amount such as 0.5, at most 18 decimals (${USAGE})`);
+  const [int, frac = ""] = raw.split(".");
+  const wei = BigInt(int) * 10n ** 18n + BigInt(frac.padEnd(18, "0"));
+  if (wei === 0n) throw new Error(`--topup must be above 0 (${USAGE})`);
+  if (wei > MAX_TOPUP_QOR * 10n ** 18n) throw new Error(`--topup is at most ${MAX_TOPUP_QOR} QOR: a leaked key can spend it (${USAGE})`);
+  return (wei + WEI_PER_UQOR - 1n) / WEI_PER_UQOR;
+}
+
+/** `window open [--blocks N] [--txs N] [--topup QOR] [--expect 0x…]` or `window close [--expect 0x…]`. Throws on anything else. */
 export function parseWindowArgs(args: string[]): WindowArgs {
   const [action, ...rest] = args;
   if (action !== "open" && action !== "close") throw new Error(USAGE);
   let blocks: number | undefined;
   let txs: number | undefined;
+  let topupUqor: bigint | undefined;
   let expect: string | undefined;
   for (let i = 0; i < rest.length; i += 2) {
     const flag = rest[i];
@@ -42,10 +61,11 @@ export function parseWindowArgs(args: string[]): WindowArgs {
       expect = v;
     } else if (action === "open" && flag === "--blocks" && blocks === undefined) blocks = readInt("--blocks", rest[i + 1], MAX_EVM_WINDOW_BLOCKS);
     else if (action === "open" && flag === "--txs" && txs === undefined) txs = readInt("--txs", rest[i + 1], MAX_EVM_WINDOW_TXS);
+    else if (action === "open" && flag === "--topup" && topupUqor === undefined) topupUqor = readTopup(rest[i + 1]);
     else throw new Error(`unexpected "${flag}" (${USAGE})`);
   }
   if (action === "close") return { action: "close", expect };
-  return { action: "open", blocks: blocks ?? OWNER_WINDOW_BLOCKS, txs: txs ?? OWNER_WINDOW_TXS, expect };
+  return { action: "open", blocks: blocks ?? OWNER_WINDOW_BLOCKS, txs: txs ?? OWNER_WINDOW_TXS, topupUqor: topupUqor ?? 0n, expect };
 }
 
 /**
@@ -63,11 +83,18 @@ export function checkExpectedOwner(derived: string, expect: string | undefined):
 
 /**
  * The owner's hand-driven window: scoped to the three tokens, the vault and the guardian. A withdraw, a manual rescue
- * and an approve fit. `maxValue` covers fees only: against a leaked ECDSA key the window budget is the only cap (chain
- * fact 4), so it carries no value headroom, and a QOR top-up of the guardian does NOT fit yet. The guardian target is
- * there for 6E, which will add the value budget a top-up needs.
+ * and an approve fit. Against a leaked ECDSA key the window budget is the only cap (chain fact 4), so by default
+ * `maxValue` covers fees only. A QOR top-up of the guardian moves value, which a window counts in `maxValue` too:
+ * `topupUqor` (opt-in, `--topup`) adds exactly that much value headroom, which a leaked key can also spend while the
+ * window is open.
  */
-export function buildOwnerWindowParams(ownerCosmos: string, tokens: Tokens, vault: string, guardian: string, size: { blocks: number; txs: number }) {
+export function buildOwnerWindowParams(
+  ownerCosmos: string,
+  tokens: Tokens,
+  vault: string,
+  guardian: string,
+  size: { blocks: number; txs: number; topupUqor?: bigint },
+) {
   const allowedTargets = [tokens.fUSD, tokens.fETH, tokens.fBTC, vault, guardian];
   const seen = new Set(allowedTargets.map((t) => t.toLowerCase()));
   if (seen.size !== allowedTargets.length) throw new Error(`window targets contain a duplicate address: ${allowedTargets.join(", ")}`);
@@ -76,7 +103,7 @@ export function buildOwnerWindowParams(ownerCosmos: string, tokens: Tokens, vaul
     sender: ownerCosmos,
     blocks: size.blocks,
     maxTxs: size.txs,
-    maxValue: (perTx * BigInt(size.txs)).toString(),
+    maxValue: (perTx * BigInt(size.txs) + (size.topupUqor ?? 0n)).toString(),
     allowedTargets,
   };
 }
@@ -98,7 +125,8 @@ export async function runWindow(args: string[], env: Env = process.env): Promise
     const guardian = (await publicClient.readContract({ address: vault, abi: vaultAbi, functionName: "guardian" })) as Hex;
     const params = buildOwnerWindowParams(owner.cosmos, tokens, vault, guardian, parsed);
     const hash = await broadcast(owner, [openEvmWindowMsg(params)], "qday: open owner window");
-    console.log(`window open (${params.blocks} blocks, ${params.maxTxs} txs, targets fUSD fETH fBTC vault guardian): ${hash}`);
+    const headroom = parsed.topupUqor > 0n ? `, top-up headroom ${formatUnits(parsed.topupUqor, 6)} QOR` : "";
+    console.log(`window open (${params.blocks} blocks, ${params.maxTxs} txs${headroom}, targets fUSD fETH fBTC vault guardian): ${hash}`);
   }
 
   // Informational only: the tx above already succeeded, so a REST hiccup here must not turn it into an error.

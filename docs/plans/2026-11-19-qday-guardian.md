@@ -251,13 +251,21 @@ Work in `spike/`, never import from it.
   `pnpm cli window open|close [--expect <owner>]`; no `@qorechain/react`. Review round 1: a ✓ is bound to the report's
   id + sig and the config it was verified under. Diana: report ✓ 4.0 s after detection; Recover withdraw `0xf21e3904…`.
 
-#### Task 6E: Dashboard: Rules, Rescue now, gas tank top-up
+#### Task 6E: Dashboard: Rules, Rescue now, gas tank top-up, DONE 2026-11-23
 
-- [ ] **Step 1:** Rules screen: trusted wallets and apps (add, remove), threshold, alert channels, the on-chain permission read from `fetchSpendingRules` (read only). Writes go to `PUT /policy`.
-- [ ] **Step 2:** "Rescue now" on Overview: the owner sends `vault.rescue(token)` per protected token through MetaMask (needs an open owner window; show the CLI command to open one when it is closed). On diana: record the hash in `EVIDENCE.md`.
-- [ ] **Step 3:** Gas tank: show the guardian's QOR balance and a top-up (QOR transfer to the guardian) through MetaMask (6A step 2 (3) works).
-- [ ] **Step 4 (optional):** "Turn off protection": `approve(vault, 0)` per token and `revokeAuthenticatorMsg`.
-- [ ] **Step 5:** `pnpm -F dashboard test && pnpm -F dashboard build`, then commit.
+- [x] **Step 1:** Rules screen: trusted wallets and apps (add, remove), threshold, alert channels, the on-chain permission read from `fetchSpendingRules` (read only). Writes go to `PUT /policy`.
+- [x] **Step 2:** "Rescue now" on Overview: the owner sends `vault.rescue(token)` per protected token through MetaMask (needs an open owner window; show the CLI command to open one when it is closed). On diana: record the hash in `EVIDENCE.md`.
+- [x] **Step 3:** Gas tank: show the guardian's QOR balance and a top-up (QOR transfer to the guardian) through MetaMask (6A step 2 (3) works).
+  Approved departure (Explore, 2026-11-23): a window's `maxValue` bounds value PLUS each tx's max fee, and the owner
+  window carries fees only, so `pnpm cli window open --topup <QOR>` adds exactly that much value headroom (opt-in; a
+  leaked ECDSA key can spend it while the window is open, THREAT_MODEL). The dashboard checks a top-up's
+  `evmWindowCost` against the window's `remainingValue` before asking MetaMask.
+- [ ] **Step 4 (optional, deferred 2026-11-23 until 6F/6G are done):** "Turn off protection": `approve(vault, 0)` per token and `revokeAuthenticatorMsg`.
+- [x] **Step 5:** `pnpm -F dashboard test && pnpm -F dashboard build`, then commit.
+  Diana: Rescue now `0x378117ff…` (fUSD 5 back to the vault), top-up 0.1 QOR `0xa6b34d03…`, Rules writes logged by the
+  agent. The run found a false incident on the owner's own top-up: fixed in `rules.ts` (native QOR to the guardian is not
+  a trigger, `a4ed21d`), confirmed by top-up `0x7eec8c6d…`. The diana explorer has no EVM tx page (chain fact 19), so EVM
+  hashes are shown as copyable text.
 
 #### Task 6F: Dashboard: Protect onboarding
 

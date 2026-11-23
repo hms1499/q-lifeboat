@@ -10,7 +10,8 @@ import { createPolicyStore, seedPolicy, toRulesPolicy } from "../src/policy";
 const VAULT = "0x17d867860a0A0Ff528dF655439ff59176b061B3C" as const;
 const STRANGER = "0x9999999999999999999999999999999999999999" as const;
 const ZERO = "0x0000000000000000000000000000000000000000" as const;
-const policy = () => ({ vault: VAULT, allowlist: [], maxOutbound: 100n });
+const GUARDIAN_ADDR = "0xFf82cAD6638a38d7009D0d5DfB757136B0C03850" as const;
+const policy = () => ({ vault: VAULT, guardian: GUARDIAN_ADDR, allowlist: [], maxOutbound: 100n });
 const tx = (hash: string, to: `0x${string}` = STRANGER): OutboundTx => ({ kind: "transfer", hash: hash as `0x${string}`, block: 1n, token: ZERO, to, amount: 5n });
 /** Approval(owner, vault, 0): the owner key revoked the vault's allowance (decide: alert only). */
 const revoke = (hash: string): OutboundTx => ({ kind: "approval", hash: hash as `0x${string}`, block: 1n, token: "0x00000000000000000000000000000000000000a1", to: VAULT, amount: 0n });
@@ -182,7 +183,7 @@ describe("guardian (Task 6C: policy reload, report and notify off the rescue pat
     const store = createPolicyStore({ file, seed: seedPolicy([], 100n), log: () => {} });
     const rescue = vi.fn(async () => [rec()]);
     const record = vi.fn(async (f: object) => ({ ...f, id: "x" }) as unknown as Incident);
-    const g = createGuardian({ policy: () => toRulesPolicy(VAULT, store.get()), rescue, record, publish: vi.fn(), log: () => {} });
+    const g = createGuardian({ policy: () => toRulesPolicy(VAULT, GUARDIAN_ADDR, store.get()), rescue, record, publish: vi.fn(), log: () => {} });
 
     await g.onTx(tx("0x1")); // STRANGER is not trusted
     expect(rescue).toHaveBeenCalledTimes(1);

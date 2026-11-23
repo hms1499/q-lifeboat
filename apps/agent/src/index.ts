@@ -74,7 +74,8 @@ async function main() {
   const deps = productionDeps(cfg, windowKeeper, log);
 
   const guardian = createGuardian({
-    policy: () => toRulesPolicy(cfg.vault, policyStore.get()),
+    // cfg.gas.evm is the vault's guardian: checkVaultGuardian above refuses to start when vault.guardian() differs.
+    policy: () => toRulesPolicy(cfg.vault, cfg.gas.evm as Hex, policyStore.get()),
     rescue: (trigger) => serial(() => rescueAll(deps, trigger.token)),
     record: (facts) => signAndRecord({ ...facts, sk: cfg.agentKey.sk, llm, log }, file),
     publish: server.publish,
