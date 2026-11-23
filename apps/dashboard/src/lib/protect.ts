@@ -52,6 +52,8 @@ export type ProtectInput = {
   policy: Policy | undefined;
   local: ProtectState;
   nowUnix: number;
+  /** The connected wallet's EVM window (`undefined`: still reading). */
+  window: WindowView | undefined;
 };
 
 /** A step's verdict before positions are assigned: `loading` reads are never blocked. */
@@ -72,10 +74,22 @@ function connectStep(i: ProtectInput): Verdict {
   return { done: true, detail: `${shortAddr(i.wallet)} on diana, post-quantum key registered` };
 }
 
-function vaultStep(i: ProtectInput): Verdict {
+/** Shown when the agent is not running: it can start before this owner has a vault. */
+export const START_AGENT_HINT =
+  "start the agent: its /config names the guardian. It can run with the root .env before this owner has a vault (any running agent serves the guardian address)";
+
+/**
+ * Steps after "connect" need it done: without a registered, possession-proven ML-DSA-87 key a vault would let a holder of
+ * a leaked ECDSA key register THEIR key (a classically signed MsgRegisterPQCKeyV2) and withdraw what is rescued.
+ */
+const afterConnect = (connect: Verdict): Verdict | null => (connect.done ? null : { done: false, blocked: true, detail: `finish step 1 first: ${connect.detail}` });
+
+function vaultStep(i: ProtectInput, connect: Verdict): Verdict {
+  const gate = afterConnect(connect);
+  if (gate) return gate;
   if (!i.wallet) return { done: false, detail: "connect your wallet to create or check the vault" };
   if (i.config === undefined) return { done: false, detail: "reading the agent's /config for the guardian" };
-  if (i.config === null) return { done: false, blocked: true, detail: "start the agent: its /config names the guardian" };
+  if (i.config === null) return { done: false, blocked: true, detail: START_AGENT_HINT };
   const guardian = i.config.guardian;
   if (!i.vault) return { done: false, detail: `deploy a vault owned by ${i.wallet} with guardian ${guardian}` };
   if (!i.vaultRoles) return { done: false, detail: `reading the owner and guardian of vault ${i.vault}` };
@@ -98,16 +112,26 @@ export function vaultRoleProblems(roles: { owner: string; guardian: string }, wa
 }
 
 /** Why the steps that need the vault can't run yet, or null when the vault step is done. */
-const needVault = (i: ProtectInput, vaultDone: boolean): string | null => (vaultDone ? null : i.vault ? "fix the vault step first" : "create the vault first");
+const needVault = (i: ProtectInput, vaultDone: boolean, connect: Verdict): string | null =>
+  vaultDone ? null : !connect.done ? `finish step 1 first: ${connect.detail}` : i.vault ? "fix the vault step first" : "create the vault first";
 
-function approveStep(i: ProtectInput, vaultDone: boolean): Verdict {
-  const need = needVault(i, vaultDone);
+function approveStep(i: ProtectInput, vaultDone: boolean, connect: Verdict): Verdict {
+  const need = needVault(i, vaultDone, connect);
   if (need) return { done: false, detail: need };
   if (!i.allowances) return { done: false, detail: "reading your token allowances to the vault" };
   const open = (Object.keys(i.allowances) as (keyof typeof i.allowances)[]).filter((k) => i.allowances![k] !== maxUint256);
   if (open.length) return { done: false, detail: `approve ${open.join(", ")} for the vault (${3 - open.length} of 3 approved)` };
   return { done: true, detail: "fUSD, fETH and fBTC approved for the vault" };
 }
+
+/**
+ * The unscoped window `window open --onboard` opens (live, no `allowedTargets`) lets a leaked ECDSA key send value to
+ * any address until it closes, so the account is not protected while it is open.
+ */
+export const onboardingWindowOpen = (w: WindowView | undefined): boolean => !!w && w.live && w.allowedTargets.length === 0;
+
+/** The env a CLI command that signs for the owner needs: tsx --env-file would otherwise fill in the root .env's vault. */
+export const ownerEnvNote = (vault: string): string => `Load this owner's run.env (OWNER_MNEMONIC) and export VAULT_ADDRESS=${vault}`;
 
 /** The agent key's rule is exactly `vault.rescue` + `uqor`: the first enabled rule applies (chain fact 8). */
 export function ruleIsExact(rules: SpendingRules, vault: string): boolean {
@@ -120,8 +144,8 @@ export function ruleIsExact(rules: SpendingRules, vault: string): boolean {
 export const hasLiveAuthenticator = (list: AuthenticatorView[], nowUnix: number): boolean =>
   list.some((a) => !a.revoked && a.expiryUnix > BigInt(nowUnix + EXPIRY_MARGIN_SECONDS));
 
-function guardianStep(i: ProtectInput, vaultDone: boolean): Verdict {
-  const need = needVault(i, vaultDone);
+function guardianStep(i: ProtectInput, vaultDone: boolean, connect: Verdict): Verdict {
+  const need = needVault(i, vaultDone, connect);
   if (need) return { done: false, detail: need };
   const vault = i.vault!;
   const missing: string[] = [];
@@ -147,6 +171,9 @@ function guardianStep(i: ProtectInput, vaultDone: boolean): Verdict {
     if (!i.health) reading.push("the agent's health");
     else if (i.health.gas.low) missing.push("the guardian's gas tank is low: top it up");
   }
+
+  if (!i.window) reading.push("the EVM window");
+  else if (onboardingWindowOpen(i.window)) missing.push(`close the onboarding window, it is unscoped (\`pnpm cli window close --expect ${i.wallet}\`)`);
 
   if (missing.length || reading.length) {
     return { done: false, detail: joinParts([...missing, ...(reading.length ? [`reading ${reading.join(", ")}`] : [])]) };
@@ -174,12 +201,12 @@ function recoveryStep(i: ProtectInput): Verdict {
  */
 export function protectSteps(i: ProtectInput): ProtectStep[] {
   const connect = connectStep(i);
-  const vault = vaultStep(i);
+  const vault = vaultStep(i, connect);
   const verdicts: [StepId, Verdict][] = [
     ["connect", connect],
     ["vault", vault],
-    ["approve", approveStep(i, vault.done)],
-    ["guardian", guardianStep(i, vault.done)],
+    ["approve", approveStep(i, vault.done, connect)],
+    ["guardian", guardianStep(i, vault.done, connect)],
     ["trusted", trustedStep(i)],
     ["recovery", recoveryStep(i)],
   ];
@@ -235,15 +262,15 @@ export function recoveryWarning(to: string, recovery: string | null): string | n
 }
 
 /**
- * Whether the vault step offers "Deploy": only with no vault in use, or one that is blocked (roles differ) or can't be
- * read. While the roles of a vault in use are still loading it is "checking": a second click would deploy a second
- * vault and overwrite the first.
+ * Whether the vault step offers "Deploy": only with no vault in use, or one that is blocked (roles differ). While the
+ * roles of a vault in use are loading it is "checking"; when they can't be read it is "error" (retry or forget it):
+ * either way a second click would deploy a second vault and overwrite the first.
  */
-export function deployOffer(i: { vault: string | null; vaultState: StepState; rolesLoaded: boolean; rolesError: boolean }): "offer" | "checking" | "done" {
+export function deployOffer(i: { vault: string | null; vaultState: StepState; rolesLoaded: boolean; rolesError: boolean }): "offer" | "checking" | "done" | "error" {
   if (!i.vault) return "offer";
   if (i.vaultState === "done") return "done";
   if (i.vaultState === "blocked") return "offer";
-  if (!i.rolesLoaded && i.rolesError) return "offer";
+  if (!i.rolesLoaded && i.rolesError) return "error"; // never a second deploy over a vault we could not read
   return "checking";
 }
 

@@ -257,6 +257,7 @@ describe("freshOwner", () => {
       expect(next).toContain(out.runEnv);
       const all = lines.join("\n");
       expect(all).toMatch(/unscoped deploy window stays open \(~14 min, 600 blocks\).*pnpm cli window close/);
+      expect(all).toMatch(/pnpm agent` can run with the root \.env now.*guardian address/);
       expect(all).toMatch(/pnpm cli link.*pnpm agent.*run\.env loaded.*VAULT_ADDRESS=<vault> exported/);
       expect(all).not.toContain(MNEMONIC);
     });

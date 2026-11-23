@@ -8,6 +8,9 @@ import {
   APPROVE_GAS,
   DEPLOY_GAS,
   deployOffer,
+  onboardingWindowOpen,
+  ownerEnvNote,
+  START_AGENT_HINT,
   loadProtectState,
   planApprove,
   planDeploy,
@@ -75,6 +78,7 @@ const full = (over: Partial<ProtectInput> = {}): ProtectInput => ({
   policy: policy(1),
   local: { vault: VAULT, recovery: OTHER, trustedReviewed: false },
   nowUnix: NOW,
+  window: { live: false, remainingTxs: 0n, remainingValue: 0n, allowedTargets: [] },
   ...over,
 });
 const ids = ["connect", "vault", "approve", "guardian", "trusted", "recovery"];
@@ -127,7 +131,8 @@ describe("protectSteps", () => {
     it("no agent config: blocked, tells to start the agent", () => {
       const v = byId(full({ config: null, vault: null, vaultRoles: undefined })).vault;
       expect(v.state).toBe("blocked");
-      expect(v.detail).toBe("start the agent: its /config names the guardian");
+      expect(v.detail).toBe(START_AGENT_HINT);
+      expect(v.detail).toContain("root .env");
     });
     it("config still loading is not blocked", () => {
       const v = byId(full({ config: undefined, vault: null, vaultRoles: undefined })).vault;
@@ -426,9 +431,53 @@ describe("deployOffer", () => {
     expect(deployOffer(base)).toBe("checking");
     expect(deployOffer({ ...base, rolesLoaded: true })).toBe("checking");
   });
-  it("offers again when the vault is blocked or its roles can't be read", () => {
+  it("offers again when the vault is blocked; an unreadable saved vault shows its error, never a second deploy", () => {
     expect(deployOffer({ ...base, vaultState: "blocked", rolesLoaded: true })).toBe("offer");
-    expect(deployOffer({ ...base, rolesError: true })).toBe("offer");
+    expect(deployOffer({ ...base, rolesError: true })).toBe("error");
   });
   it("is done once the vault step is done", () => expect(deployOffer({ ...base, vaultState: "done", rolesLoaded: true })).toBe("done"));
+});
+
+describe("step 1 gates the vault (no vault for an owner without a proven PQC key)", () => {
+  it.each([
+    ["pqc not registered", { pqc: { registered: false } }],
+    ["no possession proof", { pqc: { registered: true, possessionProven: false } }],
+    ["wrong chain", { chainId: 1 }],
+  ] as [string, Partial<ProtectInput>][])("%s: vault, approve and guardian are not done even for a matching vault", (_n, over) => {
+    const r = byId(full(over));
+    expect(r.vault.state).not.toBe("done");
+    expect(r.vault.detail).toMatch(/^finish step 1 first: /);
+    expect(r.approve.state).not.toBe("done");
+    expect(r.approve.detail).toMatch(/^finish step 1 first: /);
+    expect(r.guardian.state).not.toBe("done");
+    expect(r.guardian.detail).toMatch(/^finish step 1 first: /);
+  });
+  it("loading PQC is not done either", () => {
+    expect(byId(full({ pqc: undefined })).vault.state).not.toBe("done");
+  });
+});
+
+describe("onboarding window", () => {
+  const w = (over: Record<string, unknown>) => ({ live: true, remainingTxs: 5n, remainingValue: 1n, allowedTargets: [] as string[], ...over });
+  it("onboardingWindowOpen: live and unscoped only", () => {
+    expect(onboardingWindowOpen(w({}))).toBe(true);
+    expect(onboardingWindowOpen(w({ allowedTargets: [VAULT] }))).toBe(false);
+    expect(onboardingWindowOpen(w({ live: false }))).toBe(false);
+    expect(onboardingWindowOpen(undefined)).toBe(false);
+  });
+  it("the guardian step is not done (so not protected) while the unscoped window is live", () => {
+    const r = byId(full({ window: w({}) }));
+    expect(r.guardian.state).not.toBe("done");
+    expect(r.guardian.detail).toContain("pnpm cli window close --expect " + OWNER);
+    expect(byId(full({ window: w({ allowedTargets: [VAULT] }) })).guardian.state).toBe("done");
+  });
+  it("a window still being read is not done either", () => {
+    expect(byId(full({ window: undefined })).guardian.state).not.toBe("done");
+  });
+});
+
+describe("ownerEnvNote", () => {
+  it("names run.env, OWNER_MNEMONIC and the vault to export", () => {
+    expect(ownerEnvNote(VAULT)).toBe(`Load this owner's run.env (OWNER_MNEMONIC) and export VAULT_ADDRESS=${VAULT}`);
+  });
 });

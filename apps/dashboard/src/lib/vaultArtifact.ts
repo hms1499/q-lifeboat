@@ -1,6 +1,7 @@
 import type { Abi, Hex } from "viem";
 // Named imports only: Vite then tree-shakes the rest of the forge artifact (AST, metadata) out of the bundle.
-// The file is build output (`cd contracts && forge build`); it is gitignored.
+// The import itself is static: `contracts/out` must exist (`cd contracts && forge build`, the file is gitignored) for the
+// dashboard to build at all. Only the PARSE below is lazy.
 import { abi, bytecode } from "../../../../contracts/out/GuardianVault.sol/GuardianVault.json";
 
 /**
@@ -19,7 +20,7 @@ export function parseVaultArtifact(j: { abi?: unknown; bytecode?: { object?: str
 }
 
 let cached: { abi: Abi; bytecode: Hex } | undefined;
-/** Parsed on first use and memoised, so a bad artifact fails the deploy path only, not the whole dashboard on import. */
+/** The parse is lazy and memoised, so a malformed artifact fails the deploy path only, not the whole dashboard on import. */
 export function getVaultArtifact(): { abi: Abi; bytecode: Hex } {
   return (cached ??= parseVaultArtifact({ abi, bytecode }));
 }

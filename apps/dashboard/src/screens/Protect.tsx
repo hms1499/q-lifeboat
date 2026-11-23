@@ -16,6 +16,8 @@ import {
   deployOffer,
   hasLiveAuthenticator,
   loadProtectState,
+  onboardingWindowOpen,
+  ownerEnvNote,
   planApprove,
   planDeploy,
   protectCommands,
@@ -23,6 +25,7 @@ import {
   ruleIsExact,
   saveProtectState,
   signWithdrawCommand,
+  START_AGENT_HINT,
   tokensToApprove,
   validateRecovery,
   vaultRoleProblems,
@@ -90,6 +93,17 @@ function Cmd({ c, children }: { c: Command | { command: string; note: string }; 
       {children}
       <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5 }}>{c.note}</div>
     </CommandBox>
+  );
+}
+
+/** Shown while the unscoped onboarding window is live: the account is not protected until it is closed. */
+function OnboardingWindowWarning({ owner, note }: { owner: string; note: string }) {
+  return (
+    <div className="banner warn" role="alert" style={{ marginTop: 14 }}>
+      <strong>The unscoped onboarding window is still open.</strong> Until it closes, a holder of a leaked ECDSA key could send its value budget (about 1.69
+      QOR) to any address. Close it now.
+      <Cmd c={{ command: `pnpm cli window close --expect ${owner}`, note }} />
+    </div>
   );
 }
 
@@ -167,6 +181,7 @@ export function Protect() {
     policy: online && served ? editor.current : undefined,
     local,
     nowUnix: Math.floor(Date.now() / 1000),
+    window: account ? win.data : undefined,
   });
   const stateOf = (id: StepId) => steps.find((s) => s.id === id)!;
   const allDone = steps.every((s) => s.state === "done");
@@ -190,9 +205,19 @@ export function Protect() {
 
   const sender = { wallet: account, chainId: wc.chainId, window: win.data, maxFeePerGas: fees.data?.maxFeePerGas };
   const deployPlan = planDeploy(sender);
-  const deployBlockers = [...(!cfg ? ["start the agent: its /config names the guardian"] : []), ...deployPlan.blockers];
+  const cachedConfig = !!cfg && (!online || config.source !== "agent");
+  const step1 = stateOf("connect");
+  // Nothing is created or approved before the PQC key is proven (a vault without it is a honeypot), and the guardian
+  // fixed into the vault must come from the running agent, not a cached config.
+  const gate = step1.state === "done" ? [] : [`finish step 1 first: ${step1.detail}`];
+  const deployBlockers = [
+    ...gate,
+    ...(!cfg ? [START_AGENT_HINT] : cachedConfig ? ["the agent must be running: the guardian shown is its cached config, and it is fixed into the vault forever"] : []),
+    ...deployPlan.blockers,
+  ];
   const toApprove = cfg && allowances ? tokensToApprove(allowances, cfg.tokens) : [];
   const approvePlan = planApprove({ ...sender, tokens: toApprove });
+  const approveBlockers = [...gate, ...approvePlan.blockers];
 
   async function deploy() {
     const f = fees.data;
@@ -239,7 +264,7 @@ export function Protect() {
   }
 
   async function useExisting() {
-    if (!account || !cfg) return;
+    if (!account || !cfg || gate.length) return;
     const owner = account;
     const guard = cfg.guardian;
     const address = existing.trim();
@@ -259,7 +284,7 @@ export function Protect() {
 
   async function approveAll() {
     const f = fees.data;
-    if (!wallet || !f || !vault || !toApprove.length || approvePlan.blockers.length) return;
+    if (!wallet || !f || !vault || !toApprove.length || approveBlockers.length) return;
     const hashes: Hex[] = [];
     try {
       setApproveRun({ state: "busy", step: "Switching the wallet to diana…", hashes });
@@ -357,7 +382,6 @@ export function Protect() {
     );
   }
 
-  const cachedConfig = !!cfg && (!online || config.source !== "agent");
   const roleOffer = deployOffer({
     vault,
     vaultState: stateOf("vault").state,
@@ -405,7 +429,16 @@ export function Protect() {
               </div>
             ) : null}
             <div className="actions" style={{ marginTop: 16 }}>
-              {roleOffer === "checking" && deployRun.state !== "busy" ? (
+              {roleOffer === "error" && deployRun.state !== "busy" ? (
+                <>
+                  <span className="err" style={{ marginTop: 0 }}>
+                    Could not read vault {vault} ({roles.error}). Deploy is off so a second vault is not created.
+                  </span>
+                  <button type="button" className="btn small" onClick={() => roles.refresh()}>
+                    Retry
+                  </button>
+                </>
+              ) : roleOffer === "checking" && deployRun.state !== "busy" ? (
                 <span style={{ fontSize: 14, color: "var(--muted)" }} role="status">
                   checking vault {vault} …
                 </span>
@@ -427,8 +460,8 @@ export function Protect() {
               <Cmd c={windowCommand}>
                 <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5 }}>
                   A deploy is a contract creation, which a window scoped to named addresses refuses, so this opens an unscoped one (replacing the current
-                  one) with a small budget of fees only, a few blocks and a few txs. While it is open a leaked ECDSA key could use it: close it afterwards
-                  with <span className="mono">pnpm cli window close --expect {account}</span>.
+                  one) for 1800 blocks (about 42 minutes) and 5 txs, with a value budget of about 1.69 QOR. Until it closes, a holder of a leaked ECDSA
+                  key could send that QOR to any address. Close it as soon as you are done: <span className="mono">pnpm cli window close --expect {account}</span>.
                 </div>
               </Cmd>
             ) : null}
@@ -448,11 +481,11 @@ export function Protect() {
                   value={existing}
                   placeholder="0x… vault address"
                   spellCheck={false}
-                  disabled={!account || !cfg}
+                  disabled={!account || !cfg || gate.length > 0}
                   onChange={(e) => setExisting(e.target.value)}
                 />
               </label>
-              <button type="submit" className="btn small" disabled={!account || !cfg || existingRun.state === "busy" || !existing.trim()}>
+              <button type="submit" className="btn small" disabled={!account || !cfg || gate.length > 0 || existingRun.state === "busy" || !existing.trim()}>
                 Check and use
               </button>
             </form>
@@ -498,12 +531,12 @@ export function Protect() {
         {stateOf("vault").state === "done" ? (
           <>
             <div className="actions" style={{ marginTop: 16 }}>
-              <button type="button" className="btn primary" disabled={approvePlan.blockers.length > 0 || approveRun.state === "busy"} onClick={() => void approveAll()}>
+              <button type="button" className="btn primary" disabled={approveBlockers.length > 0 || approveRun.state === "busy"} onClick={() => void approveAll()}>
                 {approveRun.state === "busy" ? "Working…" : toApprove.length ? `Approve ${toApprove.length} token${toApprove.length === 1 ? "" : "s"}` : "Approved"}
               </button>
             </div>
-            {approvePlan.blockers.length && approveRun.state !== "busy" && toApprove.length ? (
-              <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 8 }}>To approve: {approvePlan.blockers.join("; ")}.</div>
+            {approveBlockers.length && approveRun.state !== "busy" && toApprove.length ? (
+              <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 8 }}>To approve: {approveBlockers.join("; ")}.</div>
             ) : null}
             {approvePlan.command && approveRun.state !== "busy" && cmds ? (
               <Cmd c={{ command: approvePlan.command, note: cmds.window.note }}>
@@ -560,6 +593,7 @@ export function Protect() {
             </Cmd>
           </>
         ) : null}
+        {account && onboardingWindowOpen(win.data) && cmds ? <OnboardingWindowWarning owner={account} note={cmds.window.note} /> : null}
         <div className="lbl" style={{ marginTop: 18 }}>
           Status, read live
         </div>
@@ -662,6 +696,7 @@ export function Protect() {
                 When you need the funds, sign a withdrawal to that address on your own machine (here 1 fUSD; use fETH, fBTC, QOR or a token address). Then load
                 the file in Recover.
               </div>
+              {vault ? <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5, marginTop: 6 }}>{ownerEnvNote(vault)}</div> : null}
             </CommandBox>
           </>
         ) : null}
@@ -687,8 +722,10 @@ export function Protect() {
   }
 
   function doneCard() {
+    const windowOpen = !!account && onboardingWindowOpen(win.data);
     return (
       <>
+        {windowOpen && cmds ? <OnboardingWindowWarning owner={account!} note={cmds.window.note} /> : null}
         <div className="done-box">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1E4FD8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M5 12l5 5 9-10" />

@@ -244,6 +244,10 @@ export async function freshOwner(env: Env, deps: FreshDeps, opts: { noVault?: bo
         `the unscoped deploy window stays open (~14 min, ${DEPLOY_WINDOW_BLOCKS} blocks); close it with: set -a && . ${runEnv} && set +a && pnpm cli window close`,
       );
       deps.log(
+        "the Protect screen needs the agent's /config for the guardian before this owner has a vault: `pnpm agent` can run with the root .env now " +
+          "(any running agent serves the guardian address)",
+      );
+      deps.log(
         `after the browser deploy, \`pnpm cli link\` and \`pnpm agent\` need this run.env loaded AND VAULT_ADDRESS=<vault> exported ` +
           "(the root .env's VAULT_ADDRESS would otherwise fill in: tsx --env-file does not override set vars)",
       );
