@@ -3,13 +3,13 @@ import type { EvmWindow } from "@qorechain/evm/window";
 import { useState } from "react";
 import { erc20Abi, type Hex } from "viem";
 import { planRescueNow, RESCUE_GAS, rescuable, withWindowHint, type RescueRow } from "../lib/actions";
-import { explorerTx, publicClient, readFees } from "../lib/chain";
+import { publicClient, readFees } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { errorText, fmtAmount, fmtUqor, shortHash } from "../lib/format";
 import { usePoll, type Polled } from "../lib/hooks";
 import { ensureDiana, walletClientFor } from "../lib/wallet";
 import { useApp } from "../state";
-import { ExtLink, WindowCommand } from "./ui";
+import { TxHash, WindowCommand } from "./ui";
 import { SwitchToDiana, useWalletConnect, WalletConnect } from "./WalletConnect";
 
 /** "skipped": re-read right before sending, the token had nothing left to move (no tx, no window tx burnt). */
@@ -166,7 +166,7 @@ export function RescueNow({ cfg, rows, win, onSent }: { cfg: AgentConfig; rows: 
               {s.sym}:{" "}
               {s.hash ? (
                 <>
-                  <ExtLink href={explorerTx(s.hash)}>{shortHash(s.hash)}</ExtLink> ·{" "}
+                  <TxHash hash={s.hash} /> ·{" "}
                 </>
               ) : null}
               <span style={s.status === "reverted" ? { color: "var(--red)" } : undefined}>
@@ -175,7 +175,7 @@ export function RescueNow({ cfg, rows, win, onSent }: { cfg: AgentConfig; rows: 
                   : s.status === "pending"
                     ? busy
                       ? "waiting…"
-                      : "status unknown: check the explorer"
+                      : "status unknown: no receipt yet"
                     : s.status}
               </span>
             </div>

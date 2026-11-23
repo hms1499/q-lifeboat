@@ -3,14 +3,14 @@ import { useState } from "react";
 import type { Hex } from "viem";
 import { planTopUp, TOPUP_GAS, withWindowHint } from "../lib/actions";
 import type { Health } from "../lib/agent";
-import { explorerTx, publicClient, readFees } from "../lib/chain";
+import { publicClient, readFees } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { errorText, fmtAmount, fmtUqor, shortAddr, shortHash } from "../lib/format";
 import { usePoll, type Polled } from "../lib/hooks";
 import { big } from "../lib/incidents";
 import { ensureDiana, walletClientFor } from "../lib/wallet";
 import { useApp } from "../state";
-import { Command, ExtLink } from "./ui";
+import { Command, TxHash } from "./ui";
 import { SwitchToDiana, useWalletConnect, WalletConnect } from "./WalletConnect";
 
 type Send =
@@ -150,7 +150,7 @@ export function GasTank({ cfg, health, win }: { cfg: AgentConfig; health: Health
           {send.state === "done" ? (
             <div className={send.status === "success" ? "ok-note" : "err"}>
               {send.status === "success" ? "Topped up" : "The transfer reverted on chain"} · tx{" "}
-              <ExtLink href={explorerTx(send.hash)}>{shortHash(send.hash)}</ExtLink>
+              <TxHash hash={send.hash} />
             </div>
           ) : null}
           {send.state === "error" ? (
@@ -159,7 +159,7 @@ export function GasTank({ cfg, health, win }: { cfg: AgentConfig; health: Health
               {send.hash ? (
                 <>
                   {" "}
-                  (tx <ExtLink href={explorerTx(send.hash)}>{shortHash(send.hash)}</ExtLink>: check the explorer)
+                  (tx <TxHash hash={send.hash} />: its status is unknown, check its receipt)
                 </>
               ) : null}
             </div>

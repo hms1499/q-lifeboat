@@ -1,8 +1,8 @@
 import type { Incident } from "@qday/core";
 import { useEffect, useState } from "react";
 import type { Hex } from "viem";
-import { CheckRow, ExtLink } from "../components/ui";
-import { explorerTx, readReceipt } from "../lib/chain";
+import { CheckRow, TxHash } from "../components/ui";
+import { readReceipt } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { ago, fmtAmount, fmtInt, shortAddr, shortHash, tokenSymbol, when } from "../lib/format";
 import { big, incidentTag, triggerKind } from "../lib/incidents";
@@ -134,7 +134,7 @@ function Detail({ i, cfg, v }: { i: Incident; cfg: AgentConfig | null; v: Verify
                 </span>
               </div>
               <div className="wrap-any" style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
-                tx <ExtLink href={explorerTx(t.hash)}>{shortHash(t.hash)}</ExtLink>
+                tx <TxHash hash={t.hash} />
               </div>
             </div>
           </div>
@@ -169,7 +169,7 @@ function Detail({ i, cfg, v }: { i: Incident; cfg: AgentConfig | null; v: Verify
                 <div className="wrap-any" style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
                   {HASH_RE.test(r.hash) ? (
                     <>
-                      tx <ExtLink href={explorerTx(r.hash)}>{shortHash(r.hash)}</ExtLink>
+                      tx <TxHash hash={r.hash} />
                     </>
                   ) : r.hash ? (
                     `tx ${shortHash(r.hash)}`

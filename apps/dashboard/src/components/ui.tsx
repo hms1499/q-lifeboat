@@ -1,4 +1,6 @@
 import { Component, useState, type ErrorInfo, type ReactNode } from "react";
+import { explorerTxUrl } from "../lib/chain";
+import { shortHash } from "../lib/format";
 import type { CheckStatus } from "../lib/verify";
 
 export function ShieldIcon({ size = 26 }: { size?: number }) {
@@ -10,18 +12,24 @@ export function ShieldIcon({ size = 26 }: { size?: number }) {
   );
 }
 
-/** A shell command the owner runs in the repo root, with a copy button. */
-export function Command({ cmd, children }: { cmd: string; children?: ReactNode }) {
+/** Copy `text` to the clipboard; `copied` reads true for 1.5 s after a success. */
+function useCopy(text: string): { copied: boolean; copy: () => Promise<void> } {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(cmd);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
       setCopied(false);
     }
   };
+  return { copied, copy };
+}
+
+/** A shell command the owner runs in the repo root, with a copy button. */
+export function Command({ cmd, children }: { cmd: string; children?: ReactNode }) {
+  const { copied, copy } = useCopy(cmd);
   return (
     <div className="cmd">
       {children}
@@ -48,6 +56,33 @@ export function CheckRow({ status, title, detail }: { status: CheckStatus | "pen
         {detail ? <div className="cd">{detail}</div> : null}
       </div>
     </div>
+  );
+}
+
+const EVM_TX_NOTE = "diana's explorer indexes native-lane txs only; this EVM tx was checked by its receipt from the EVM RPC";
+
+/**
+ * A tx hash: a native-lane (Cosmos) hash links to the explorer; a 0x EVM hash has no explorer page on diana, so it is
+ * shown with a Copy button instead.
+ */
+export function TxHash({ hash, full = false }: { hash: string; full?: boolean }) {
+  const { copied, copy } = useCopy(hash);
+  const url = explorerTxUrl(hash);
+  const text = full ? hash : shortHash(hash);
+  if (url) {
+    return (
+      <ExtLink href={url}>
+        <span className="mono">{text}</span>
+      </ExtLink>
+    );
+  }
+  return (
+    <span title={EVM_TX_NOTE}>
+      <span className="mono">{text}</span>
+      <button type="button" className="copy-mini" onClick={() => void copy()} aria-label={`Copy tx hash ${hash}`}>
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </span>
   );
 }
 

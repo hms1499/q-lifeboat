@@ -3,9 +3,9 @@ import { useState } from "react";
 import { erc20Abi, getAbiItem, type Hex } from "viem";
 import { GasTank } from "../components/GasTank";
 import { RescueNow } from "../components/RescueNow";
-import { ExtLink, WindowCommand } from "../components/ui";
+import { TxHash, WindowCommand } from "../components/ui";
 import { fetchHealth, fetchPolicy } from "../lib/agent";
-import { explorerTx, publicClient, readSpendingRules, readWindow } from "../lib/chain";
+import { publicClient, readSpendingRules, readWindow } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { ago, fmtAmount, fmtInt, shortAddr, tokenSymbol } from "../lib/format";
 import { usePoll, type Polled } from "../lib/hooks";
@@ -340,7 +340,7 @@ function ActivityAndTrusted({ cfg }: { cfg: AgentConfig }) {
             return (
               <div key={`${e.hash}/${e.logIndex}`} className="activity">
                 <span className="mono" style={{ fontSize: 12, color: "var(--muted)" }}>
-                  <ExtLink href={explorerTx(e.hash)}>#{fmtInt(e.block)}</ExtLink>
+                  #{fmtInt(e.block)}
                 </span>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 500 }}>
@@ -348,6 +348,9 @@ function ActivityAndTrusted({ cfg }: { cfg: AgentConfig }) {
                   </div>
                   <div className="wrap-any" style={{ fontSize: 13, color: "var(--muted)" }}>
                     {e.to} · {who.trusted ? "trusted" : "not a trusted address"}
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                    tx <TxHash hash={e.hash} />
                   </div>
                 </div>
                 {inc ? (

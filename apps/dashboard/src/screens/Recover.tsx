@@ -1,10 +1,10 @@
 import { NETWORK, vaultAbi, WITHDRAW_GAS } from "@qday/core";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { erc20Abi, zeroAddress, type Hex } from "viem";
-import { CheckRow, Command, ExtLink, WindowCommand } from "../components/ui";
+import { CheckRow, Command, TxHash, WindowCommand } from "../components/ui";
 import { useWalletConnect, WalletConnect } from "../components/WalletConnect";
 import { withWindowHint } from "../lib/actions";
-import { explorerTx, publicClient, readPqcStatus, readWindow } from "../lib/chain";
+import { publicClient, readPqcStatus, readWindow } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { errorText, fmtAmount, fmtInt, shortAddr, shortHash, tokenSymbol } from "../lib/format";
 import { usePoll } from "../lib/hooks";
@@ -288,7 +288,7 @@ export function Recover() {
                         : "The withdraw reverted on chain"}
                     </div>
                     <div className="mono wrap-any" style={{ fontSize: 12, color: "var(--ink-2)", marginTop: 4 }}>
-                      tx <ExtLink href={explorerTx(submit.hash)}>{submit.hash}</ExtLink> · vault nonce {submit.nonceBefore.toString()} →{" "}
+                      tx <TxHash hash={submit.hash} full /> · vault nonce {submit.nonceBefore.toString()} →{" "}
                       {submit.nonceAfter === null ? "?" : submit.nonceAfter.toString()}
                     </div>
                   </div>

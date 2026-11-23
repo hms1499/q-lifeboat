@@ -15,7 +15,11 @@ export function restBase(): string {
 }
 
 export const EXPLORER = "https://explore.qore.network";
-export const explorerTx = (hash: string) => `${EXPLORER}/tx/${hash}`;
+/**
+ * The explorer page of a tx, or null. diana's explorer reads the Cosmos LCD only (/cosmos/tx/v1beta1/txs/<hash>): a
+ * native-lane hash (64 hex, no 0x) has a page, a 0x EVM hash has none ("invalid byte" / "tx not found").
+ */
+export const explorerTxUrl = (hash: string): string | null => (/^[0-9a-fA-F]{64}$/.test(hash) ? `${EXPLORER}/tx/${hash}` : null);
 export const explorerAddress = (address: string) => `${EXPLORER}/address/${address}`;
 
 export const diana = defineChain({
