@@ -89,7 +89,7 @@ describe("summarize", () => {
 
   it("template reads correctly for an alert on a vault allowance lowered to a non-zero value (decide's own reason)", () => {
     const lowered = { ...trigger, kind: "approval" as const, token: FUSD, to: VAULT, amount: 1n };
-    const d = decide(lowered, { vault: VAULT, allowlist: [], maxOutbound: 0n });
+    const d = decide(lowered, { vault: VAULT, guardian: "0xFf82cAD6638a38d7009D0d5DfB757136B0C03850", allowlist: [], maxOutbound: 0n });
     expect(d.alert).toBe(true);
     const t = templateSummary({ trigger: lowered, reason: d.reason, rescues: [], alert: true });
     expect(t).toBe(

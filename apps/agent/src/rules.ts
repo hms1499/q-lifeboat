@@ -1,4 +1,4 @@
-import { maxUint256, type Hex } from "viem";
+import { maxUint256, zeroAddress, type Hex } from "viem";
 import type { OutboundTx } from "@qday/core";
 
 export type { OutboundTx };
@@ -6,6 +6,11 @@ export type { OutboundTx };
 export type Policy = {
   /** The GuardianVault: transfers into it are the agent's own rescues and never re-trigger. */
   vault: Hex;
+  /**
+   * The vault's immutable guardian (the agent's own gas account, checked against `vault.guardian()` at startup). Only a
+   * native QOR transfer to it is exempt: see `decide`.
+   */
+  guardian: Hex;
   /**
    * Trusted wallets AND apps: transfers to them (within `maxOutbound`) and approvals to them (any value, since dApps
    * usually ask for an unlimited allowance) never trigger a rescue.
@@ -50,6 +55,12 @@ export function decide(tx: OutboundTx, policy: Policy): Decision {
     return { rescue: true, alert: false, reason };
   }
   if (same(tx.to, policy.vault)) return { rescue: false, alert: false, reason: "transfer into the vault" };
+  // The owner's own gas-tank top-up from the dashboard: native QOR (the watcher's zero-address token marker) sent to the
+  // guardian. QOR is never swept, so a rescue could not help anyway; whatever the amount, it is not a trigger. Token
+  // transfers and approvals to the guardian are NOT exempt: they stay untrusted unless the owner lists the guardian.
+  if (same(tx.token, zeroAddress) && same(tx.to, policy.guardian)) {
+    return { rescue: false, alert: false, reason: "gas tank top-up to the guardian" };
+  }
   if (tx.amount > policy.maxOutbound) {
     return { rescue: true, alert: false, reason: `amount ${tx.amount} exceeds max outbound ${policy.maxOutbound}` };
   }
