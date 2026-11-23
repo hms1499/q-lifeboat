@@ -12,10 +12,12 @@ import {
   planDeploy,
   protectCommands,
   protectSteps,
+  recoveryWarning,
   saveProtectState,
   signWithdrawCommand,
   tokensToApprove,
   validateRecovery,
+  vaultRoleProblems,
   type ProtectInput,
 } from "./protect";
 
@@ -389,5 +391,29 @@ describe("protect local state", () => {
     expect(loadProtectState(s, OWNER)).toEqual(empty);
     s.m.set(`qday.protect.v1.${OWNER}`, "[1]");
     expect(loadProtectState(s, OWNER)).toEqual(empty);
+  });
+});
+
+describe("recoveryWarning", () => {
+  it("warns when the loaded withdrawal pays an address other than the saved recovery address", () => {
+    const w = recoveryWarning(OTHER, OWNER);
+    expect(w).toContain(OTHER);
+    expect(w).toContain(OWNER);
+  });
+  it("is quiet when they match (any case) or no recovery address is saved", () => {
+    expect(recoveryWarning(OWNER.toUpperCase().replace("0X", "0x"), OWNER)).toBeNull();
+    expect(recoveryWarning(OTHER, null)).toBeNull();
+  });
+});
+
+describe("vaultRoleProblems", () => {
+  const want = { owner: OWNER, guardian: GUARDIAN };
+  it("is empty only when owner and guardian both match (any case)", () => {
+    expect(vaultRoleProblems({ owner: OWNER.toUpperCase().replace("0X", "0x"), guardian: GUARDIAN }, want)).toEqual([]);
+  });
+  it("names each role that differs", () => {
+    expect(vaultRoleProblems({ owner: OTHER, guardian: GUARDIAN }, want)).toEqual([expect.stringContaining(OTHER)]);
+    expect(vaultRoleProblems({ owner: OWNER, guardian: OTHER }, want)).toEqual([expect.stringContaining("guardian")]);
+    expect(vaultRoleProblems({ owner: OTHER, guardian: OTHER }, want)).toHaveLength(2);
   });
 });

@@ -86,6 +86,17 @@ function vaultStep(i: ProtectInput): Verdict {
   return { done: true, detail: `vault ${i.vault}: owner and guardian match on chain` };
 }
 
+/**
+ * What differs between a vault's on-chain `owner()`/`guardian()` and the wanted ones; empty means the vault may be
+ * remembered. The screen calls this on the roles it READ back after a deploy or for an address the owner typed.
+ */
+export function vaultRoleProblems(roles: { owner: string; guardian: string }, want: { owner: string; guardian: string }): string[] {
+  const out: string[] = [];
+  if (!same(roles.owner, want.owner)) out.push(`its owner is ${roles.owner}, not your wallet ${want.owner}`);
+  if (!same(roles.guardian, want.guardian)) out.push(`its guardian is ${roles.guardian}, not the agent's guardian ${want.guardian}`);
+  return out;
+}
+
 /** Why the steps that need the vault can't run yet, or null when the vault step is done. */
 const needVault = (i: ProtectInput, vaultDone: boolean): string | null => (vaultDone ? null : i.vault ? "fix the vault step first" : "create the vault first");
 
@@ -99,11 +110,15 @@ function approveStep(i: ProtectInput, vaultDone: boolean): Verdict {
 }
 
 /** The agent key's rule is exactly `vault.rescue` + `uqor`: the first enabled rule applies (chain fact 8). */
-function ruleIsExact(rules: SpendingRules, vault: string): boolean {
+export function ruleIsExact(rules: SpendingRules, vault: string): boolean {
   const r = rules.rules.find((x) => x.enabled);
   if (!r) return false;
   return r.allowedEvmCalls.length === 1 && same(r.allowedEvmCalls[0], `${vault}/${RESCUE_SELECTOR}`) && r.allowedDenoms.length === 1 && r.allowedDenoms[0] === "uqor";
 }
+
+/** An agent key that is linked, not revoked and not about to expire (same margin as `setup`). */
+export const hasLiveAuthenticator = (list: AuthenticatorView[], nowUnix: number): boolean =>
+  list.some((a) => !a.revoked && a.expiryUnix > BigInt(nowUnix + EXPIRY_MARGIN_SECONDS));
 
 function guardianStep(i: ProtectInput, vaultDone: boolean): Verdict {
   const need = needVault(i, vaultDone);
@@ -113,7 +128,7 @@ function guardianStep(i: ProtectInput, vaultDone: boolean): Verdict {
   const reading: string[] = [];
 
   if (!i.authenticators) reading.push("the linked keys");
-  else if (!i.authenticators.some((a) => !a.revoked && a.expiryUnix > BigInt(i.nowUnix + EXPIRY_MARGIN_SECONDS))) {
+  else if (!hasLiveAuthenticator(i.authenticators, i.nowUnix)) {
     missing.push("link the agent key (`pnpm cli link`): none is linked, or it is revoked or about to expire");
   }
   if (!i.rules) reading.push("the spending rule");
@@ -208,6 +223,15 @@ export function protectCommands(owner: string, vault: string): { window: Command
       note: `Load this owner's run.env (OWNER_EVM_ADDRESS=${owner}, AGENT_ED25519_SK) and export VAULT_ADDRESS=${vault}; stop any other agent on :8787 first`,
     },
   };
+}
+
+/**
+ * Recover's warning when the loaded withdrawal pays an address other than the recovery address the owner saved, or
+ * null (also when none is saved).
+ */
+export function recoveryWarning(to: string, recovery: string | null): string | null {
+  if (!recovery || same(to, recovery)) return null;
+  return `This withdrawal pays ${to}, not your saved recovery address ${recovery}. Check it is the address you mean before you submit.`;
 }
 
 /** Signs a withdrawal from the vault to the recovery address with the local Guardian Signer. */
