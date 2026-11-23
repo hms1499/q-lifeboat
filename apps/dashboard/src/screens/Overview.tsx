@@ -1,12 +1,14 @@
 import type { EvmWindow } from "@qorechain/evm/window";
 import { useState } from "react";
 import { erc20Abi, getAbiItem, type Hex } from "viem";
+import { GasTank } from "../components/GasTank";
+import { RescueNow } from "../components/RescueNow";
 import { ExtLink, WindowCommand } from "../components/ui";
 import { fetchHealth, fetchPolicy } from "../lib/agent";
 import { explorerTx, publicClient, readSpendingRules, readWindow } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { ago, fmtAmount, fmtInt, shortAddr, tokenSymbol } from "../lib/format";
-import { usePoll } from "../lib/hooks";
+import { usePoll, type Polled } from "../lib/hooks";
 import { big, incidentTag, triggerKind } from "../lib/incidents";
 import { coverage, describeAgentRule, heroRescue, labelCounterparty, windowTargetsLabel } from "../lib/overview";
 import { useApp } from "../state";
@@ -148,8 +150,9 @@ function Hero({ cfg, win, winError }: { cfg: AgentConfig; win: EvmWindow | undef
           ) : null}
           {show === "open" && !open ? (
             <WindowCommand action="open" owner={cfg.owner}>
-              Opens 1,800 blocks (~42 min) and 5 txs, scoped to fUSD, fETH, fBTC and your vault (plus the guardian, for QOR top-ups that come in 6E).
-              Its budget covers fees only. Keep it short; close it when you are done. Hybrid tx, so it runs from the CLI.
+              Opens 1,800 blocks (~42 min) and 5 txs, scoped to fUSD, fETH, fBTC, your vault and the guardian. Its budget covers fees only (a QOR
+              top-up of the guardian needs <span className="mono">--topup &lt;QOR&gt;</span>, see Gas tank). Keep it short; close it when you are done.
+              Hybrid tx, so it runs from the CLI.
             </WindowCommand>
           ) : null}
         </div>
@@ -210,8 +213,11 @@ function Hero({ cfg, win, winError }: { cfg: AgentConfig; win: EvmWindow | undef
   );
 }
 
-function Assets({ cfg }: { cfg: AgentConfig }) {
+function Assets({ cfg, win }: { cfg: AgentConfig; win: Polled<EvmWindow> }) {
   const assets = usePoll(() => readAssets(cfg), 10_000, `${cfg.owner}/${cfg.vault}`);
+  const rescueRows = assets.data
+    ?.filter((a): a is AssetRow & { sym: (typeof SYMBOLS)[number]; allowance: bigint } => a.allowance !== null && (SYMBOLS as readonly string[]).includes(a.sym))
+    .map((a) => ({ sym: a.sym, token: cfg.tokens[a.sym], owner: a.owner, allowance: a.allowance }));
   return (
     <section className="card grow">
       <div className="between" style={{ marginBottom: 8 }}>
@@ -254,19 +260,17 @@ function Assets({ cfg }: { cfg: AgentConfig }) {
         </table>
       </div>
       <p style={{ margin: "14px 0 0", fontSize: 13, color: "var(--muted)" }}>QOR is not swept. A leaked key can spend it only up to your window's budget.</p>
+      <RescueNow cfg={cfg} rows={rescueRows} win={win} onSent={assets.refresh} />
     </section>
   );
 }
 
-function Health({ cfg }: { cfg: AgentConfig }) {
+function Health({ cfg, win }: { cfg: AgentConfig; win: Polled<EvmWindow> }) {
   const { config } = useApp();
   const health = usePoll(fetchHealth, 10_000, "health");
   const rules = usePoll(() => readSpendingRules(cfg.owner), 30_000, cfg.owner);
   const h = config.agentOnline ? health.data : undefined;
   const rule = rules.data ? describeAgentRule(rules.data, cfg.vault) : null;
-  const balance = h?.gas.balance != null ? big(h.gas.balance) : null;
-  const threshold = h ? big(h.gas.threshold) : 0n;
-  const pct = balance !== null && threshold > 0n ? Math.min(100, Number((balance * 100n) / (threshold * 4n))) : 0;
   const channels = h ? Object.entries(h.alerts).filter(([, on]) => on).map(([n]) => (n === "telegram" ? "Telegram" : "Webhook")) : [];
 
   return (
@@ -305,24 +309,7 @@ function Health({ cfg }: { cfg: AgentConfig }) {
           </div>
         </dl>
       </section>
-      <section className="card">
-        <div className="between">
-          <h2>Gas tank</h2>
-          <span className="mono" style={{ fontSize: 18, fontWeight: 500 }}>
-            {balance === null ? "—" : `${fmtAmount(balance)} QOR`}
-          </span>
-        </div>
-        <p style={{ margin: "8px 0 12px", fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-          The guardian account {h ? <span className="mono">{shortAddr(h.gas.guardian)}</span> : null} pays every rescue tx and its own window.
-        </p>
-        <div className={`bar ${h?.gas.low ? "low" : ""}`}>
-          <div style={{ width: `${pct}%` }} />
-        </div>
-        <div className="between" style={{ marginTop: 12, fontSize: 12, color: "var(--muted)" }}>
-          <span>{h ? `You get an alert below ${fmtAmount(threshold)} QOR` : "Agent offline"}</span>
-          {h?.gas.low ? <span className="tag orange">Low</span> : null}
-        </div>
-      </section>
+      <GasTank cfg={cfg} health={h} win={win} />
     </div>
   );
 }
@@ -381,9 +368,9 @@ function ActivityAndTrusted({ cfg }: { cfg: AgentConfig }) {
       <section className="card side" style={{ gap: 0 }}>
         <div className="between">
           <h2>Trusted wallets and apps</h2>
-          <span style={{ fontSize: 13, color: "var(--muted)" }} title="Editing comes in Task 6E">
-            Manage <span className="soon" style={{ fontSize: 10 }}>soon</span>
-          </span>
+          <a href="#/rules" style={{ fontSize: 14, fontWeight: 600 }}>
+            Manage
+          </a>
         </div>
         <p style={{ margin: "6px 0 12px", fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
           A transfer or approval to anything else triggers a rescue. Add a recipient or dApp before you use it.
@@ -427,8 +414,8 @@ export function Overview() {
     <>
       <Hero cfg={cfg} win={win.data} winError={win.error} />
       <div className="row">
-        <Assets cfg={cfg} />
-        <Health cfg={cfg} />
+        <Assets cfg={cfg} win={win} />
+        <Health cfg={cfg} win={win} />
       </div>
       <ActivityAndTrusted cfg={cfg} />
       <p style={{ margin: 0, fontSize: 12, color: "var(--muted)" }}>Live data · qorechain-diana testnet</p>

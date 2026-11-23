@@ -16,7 +16,11 @@ const MAX_TOPUP_WEI = 100n * 10n ** 18n;
 
 type Cfg = Pick<AgentConfig, "owner" | "vault" | "guardian">;
 export type WindowView = Pick<EvmWindow, "live" | "remainingTxs" | "remainingValue" | "allowedTargets">;
-type Sender = { cfg: Cfg; wallet: string | null; chainId: number | null; window: WindowView | undefined; maxFeePerGas: bigint | undefined };
+/**
+ * `configOk`: the agent's /config matches the vault's immutable owner and guardian on chain (`checkConfigOnChain`). The
+ * vault the owner calls and the guardian the QOR goes to come from that config, so nothing is sent until it does.
+ */
+type Sender = { cfg: Cfg; configOk: boolean; wallet: string | null; chainId: number | null; window: WindowView | undefined; maxFeePerGas: bigint | undefined };
 
 const lc = (s: string) => s.toLowerCase();
 const txs = (n: bigint) => `${n} tx${n === 1n ? "" : "s"}`;
@@ -24,6 +28,7 @@ const txs = (n: bigint) => `${n} tx${n === 1n ? "" : "s"}`;
 /** Why the owner's wallet can't send `n` txs to `target` costing `cost` uqor of window budget right now. */
 function senderBlockers(s: Sender, notOwner: string, target: { address: string; name: string }, n: bigint, cost: bigint): string[] {
   const out: string[] = [];
+  if (!s.configOk) out.push("the agent config must match the vault on chain");
   if (!s.wallet) out.push("connect the owner's wallet");
   else {
     if (lc(s.wallet) !== lc(s.cfg.owner)) out.push(notOwner);

@@ -6,15 +6,17 @@ import { useHashRoute } from "./lib/hooks";
 import { Incidents } from "./screens/Incidents";
 import { Overview } from "./screens/Overview";
 import { Recover } from "./screens/Recover";
+import { Rules } from "./screens/Rules";
 import { useApp } from "./state";
 
 const NAV = [
   { id: "overview", label: "Overview", href: "#/" },
   { id: "incidents", label: "Incidents", href: "#/incidents" },
   { id: "recover", label: "Recover", href: "#/recover" },
+  { id: "rules", label: "Rules", href: "#/rules" },
 ] as const;
-/** Task 6E-6G screens: shown, not yet linked. */
-const SOON = ["Rules", "Fire drill", "Protect"];
+/** Task 6F-6G screens: shown, not yet linked. */
+const SOON = ["Fire drill", "Protect"];
 
 function TopBar({ active }: { active: string }) {
   const { config, wallet } = useApp();
@@ -85,14 +87,14 @@ function Banners() {
 
 export function App() {
   const [screen = "", id] = useHashRoute();
-  const active = screen === "incidents" ? "incidents" : screen === "recover" ? "recover" : "overview";
+  const active = screen === "incidents" || screen === "recover" || screen === "rules" ? screen : "overview";
   return (
     <>
       <TopBar active={active} />
       <main>
         <Banners />
         <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
-          {active === "incidents" ? <Incidents selected={id} /> : active === "recover" ? <Recover /> : <Overview />}
+          {active === "incidents" ? <Incidents selected={id} /> : active === "recover" ? <Recover /> : active === "rules" ? <Rules /> : <Overview />}
         </ScreenBoundary>
       </main>
     </>

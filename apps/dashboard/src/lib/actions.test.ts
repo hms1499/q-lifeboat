@@ -20,7 +20,7 @@ const rows = [
   { sym: "fBTC", token: fBTC, owner: 5n * E18, allowance: 2n * E18 },
 ] as const;
 const rescue = (over: Partial<Parameters<typeof planRescueNow>[0]> = {}) =>
-  planRescueNow({ cfg, wallet: OWNER, chainId: 9800, window: win(), rows: [...rows], maxFeePerGas: FEE, ...over });
+  planRescueNow({ cfg, configOk: true, wallet: OWNER, chainId: 9800, window: win(), rows: [...rows], maxFeePerGas: FEE, ...over });
 
 describe("planRescueNow", () => {
   it("gas constants: tight limits (receipts report >= 50% of the limit as used)", () => {
@@ -44,6 +44,10 @@ describe("planRescueNow", () => {
     expect(p.tokens).toEqual([]);
     expect(p.cost).toBe(0n);
     expect(p.blockers).toEqual(["nothing to move: your tokens are already in the vault (or not approved)"]);
+  });
+
+  it("the agent's config must match the vault on chain (it names the vault the owner calls)", () => {
+    expect(rescue({ configOk: false }).blockers).toEqual(["the agent config must match the vault on chain"]);
   });
 
   it("no wallet", () => {
@@ -90,7 +94,7 @@ describe("planRescueNow", () => {
 });
 
 const topup = (over: Partial<Parameters<typeof planTopUp>[0]> = {}) =>
-  planTopUp({ cfg, wallet: OWNER, chainId: 9800, window: win(), amountText: "0.1", maxFeePerGas: FEE, ...over });
+  planTopUp({ cfg, configOk: true, wallet: OWNER, chainId: 9800, window: win(), amountText: "0.1", maxFeePerGas: FEE, ...over });
 
 describe("planTopUp", () => {
   const cost01 = evmWindowCost({ value: E18 / 10n, gas: TOPUP_GAS, maxFeePerGas: FEE });
@@ -112,6 +116,10 @@ describe("planTopUp", () => {
     }
     expect(topup({ amountText: "0" }).blockers).toEqual(["enter an amount above 0"]);
     expect(topup({ amountText: "100.5", window: win({ remainingValue: 10n ** 12n }) }).blockers).toEqual(["at most 100 QOR per top-up (the CLI's --topup cap)"]);
+  });
+
+  it("the agent's config must match the vault on chain (it names the guardian the QOR goes to)", () => {
+    expect(topup({ configOk: false }).blockers).toEqual(["the agent config must match the vault on chain"]);
   });
 
   it("the sender must be the owner, on diana", () => {

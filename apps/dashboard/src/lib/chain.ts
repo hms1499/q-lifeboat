@@ -30,6 +30,16 @@ export const diana = defineChain({
 /** `cacheTime: 0`: viem would otherwise cache the block number for 4 s on a chain without `blockTime`. */
 export const publicClient = createPublicClient({ chain: diana, transport: http(NETWORK.evmRpc, { batch: true }), cacheTime: 0 });
 
+/**
+ * EIP-1559 fees for a MetaMask tx. The caller plans the window cost with this `maxFeePerGas` and sends the same values,
+ * so the window budget check matches what the chain charges.
+ */
+export type Fees = { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint };
+export async function readFees(): Promise<Fees> {
+  const f = await publicClient.estimateFeesPerGas();
+  return { maxFeePerGas: f.maxFeePerGas, maxPriorityFeePerGas: f.maxPriorityFeePerGas };
+}
+
 export const qorAddress = (evm: string) => toQorAddress(evm);
 
 export function readWindow(address: string): Promise<EvmWindow> {
