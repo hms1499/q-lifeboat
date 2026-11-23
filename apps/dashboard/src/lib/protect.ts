@@ -197,15 +197,15 @@ export function protectCommands(owner: string, vault: string): { window: Command
   return {
     window: {
       command: `pnpm cli window open --onboard --expect ${owner}`,
-      note: "Needs OWNER_MNEMONIC of this owner in the environment; the command refuses another account.",
+      note: "Load this owner's run.env (OWNER_MNEMONIC) first; the command refuses another account.",
     },
     link: {
       command: `pnpm cli link --expect ${owner}`,
-      note: `Needs OWNER_MNEMONIC and AGENT_ED25519_SK of this owner, and VAULT_ADDRESS=${vault}.`,
+      note: `Load this owner's run.env (OWNER_MNEMONIC, AGENT_ED25519_SK) and export VAULT_ADDRESS=${vault}`,
     },
     agent: {
       command: "pnpm agent",
-      note: `Needs AGENT_ED25519_SK of this owner and VAULT_ADDRESS=${vault}.`,
+      note: `Load this owner's run.env (OWNER_EVM_ADDRESS=${owner}, AGENT_ED25519_SK) and export VAULT_ADDRESS=${vault}; stop any other agent on :8787 first`,
     },
   };
 }

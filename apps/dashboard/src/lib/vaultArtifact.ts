@@ -18,4 +18,8 @@ export function parseVaultArtifact(j: { abi?: unknown; bytecode?: { object?: str
   return { abi: list, bytecode: code as Hex };
 }
 
-export const vaultArtifact = parseVaultArtifact({ abi, bytecode });
+let cached: { abi: Abi; bytecode: Hex } | undefined;
+/** Parsed on first use and memoised, so a bad artifact fails the deploy path only, not the whole dashboard on import. */
+export function getVaultArtifact(): { abi: Abi; bytecode: Hex } {
+  return (cached ??= parseVaultArtifact({ abi, bytecode }));
+}

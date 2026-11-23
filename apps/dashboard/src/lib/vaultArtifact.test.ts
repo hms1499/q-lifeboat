@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { parseVaultArtifact, vaultArtifact } from "./vaultArtifact";
+import { getVaultArtifact, parseVaultArtifact } from "./vaultArtifact";
 
 const ctor = (types: string[]) => ({ type: "constructor", inputs: types.map((type) => ({ type, name: "x" })) });
 
 describe("vaultArtifact (forge build output)", () => {
+  it("is memoised", () => {
+    expect(getVaultArtifact()).toBe(getVaultArtifact());
+  });
+
   it("loads through the Vite JSON import: constructor(address,address) and 0x creation bytecode", () => {
+    const vaultArtifact = getVaultArtifact();
     const c = vaultArtifact.abi.find((x) => x.type === "constructor") as unknown as { inputs: { type: string }[] };
     expect(c.inputs.map((i) => i.type)).toEqual(["address", "address"]);
     expect(vaultArtifact.bytecode).toMatch(/^0x[0-9a-fA-F]+$/);

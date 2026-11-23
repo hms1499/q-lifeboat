@@ -262,10 +262,11 @@ describe("commands", () => {
     expect(c.agent.command).toBe("pnpm agent");
     for (const x of [c.window, c.link, c.agent]) expect(x.note).not.toContain("\n");
     expect(c.window.note).toContain("OWNER_MNEMONIC");
-    expect(c.link.note).toContain("OWNER_MNEMONIC");
-    expect(c.link.note).toContain("AGENT_ED25519_SK");
-    expect(c.agent.note).toContain("AGENT_ED25519_SK");
-    expect(c.agent.note).toContain(`VAULT_ADDRESS=${VAULT}`);
+    expect(c.link.note).toBe(`Load this owner's run.env (OWNER_MNEMONIC, AGENT_ED25519_SK) and export VAULT_ADDRESS=${VAULT}`);
+    expect(c.agent.note).toBe(
+      `Load this owner's run.env (OWNER_EVM_ADDRESS=${OWNER}, AGENT_ED25519_SK) and export VAULT_ADDRESS=${VAULT}; stop any other agent on :8787 first`,
+    );
+    expect(c.agent.note).not.toContain("OWNER_MNEMONIC");
   });
   it("signWithdrawCommand", () => {
     expect(signWithdrawCommand(OTHER, "fUSD", "5")).toBe(`pnpm cli sign-withdraw ${OTHER} fUSD 5`);
