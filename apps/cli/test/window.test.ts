@@ -21,12 +21,12 @@ describe("parseWindowArgs", () => {
   it("open defaults to 1800 blocks and 5 txs", () => {
     expect(OWNER_WINDOW_BLOCKS).toBe(1800);
     expect(OWNER_WINDOW_TXS).toBe(5);
-    expect(parseWindowArgs(["open"])).toEqual({ action: "open", blocks: 1800, txs: 5, expect: undefined });
+    expect(parseWindowArgs(["open"])).toEqual({ action: "open", blocks: 1800, txs: 5, topupUqor: 0n, expect: undefined });
   });
 
   it("open takes --blocks and --txs in any order", () => {
-    expect(parseWindowArgs(["open", "--blocks", "600", "--txs", "3"])).toEqual({ action: "open", blocks: 600, txs: 3, expect: undefined });
-    expect(parseWindowArgs(["open", "--txs", "2"])).toEqual({ action: "open", blocks: 1800, txs: 2, expect: undefined });
+    expect(parseWindowArgs(["open", "--blocks", "600", "--txs", "3"])).toEqual({ action: "open", blocks: 600, txs: 3, topupUqor: 0n, expect: undefined });
+    expect(parseWindowArgs(["open", "--txs", "2"])).toEqual({ action: "open", blocks: 1800, txs: 2, topupUqor: 0n, expect: undefined });
   });
 
   it("close takes no option", () => {
@@ -51,7 +51,49 @@ describe("parseWindowArgs", () => {
     ]) {
       expect(() => parseWindowArgs(bad), bad.join(" ")).toThrow();
     }
-    expect(parseWindowArgs(["open", "--blocks", "17280", "--txs", "1000"])).toEqual({ action: "open", blocks: 17280, txs: 1000, expect: undefined });
+    expect(parseWindowArgs(["open", "--blocks", "17280", "--txs", "1000"])).toEqual({ action: "open", blocks: 17280, txs: 1000, topupUqor: 0n, expect: undefined });
+  });
+});
+
+describe("parseWindowArgs --topup <QOR>", () => {
+  const topup = (v: string) => (parseWindowArgs(["open", "--topup", v]) as { topupUqor: bigint }).topupUqor;
+
+  it("reads a decimal QOR amount as uqor (1 QOR = 10^6 uqor)", () => {
+    expect(topup("0.5")).toBe(500_000n);
+    expect(topup("2")).toBe(2_000_000n);
+    expect(topup("100")).toBe(100_000_000n);
+    expect(topup("0.000001")).toBe(1n);
+    expect(topup("1.123456")).toBe(1_123_456n);
+    expect(parseWindowArgs(["open", "--txs", "3", "--topup", "1", "--expect", DERIVED])).toEqual({ action: "open", blocks: 1800, txs: 3, topupUqor: 1_000_000n, expect: DERIVED });
+  });
+
+  it("rounds UP to the next uqor past 6 decimals (at most 18)", () => {
+    expect(topup("0.0000001")).toBe(1n);
+    expect(topup("1.1234561")).toBe(1_123_457n);
+    expect(topup("0.000000000000000001")).toBe(1n);
+    expect(topup("99.999999000000000000")).toBe(99_999_999n);
+  });
+
+  it("refuses zero, negative, malformed, over-precise, over-cap, repeated, missing and close --topup, with the usage line", () => {
+    for (const bad of [
+      ["open", "--topup"],
+      ["open", "--topup", "0"],
+      ["open", "--topup", "0.000"],
+      ["open", "--topup", "-1"],
+      ["open", "--topup", "1e3"],
+      ["open", "--topup", "1,5"],
+      ["open", "--topup", ".5"],
+      ["open", "--topup", "1."],
+      ["open", "--topup", "abc"],
+      ["open", "--topup", ""],
+      ["open", "--topup", "0.0000000000000000001"],
+      ["open", "--topup", "100.000001"],
+      ["open", "--topup", "101"],
+      ["open", "--topup", "1", "--topup", "2"],
+      ["close", "--topup", "1"],
+    ]) {
+      expect(() => parseWindowArgs(bad), bad.join(" ")).toThrow(/usage: window open/);
+    }
   });
 });
 
@@ -70,6 +112,14 @@ describe("buildOwnerWindowParams", () => {
     expect(p.maxValue).toBe((one * 5n).toString());
     const q = buildOwnerWindowParams(OWNER, TOKENS, VAULT, GUARDIAN, { blocks: 600, txs: 2 });
     expect(q.maxValue).toBe((one * 2n).toString());
+  });
+
+  it("adds exactly the top-up headroom to maxValue; no or zero top-up stays fees only", () => {
+    const one = evmWindowCost({ gas: 3_000_000n, maxFeePerGas: 112_500_000_000n });
+    const t = buildOwnerWindowParams(OWNER, TOKENS, VAULT, GUARDIAN, { blocks: 1800, txs: 5, topupUqor: 500_000n });
+    expect(t.maxValue).toBe((one * 5n + 500_000n).toString());
+    expect(buildOwnerWindowParams(OWNER, TOKENS, VAULT, GUARDIAN, { blocks: 1800, txs: 5, topupUqor: 0n })).toEqual(p);
+    expect(() => checkOpenEvmWindowParams(t)).not.toThrow();
   });
 
   it("is accepted by the SDK bounds check and composes MsgOpenEVMWindow", () => {
@@ -100,7 +150,7 @@ describe("--expect <owner> (the dashboard's watched owner)", () => {
 
   it("parses --expect on open and close; refuses a malformed address or a repeat", () => {
     expect(parseWindowArgs(["close", "--expect", DERIVED])).toEqual({ action: "close", expect: DERIVED });
-    expect(parseWindowArgs(["open", "--expect", DERIVED, "--txs", "2"])).toEqual({ action: "open", blocks: 1800, txs: 2, expect: DERIVED });
+    expect(parseWindowArgs(["open", "--expect", DERIVED, "--txs", "2"])).toEqual({ action: "open", blocks: 1800, txs: 2, topupUqor: 0n, expect: DERIVED });
     expect(() => parseWindowArgs(["close", "--expect", "0x12"])).toThrow(/--expect/);
     expect(() => parseWindowArgs(["close", "--expect"])).toThrow(/--expect/);
     expect(() => parseWindowArgs(["close", "--expect", DERIVED, "--expect", DERIVED])).toThrow();
@@ -129,5 +179,24 @@ describe("--expect <owner> (the dashboard's watched owner)", () => {
     expect(out).toContain(DERIVED);
     expect(out).toMatch(/qor1[0-9a-z]+/);
     expect(out).toContain("window close: HASH");
+  });
+
+  it("open --topup broadcasts the headroom in maxValue and prints it", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await runWindow(["open", "--topup", "0.5", "--expect", DERIVED], ENV);
+    expect(broadcast).toHaveBeenCalledTimes(1);
+    const [, msgs] = broadcast.mock.calls[0] as unknown as [unknown, { value: { maxValue: string } }[]];
+    const one = evmWindowCost({ gas: 3_000_000n, maxFeePerGas: 112_500_000_000n });
+    expect(msgs[0].value.maxValue).toBe((one * 5n + 500_000n).toString());
+    const out = log.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(out).toContain("top-up headroom 0.5 QOR");
+  });
+
+  it("open without --topup prints no headroom", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await runWindow(["open", "--expect", DERIVED], ENV);
+    const out = log.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(out).not.toContain("top-up");
+    expect(out).toContain("window open (1800 blocks, 5 txs, targets fUSD fETH fBTC vault guardian): HASH");
   });
 });
