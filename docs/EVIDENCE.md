@@ -242,3 +242,26 @@ the dashboard's Fire drill screen (`127.0.0.1:5173/#/drill`, "Run drill").
 | `verdict.json` (mode `drill`) listed by `GET /drill/runs` and the Past runs table | PASS, blocks 2, kept 80.00% | `GET /drill/runs` 08:14Z |
 | The real owner was not touched: the drill incident is not in `data/incidents.jsonl` (0 matches; `/incidents` still ends 2026-11-23), and the main agent opened no guardian window after its startup open (its window stayed scoped to the real vault) | main agent log: one `guardian window opened` at 08:12:30Z, none during the drill | startup open `AA49D05C3B5F984ABE148692FF7D7937C19A907C9E94C9587AD57E46B5024FE2` |
 | Second drill from the screen after the final-review fixes (`bc2203d`: separate funder required, drill port and lock checks, `drill-guardian check` before fresh-owner) | `drill-guardian check` passed (1.5332 QOR); drain 1 landed (block 10657407), drains 2-3 reverted; **RESULT PASS**: 1 block, 90.00% kept, (a) and (b) PASS; no `drill.lock` left; still nothing in `data/incidents.jsonl` | run `20261124T083451Z`, vault `0xa42e899a88bae2b51f447f4d0022e1f96ea942c6`, rescue `0x97ccf223eebafc2d02615a7b6f6e799973f0be1634606a45847d90357aa1af46`, withdraw `0xeff9257393e17cb023edf26cb5e250e329a74f46d54502e7502f3d2391f230d1` |
+
+## Task 7: approval phishing race on diana (2026-11-24)
+
+`./demo.sh --phish` (branch `task-7-submission`): each run is a fresh owner (`fresh-owner` + `setup`), its own agent on `:8787` with
+the guardian `0xFf82cAD6638a38d7009D0d5DfB757136B0C03850`, then `pnpm cli phish`. The drainer is the funder's EVM account
+`0xa88DDcD13078eD0f78E00b5cEF8DfDEBaA7936a1` (not on the trusted list, checked through `GET /policy`), which opens its own window
+scoped to fUSD. The owner signs `approve(drainer, max)` on its 100 fUSD; the drainer sends `transferFrom(owner, drainer, 100 fUSD)`
+with a fixed gas limit (so a losing pull is still mined and recorded). Each run writes `phish.json` in its run dir.
+
+| Run | Drainer delay | Approve (block) | Drainer `transferFrom` (block, status) | Guardian rescue (block) | Result |
+|---|---|---|---|---|---|
+| `20261124T131335Z` | 0 (at once) | `0xb6f954cb9276a0d22be87abb33726a60f8d57051adca0fdd0fdc9f4a255e1eba` (10669127) | `0x1b65a1a0844e471d14e8578221653068e0ef025e2c4bc490d7492cc1c6486aaf` (10669129, reverted) | `0xb31a57938ef497f642de3219f66569205fb7f8fcdcd9dbb49bc7914956191744` (10669129, ordered first) | **PASS**: 100% kept, drainer 0 |
+| `20261124T131459Z` | 0 (at once) | `0x584fbd8d351a8b09ef59f792cecd6f832bb4eb0aea5ab1d0271dd13ab7d06faf` (10669188) | `0xd18ed6affb44e585a7cef7ab191cf4d0f73087e82e57294a8b700438045412ae` (10669189, success) | `0xc9d95144c5abcc8fcebd534ff03fd2c9d1f0b0086948e6fbab8ef51e8b548a51` (10669190, nothing left) | **FAIL**: drainer took 100 fUSD |
+| `20261124T131915Z` | 2 blocks | `0x6ec177d48f075f5d1324b01f9333449ae8d2b90d2c691515de2e95e31d304f6e` (10669368) | `0x857836168785f4844475bfa6c087d64f3493916de9eb47b26913ec3e3102d9d7` (10669372, reverted) | `0x046c1c0fabe8e48f8e5a10837caa97e11d2cdd8d47542502cb652ee22e00c45c` (10669370) | **PASS**: 100% kept, drainer 0 |
+| `20261124T132026Z` | 2 blocks | `0xb031b0c3156cbb9378be40fc0f3c36baf5b20a2f27adfb3d15f91a943a065cbb` (10669418) | `0xb31899976899294d92b2909c5d7ea0001ee2339c206e5d443925b16bef090796` (10669422, reverted) | `0xe5b811015a1bdb1550fcfe375350909e7ae113da4b988de54e2fdce26bfb8cd9` (10669420) | **PASS**: 100% kept, drainer 0 |
+| `20261124T132950Z` (after the review fixes: `/config` and `/policy` prechecks, unmined-pull FAIL) | 2 blocks | `0xdc722b3d698d4afdd42f8a83e9341f117e01e65c0f33765decf2b7b2223e22a9` (10669816) | `0x09970fd335f1bd558ca8ca623a1d3b8865a87a8d68e84e7b7e99c3de0e90a81b` (10669820, reverted) | `0xefc3c5037612b5f4c410d7f85622a5dc68559e68bf67c8142539826643c50345` (10669817) | **PASS**: 100% kept, drainer 0 |
+
+The rescue landed 2 blocks after the approval in 4 runs and 1 block in the last (~1.4 s blocks: 10669368 → 10669418 took 71 s). A drainer that fires
+as soon as it sees the approval can land 1 block after it and win. In run `20261124T131335Z` the pull shared the rescue's block and
+was ordered after it because the rescue tips 40 gwei (`apps/agent/src/rescue.ts`) and the demo drainer used viem's default tip: a
+drainer that outbids that tip wins there too. With `--drainer-delay 2` the pull landed 4 blocks after the approval, 2 after the
+rescue (THREAT_MODEL T13, Honest limits).
+

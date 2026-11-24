@@ -165,6 +165,44 @@ contract GuardianVaultTest is Test {
         assertEq(address(vault).balance, 3 ether);
     }
 
+    /// QCAI Stage 2 #1: `deposit` is open by design. A stranger's deposit only adds to the owner's vault: the stranger
+    /// can not take it back, only the owner's ML-DSA-87 signature moves it out.
+    function test_strangerDepositOnlyAddsToTheOwnersVault() public {
+        vm.deal(stranger, 2 ether);
+        vm.prank(stranger);
+        vault.deposit{value: 2 ether}();
+        assertEq(address(vault).balance, 2 ether);
+
+        bytes memory forged = hex"deadbeef";
+        vm.prank(stranger);
+        vm.expectRevert(GuardianVault.BadSignature.selector);
+        vault.withdraw(stranger, address(0), 2 ether, forged);
+
+        vault.withdraw(recipient, address(0), 2 ether, _sig(recipient, address(0), 2 ether, 0));
+        assertEq(recipient.balance, 2 ether);
+        assertEq(stranger.balance, 0);
+    }
+
+    /// QCAI Stage 2 #2: a front-runner who copies the owner's signed withdrawal from the mempool can only submit that
+    /// same withdrawal. The funds go to the signed `to`, never to the submitter, and the owner's own tx then reverts.
+    function test_frontRunnerCanOnlyPayTheSignedRecipient() public {
+        _fundQor(5 ether);
+        bytes memory sig = _sig(recipient, address(0), 2 ether, 0);
+
+        vm.prank(stranger);
+        vm.expectRevert(GuardianVault.BadSignature.selector);
+        vault.withdraw(stranger, address(0), 2 ether, sig); // redirecting the payout breaks the signature
+
+        vm.prank(stranger);
+        vault.withdraw(recipient, address(0), 2 ether, sig); // submitting it as signed pays the owner's recipient
+        assertEq(recipient.balance, 2 ether);
+        assertEq(stranger.balance, 0);
+
+        vm.expectRevert(GuardianVault.BadSignature.selector);
+        vault.withdraw(recipient, address(0), 2 ether, sig); // the owner's copy: nonce used, nothing paid twice
+        assertEq(recipient.balance, 2 ether);
+    }
+
     // ---- withdraw ----
 
     function test_withdrawWithValidSig() public {

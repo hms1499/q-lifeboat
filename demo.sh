@@ -18,6 +18,15 @@
 #                        QDAY_DRILL_GUARDIAN_FILE (test-only override, read from the caller's environment only,
 #                        never from .env) points at another drill guardian file; the agent and the CLI always
 #                        use the default path.
+#   ./demo.sh --phish    approval phishing (Task 7, combinable with --runs or --resume): after setup and the agent, the
+#                        fresh owner signs approve(drainer, max) on fUSD and the drainer (FUNDER_MNEMONIC's account, in
+#                        its own window scoped to fUSD) calls transferFrom at once; `pnpm cli phish` writes
+#                        <run dir>/phish.json and PASSes when the Guardian rescued first (drainer got 0, >= 80% kept,
+#                        rescue <= 3 blocks after the approval). No attack, recovery or demo-check. Not with --drill.
+#                        --drainer-delay N (with --phish only, 0-20): the drainer waits N blocks after the approval
+#                        (default 0: it pulls at once, the worst case; a same-speed drainer can win that race).
+#                        Needs FUNDER_MNEMONIC in .env (never the OWNER_MNEMONIC fallback: the drainer's window would
+#                        replace the watched owner's). Costs the funder ~1.5 QOR + fees per run plus the drainer's window.
 #
 # One run: fresh owner (funded by FUNDER_MNEMONIC, default OWNER_MNEMONIC except in a drill; own ML-DSA key, own vault,
 # 100 fUSD) -> setup (scoped window + agent link + approvals) -> start the agent -> attack with the
@@ -38,7 +47,7 @@ AGENT_READY_TIMEOUT=120
 INCIDENT_TIMEOUT=60
 
 usage() {
-  echo "usage: $0 [--drill] [--runs N | --resume <run.env>]" >&2
+  echo "usage: $0 [--drill | --phish [--drainer-delay N]] [--runs N | --resume <run.env>]" >&2
   exit 2
 }
 
@@ -113,6 +122,8 @@ drill_unlock() {
 RUNS=1
 ONCE=0
 DRILL_MODE=0
+PHISH_MODE=0
+DRAINER_DELAY=""
 RESUME=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -130,6 +141,16 @@ while [[ $# -gt 0 ]]; do
       DRILL_MODE=1
       shift
       ;;
+    --phish)
+      PHISH_MODE=1
+      shift
+      ;;
+    --drainer-delay)
+      [[ $# -ge 2 && "$2" =~ ^[0-9]{1,2}$ ]] || usage
+      ((10#$2 <= 20)) || usage
+      DRAINER_DELAY="$2"
+      shift 2
+      ;;
     --once) # internal: exactly one run in this process
       ONCE=1
       shift
@@ -138,6 +159,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -n "$DRAINER_DELAY" ]] && ((!PHISH_MODE)); then
+  echo "refusing --drainer-delay without --phish" >&2
+  exit 2
+fi
+if ((DRILL_MODE && PHISH_MODE)); then
+  echo "refusing --phish with --drill: the fire drill runs the drain attack" >&2
+  exit 2
+fi
 if ((DRILL_MODE)) && [[ -n "$RESUME" ]]; then
   echo "refusing --drill with --resume: a drill always starts from a fresh owner deployed for the drill guardian" >&2
   exit 2
@@ -161,6 +190,23 @@ if [[ -n "$RESUME" ]]; then
   RESUME="$(cd "$(dirname "$RESUME")" && pwd)/$(basename "$RESUME")" # absolute: the run cd's to the repo
 fi
 
+# The drainer is FUNDER_MNEMONIC's account and opens its own window, which would REPLACE the watched owner's window if the
+# funder fell back to OWNER_MNEMONIC (chain fact 10): a phishing run needs a separate funder, like a drill.
+phish_funder_set() {
+  (
+    cd "$ROOT"
+    set -a
+    # shellcheck disable=SC1091
+    [[ -f .env ]] && . ./.env
+    set +a
+    [[ -n "${FUNDER_MNEMONIC:-}" ]]
+  )
+}
+if ((PHISH_MODE)) && ! phish_funder_set; then
+  echo "refusing --phish: FUNDER_MNEMONIC is not set in .env (the drainer must not be the watched OWNER_MNEMONIC account)" >&2
+  exit 2
+fi
+
 if [[ "$ONCE" -eq 0 ]]; then
   if ((DRILL_MODE)); then
     # Refuse before the first run starts (each run checks again once it has loaded .env). The port is checked here
@@ -179,6 +225,8 @@ if [[ "$ONCE" -eq 0 ]]; then
   fi
   CHILD=(--once)
   ((DRILL_MODE)) && CHILD+=(--drill)
+  ((PHISH_MODE)) && CHILD+=(--phish)
+  [[ -n "$DRAINER_DELAY" ]] && CHILD+=(--drainer-delay "$DRAINER_DELAY")
   [[ -n "$RESUME" ]] && CHILD+=(--resume "$RESUME")
   for ((i = 1; i <= RUNS; i++)); do
     echo "=== demo run $i/$RUNS ==="
@@ -275,6 +323,20 @@ for ((t = 0; ; t++)); do
   sleep 1
 done
 grep "watching" "$AGENT_LOG"
+
+if ((PHISH_MODE)); then
+  step "approval phishing (run $RUN_ID)"
+  PHISH_ARGS=()
+  [[ -n "$DRAINER_DELAY" ]] && PHISH_ARGS=(--drainer-delay "$DRAINER_DELAY")
+  if pnpm -s cli phish ${PHISH_ARGS[@]+"${PHISH_ARGS[@]}"}; then
+    VERDICT=pass
+    echo "PASS: run $RUN_ID"
+    exit 0
+  fi
+  VERDICT=fail
+  echo "FAIL: run $RUN_ID"
+  exit 1
+fi
 
 step "attack"
 pnpm -s cli attack

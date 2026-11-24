@@ -3,6 +3,7 @@ import { runDemoCheck } from "./democheck";
 import { runDrillGuardian } from "./drillguardian";
 import { runFreshOwner } from "./fresh";
 import { runLink } from "./link";
+import { runPhish } from "./phish";
 import { runAgentMisuse } from "./misuse";
 import { runSetup } from "./setup";
 import { runSignWithdraw } from "./signer";
@@ -41,6 +42,10 @@ Demo (Task 5, run by ./demo.sh):
                                               --no-vault: skip the vault (onboard it from the dashboard's Protect screen)
   pnpm cli attack                             leaked owner ECDSA key drains 3 x 10 fUSD, then (a) forged withdraw,
                                               (b) agent key misuse; writes attack.json in the run dir
+  pnpm cli phish [--drainer-delay N]          approval phishing (demo.sh --phish): the run's owner approves the drainer
+                                              (FUNDER_MNEMONIC's account) on fUSD, the drainer pulls at once from its own
+                                              fUSD-scoped window (N blocks after the approval, default 0: the worst case);
+                                              the agent must rescue first. Writes phish.json in the run dir
   pnpm cli demo-check [--wait <s> | --out <file>]
                                               verdict: rescue <= 3 blocks, >= 80% kept, (a) and (b) refused;
                                               --out: also write it as JSON (mode 0600), PASS or FAIL, to an
@@ -83,6 +88,8 @@ async function main(): Promise<number> {
     case "fresh-owner":
       await runFreshOwner(args);
       return 0;
+    case "phish":
+      return (await runPhish(args)) ? 0 : 1;
     case "attack":
       await runAttack();
       return 0;

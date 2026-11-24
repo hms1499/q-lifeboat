@@ -6,7 +6,7 @@ following the workshop-2 flow. An AI audit does not replace a human audit before
 | Stage | Contract version | Date | Score / risk | Report |
 |---|---|---|---|---|
 | 1 | v1 (`a069e98`) | 2026-11-20 | 85/100, MEDIUM, 4 findings | [`docs/audit/stage1-2026-11-20.md`](audit/stage1-2026-11-20.md) |
-| 2 | final | _pending (Task 7)_ | | `docs/audit/stage2-*.md` |
+| 2 | v3 final (`4dc7600`) | 2026-11-24 | MEDIUM, 4 findings (no score in the copied text) | [`docs/audit/stage2-2026-11-24.md`](audit/stage2-2026-11-24.md) |
 
 ## Stage 1 findings and how each was handled
 
@@ -32,7 +32,20 @@ unchanged. The finding's concern still holds: a stranger cannot sweep or emit `R
 `test_guardianCanRescue`, `test_rescuePullsAllowedBalance` (owner), `test_rescueRevertsForStranger`
 (`NotAuthorized`), `test_constructorRejectsZeroGuardian`, `test_guardianCannotWithdrawWithoutSignature`,
 `test_guardianGetterReturnsConstructorValue`. The shared withdrawal-message vector is unchanged (the
-message has no guardian field). **Stage 2 must re-check the guardian path.**
+message has no guardian field). **Stage 2 must re-check the guardian path** (done: no finding on it, see below).
+
+## Stage 2 findings and how each was handled
+
+Stage 2 ran on the final contract (v3, unchanged since `4dc7600`). It raised **no finding on the guardian path** that the
+Stage 1 follow-up asked it to re-check: `rescue` (owner or guardian only, owner → vault only) is not flagged. No contract change
+was needed; two tests were added to pin the behaviour the findings question.
+
+| # | Severity | Finding | Fix / test / explanation |
+|---|---|---|---|
+| 1 | HIGH | Missing access control on `deposit()` | **False positive, by design.** `deposit` only adds QOR to the owner's vault and changes no other state; nothing can leave except through `withdraw` with the owner's ML-DSA-87 signature. Restricting it would only stop the owner from funding the vault from another (e.g. a fresh, safe) account. Test: `test_strangerDepositOnlyAddsToTheOwnersVault` (a stranger's deposit can not be taken back without the owner's signature), plus `test_depositEmits` |
+| 2 | MEDIUM | Front-running in `withdraw()` | **No change: front-running gains nothing.** The ML-DSA-87 signature binds tag, chainId, vault, `to`, token, amount and nonce, so a copied signature can only be submitted as signed: the funds go to the owner's chosen `to`, never to the submitter, and the nonce makes it single-use. The worst case is griefing the owner's own submission, which then reverts after the same payout. A commitment scheme would add nothing the signature does not already bind. Tests: `test_frontRunnerCanOnlyPayTheSignedRecipient`, `test_signatureBoundToToAmountToken`, `test_signatureWorksOnce`, `test_signatureBoundToVault`, `test_signatureBoundToChainId` |
+| 3 | LOW | "Unbounded loop" in `_safeTransferFrom()` | **No loop (as in Stage 1 #3).** `_safeTransferFrom` makes one low-level call and checks its return with SafeERC20 semantics (`_succeeded`). The only unbounded cost is a token returning huge return data, which spends the caller's own gas, bounded by the tx gas limit; the agent only rescues the configured tokens. Tests: `test_noReturnTokenWorksForRescueAndWithdraw`, `test_badReturnTokensRevertTransferFailedOnRescue`, `test_badReturnTokensRevertTransferFailedOnWithdraw` |
+| 4 | INFO | ERC20 interface usage | No action. The minimal `IERC20` is used only through `balanceOf`/`allowance` reads and the checked low-level `transfer`/`transferFrom` calls; non-standard tokens (no return, `false`, short or wrong return data, no code) are covered by the tests above and `test_withdrawToCodelessTokenReverts`, `test_withdrawRevertsWhenTokenReturnsFalse` |
 
 ## Post-quantum design (not scored by QCAI)
 The QCAI quantum-readiness rating shows "Not scored" for Solidity. That is expected: the ML-DSA-87
