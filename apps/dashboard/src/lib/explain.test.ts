@@ -6,7 +6,9 @@ import { describeIncident } from "./explain";
 const USD = "0x1111111111111111111111111111111111111111";
 const ETH = "0x2222222222222222222222222222222222222222";
 const BTC = "0x3333333333333333333333333333333333333333";
-const cfg = { tokens: { fUSD: USD, fETH: ETH, fBTC: BTC } } as unknown as AgentConfig;
+const VAULT = "0x77690000000000000000000000000000000071e6";
+const GUARD = "0xff820000000000000000000000000000000f3850";
+const cfg = { tokens: { fUSD: USD, fETH: ETH, fBTC: BTC }, vault: VAULT, guardian: GUARD } as unknown as AgentConfig;
 const E18 = 10n ** 18n;
 
 const make = (trigger: Record<string, unknown>, rescues: unknown[] = []) =>
@@ -46,5 +48,20 @@ describe("describeIncident", () => {
   });
   it("native QOR", () => {
     expect(describeIncident(make({ token: zeroAddress }), cfg).headline).toBe("10 QOR left your account to 0xe256…59f3, which you don't trust");
+  });
+
+  it("transfer to the guardian or the vault is not 'untrusted'", () => {
+    const tenth = String(E18 / 10n);
+    expect(describeIncident(make({ token: zeroAddress, to: GUARD.toUpperCase().replace("0X", "0x"), amount: tenth }), cfg).headline).toBe("0.1 QOR left your account to your Guardian (0xFF82…3850)");
+    expect(describeIncident(make({ to: VAULT }), cfg).headline).toBe("10 fUSD left your account to your vault (0x7769…71e6)");
+  });
+  it("approval to the vault: allowance lowered / set to unlimited", () => {
+    const lowered = describeIncident(make({ kind: "approval", to: VAULT, amount: String(5n * E18) }), cfg);
+    expect(lowered.headline).toBe("Your vault's fUSD allowance was lowered to 5");
+    expect(lowered.detail).toBe("No rescue: the Guardian can now rescue at most that much fUSD. Re-approve the vault to restore full cover.");
+    expect(describeIncident(make({ kind: "approval", to: VAULT, amount: maxUint256.toString() }), cfg).headline).toBe("Your vault's fUSD allowance was set to unlimited");
+  });
+  it("approval to the guardian", () => {
+    expect(describeIncident(make({ kind: "approval", to: GUARD, amount: String(2n * E18) }), cfg).headline).toBe("Your account approved your Guardian (0xff82…3850) to spend 2 fUSD");
   });
 });
