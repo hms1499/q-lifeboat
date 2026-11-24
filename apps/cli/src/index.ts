@@ -42,8 +42,11 @@ Demo (Task 5, run by ./demo.sh):
                                               --out: also write it as JSON (mode 0600), PASS or FAIL, to an
                                               absolute path outside the repo
   pnpm cli drill-guardian init                create (once) and top up the fire drill's own guardian account in
-                                              ~/.config/qday/drill-guardian.env, funded by FUNDER_MNEMONIC; run it
-                                              again to top it up
+                                              ~/.config/qday/drill-guardian.env, funded by FUNDER_MNEMONIC only (never
+                                              OWNER_MNEMONIC, never the watched owner); run it again to top it up
+  pnpm cli drill-guardian check               read-only: exit 1 unless FUNDER_MNEMONIC is set and not the watched owner
+                                              and the drill guardian holds at least 0.5 QOR (demo.sh --drill runs it
+                                              before fresh-owner)
 
   <token> is a 0x address, fUSD, fETH, fBTC or QOR. <amt> is a decimal amount (18 decimals).`;
 

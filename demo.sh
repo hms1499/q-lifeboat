@@ -7,13 +7,19 @@
 #                        one run that reuses that COMPLETE run (RUN_COMPLETE=1, with its per-run
 #                        AGENT_ED25519_SK) instead of a fresh owner, e.g. after a later step failed
 #   ./demo.sh --drill    fire drill (Task 6G, combinable with --runs): the drill's own guardian
-#                        (~/.config/qday/drill-guardian.env from `pnpm cli drill-guardian init`, or
-#                        QDAY_DRILL_GUARDIAN_FILE) deploys and rescues instead of GAS_MNEMONIC; its agent
-#                        listens on DRILL_AGENT_PORT (default 8788, never the main AGENT_PORT), writes its
-#                        incidents to <run dir>/incidents.jsonl and sends no Telegram or webhook alert. The
-#                        main agent and the real owner's protection are untouched. Not with --resume.
+#                        (~/.config/qday/drill-guardian.env from `pnpm cli drill-guardian init`) deploys and
+#                        rescues instead of GAS_MNEMONIC; its agent listens on DRILL_AGENT_PORT (default 8788,
+#                        never the main AGENT_PORT), writes its incidents to <run dir>/incidents.jsonl and sends
+#                        no Telegram or webhook alert. The main agent and the real owner's protection are
+#                        untouched. Not with --resume. Needs FUNDER_MNEMONIC in the root .env (a drill never falls
+#                        back to OWNER_MNEMONIC); `pnpm cli drill-guardian check` runs before each fresh owner.
+#                        Refuses while the drill port is in use or another drill holds ~/.config/qday/drill.lock
+#                        (a lock whose pid is dead is taken over).
+#                        QDAY_DRILL_GUARDIAN_FILE (test-only override, read from the caller's environment only,
+#                        never from .env) points at another drill guardian file; the agent and the CLI always
+#                        use the default path.
 #
-# One run: fresh owner (funded by FUNDER_MNEMONIC, default OWNER_MNEMONIC; own ML-DSA key, own vault,
+# One run: fresh owner (funded by FUNDER_MNEMONIC, default OWNER_MNEMONIC except in a drill; own ML-DSA key, own vault,
 # 100 fUSD) -> setup (scoped window + agent link + approvals) -> start the agent -> attack with the
 # leaked ECDSA key -> wait for the agent's incident -> recovery (Guardian Signer + withdraw 1 fUSD to a
 # fresh safe address) -> verdict (rescue <= 3 blocks after the first drain, >= 80% kept, (a), (b)), also
@@ -25,6 +31,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Captured before any `. ./.env`, so a value in .env can never point demo.sh at another file than the agent's check.
+CALLER_DRILL_GUARDIAN_FILE="${QDAY_DRILL_GUARDIAN_FILE:-}"
+DRILL_LOCK="${HOME:-}/.config/qday/drill.lock"
 AGENT_READY_TIMEOUT=120
 INCIDENT_TIMEOUT=60
 
@@ -33,12 +42,18 @@ usage() {
   exit 2
 }
 
-# Fire drill: check the drill guardian file and the drill port, then export the drill's guardian, agent port and
-# DRILL=1, with every alert channel set but empty (so `tsx --env-file` does not refill them from .env). Call it
-# with the root .env loaded. Returns 2 on a refusal; prints addresses and ports only, never the mnemonic.
+# Fire drill: check FUNDER_MNEMONIC (no OWNER_MNEMONIC fallback), the drill guardian file and the drill port, then
+# export the drill's guardian, agent port and DRILL=1, with every alert channel set but empty (so `tsx --env-file`
+# does not refill them from .env). Call it with the root .env loaded. Returns 2 on a refusal; prints addresses and ports only, never the mnemonic.
 drill_env() {
-  local file="${QDAY_DRILL_GUARDIAN_FILE:-$HOME/.config/qday/drill-guardian.env}"
+  local file="${CALLER_DRILL_GUARDIAN_FILE:-$HOME/.config/qday/drill-guardian.env}"
   local main_port="${AGENT_PORT:-8787}" port="${DRILL_AGENT_PORT:-8788}"
+  # A drill spends ~2 QOR of the funder: never the OWNER_MNEMONIC fallback a plain demo has (the watched owner).
+  local funder="${FUNDER_MNEMONIC:-}"
+  if [[ -z "${funder//[[:space:]]/}" ]]; then
+    echo "refusing --drill: no FUNDER_MNEMONIC in the root .env (a drill is funded by FUNDER_MNEMONIC only, never by OWNER_MNEMONIC)" >&2
+    return 2
+  fi
   if [[ ! -f "$file" ]]; then
     echo "refusing --drill: no drill guardian file $file (create and fund it: pnpm cli drill-guardian init)" >&2
     return 2
@@ -62,6 +77,37 @@ drill_env() {
   fi
   export GAS_MNEMONIC="$DRILL_GAS_MNEMONIC" GUARDIAN_ADDRESS="$DRILL_GUARDIAN_ADDRESS" AGENT_PORT="$port" DRILL=1
   export TELEGRAM_BOT_TOKEN="" TELEGRAM_CHAT_ID="" ALERT_WEBHOOK_URL=""
+}
+
+# Refuse (2) when something already listens on the drill port, e.g. a leftover drill agent. Call after drill_env.
+drill_port_free() {
+  if (exec 3<>"/dev/tcp/127.0.0.1/$AGENT_PORT") 2>/dev/null; then
+    echo "refusing --drill: something already listens on 127.0.0.1:$AGENT_PORT (a leftover drill agent? DRILL_AGENT_PORT)" >&2
+    return 2
+  fi
+}
+
+# One drill at a time: mkdir is atomic. A lock whose pid is dead (a SIGKILLed drill) is taken over. Returns 2 when a
+# live drill holds it. The caller removes it on exit (drill_unlock).
+drill_lock() {
+  mkdir -p "$(dirname "$DRILL_LOCK")"
+  chmod 700 "$(dirname "$DRILL_LOCK")" 2>/dev/null || true
+  if ! mkdir "$DRILL_LOCK" 2>/dev/null; then
+    local holder
+    holder="$(cat "$DRILL_LOCK/pid" 2>/dev/null || true)"
+    if [[ "$holder" =~ ^[0-9]+$ ]] && kill -0 "$holder" 2>/dev/null; then
+      echo "refusing --drill: another fire drill is running (pid $holder holds $DRILL_LOCK)" >&2
+      return 2
+    fi
+    echo "taking over a stale drill lock (pid ${holder:-none} is gone)"
+    rm -rf "$DRILL_LOCK"
+    mkdir "$DRILL_LOCK" 2>/dev/null || { echo "refusing --drill: could not take $DRILL_LOCK" >&2; return 2; }
+  fi
+  echo "$$" >"$DRILL_LOCK/pid"
+}
+drill_unlock() {
+  [[ "$(cat "$DRILL_LOCK/pid" 2>/dev/null || true)" == "$$" ]] && rm -rf "$DRILL_LOCK"
+  return 0
 }
 
 RUNS=1
@@ -117,15 +163,19 @@ fi
 
 if [[ "$ONCE" -eq 0 ]]; then
   if ((DRILL_MODE)); then
-    # Refuse before the first run starts (each run checks again once it has loaded .env).
+    # Refuse before the first run starts (each run checks again once it has loaded .env). The port is checked here
+    # only: between runs the previous run's agent may still be shutting down.
     (
       cd "$ROOT"
       set -a
       # shellcheck disable=SC1091
       [[ -f .env ]] && . ./.env
       set +a
-      drill_env
+      drill_env && drill_port_free
     ) || exit 2
+    drill_lock || exit 2
+    trap drill_unlock EXIT
+    trap 'exit 130' INT TERM
   fi
   CHILD=(--once)
   ((DRILL_MODE)) && CHILD+=(--drill)
@@ -148,13 +198,13 @@ set -a
 # shellcheck disable=SC1091
 . ./.env
 set +a
-# The funder (default: the root .env owner) also relays attack step (b), keeping the guardian's nonce free for
-# rescues. Fixed here, before run.env replaces OWNER_MNEMONIC with the fresh owner's.
-export FUNDER_MNEMONIC="${FUNDER_MNEMONIC:-${OWNER_MNEMONIC:-}}"
 if ((DRILL_MODE)); then
-  drill_env || exit 2
+  drill_env || exit 2 # before the funder default below: a drill refuses without FUNDER_MNEMONIC
   echo "fire drill: guardian $GUARDIAN_ADDRESS, agent on :$AGENT_PORT, incidents and verdict in the run dir, no alerts"
 fi
+# The funder (default: the root .env owner, never in a drill) also relays attack step (b), keeping the guardian's
+# nonce free for rescues. Fixed here, before run.env replaces OWNER_MNEMONIC with the fresh owner's.
+export FUNDER_MNEMONIC="${FUNDER_MNEMONIC:-${OWNER_MNEMONIC:-}}"
 
 AGENT_PID=""
 AGENT_LOG=""
@@ -180,6 +230,11 @@ step() {
   echo
   echo "--- $*"
 }
+
+if ((DRILL_MODE)); then
+  # Read-only: the funder is not the watched owner and the drill guardian holds >= 0.5 QOR, before the funder pays.
+  pnpm -s cli drill-guardian check
+fi
 
 if [[ -n "$RESUME" ]]; then
   step "fresh owner: resumed from $RESUME (fresh-owner skipped)"
@@ -231,7 +286,9 @@ step "recovery"
 pnpm -s cli sign-withdraw "$SAFE_ADDR" fUSD 1 --out "$RUN_DIR/withdrawal.json"
 pnpm -s cli withdraw "$RUN_DIR/withdrawal.json"
 
-step "verdict (run $RUN_ID, agent log $AGENT_LOG)"
+SHOWN_LOG="$AGENT_LOG"
+[[ -n "${HOME:-}" && "$SHOWN_LOG" == "$HOME/"* ]] && SHOWN_LOG="~/${SHOWN_LOG#"$HOME/"}" # the home path stays off the forwarded line
+step "verdict (run $RUN_ID, agent log $SHOWN_LOG)"
 grep "timing:" "$AGENT_LOG" || true
 if pnpm -s cli demo-check --out "$RUN_DIR/verdict.json"; then
   VERDICT=pass

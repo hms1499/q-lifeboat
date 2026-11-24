@@ -21,6 +21,8 @@ describe("parseDrillLine", () => {
     expect(DRILL_STAGES).toEqual(["fresh owner", "setup", "agent", "attack", "incident", "recovery", "verdict"]);
     for (const stage of DRILL_STAGES.filter((s) => s !== "verdict")) expect(parseDrillLine(`--- ${stage}`)).toEqual({ stage });
     expect(parseDrillLine(`--- verdict (run ${RUN}, agent log /Users/x/.config/qday/runs/${RUN}/agent.log)`)).toEqual({ stage: "verdict" });
+    // demo.sh prints the agent log home-relative (no home path in the forwarded line).
+    expect(parseDrillLine(`--- verdict (run ${RUN}, agent log ~/.config/qday/runs/${RUN}/agent.log)`)).toEqual({ stage: "verdict" });
     // Not a stage: the failure tail, an unknown step, ordinary output.
     expect(parseDrillLine("--- agent log (last 20 lines)")).toBeNull();
     expect(parseDrillLine("--- deploy")).toBeNull();

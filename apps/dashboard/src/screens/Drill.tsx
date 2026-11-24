@@ -74,7 +74,8 @@ export function Drill() {
       <h1>Fire drill</h1>
       <p className="lead">
         Proves the Guardian works without touching your account. A throwaway owner is created, protected, attacked and rescued on diana; the watched
-        owner is not touched. One drill costs about 2 QOR of testnet funds from the funder.
+        owner is not touched. One drill costs about 2 QOR of testnet funds, paid from the funder account (FUNDER_MNEMONIC in the root .env), never
+        from the watched owner.
       </p>
       {!online ? (
         <div className="banner warn" role="status">

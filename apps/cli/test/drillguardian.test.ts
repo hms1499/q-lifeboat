@@ -1,11 +1,13 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveUnifiedAccount, type PqcStatus, type UnifiedAccount } from "@qorechain/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DRILL_GUARDIAN_FILE,
+  DRILL_GUARDIAN_MIN_UQOR,
   DRILL_GUARDIAN_TARGET_UQOR,
+  drillGuardianCheck,
   drillGuardianInit,
   drillGuardianPath,
   runDrillGuardian,
@@ -15,6 +17,7 @@ import { FEE_RESERVE_UQOR } from "../src/fresh";
 
 const DRILL_MNEMONIC = "test test test test test test test test test test test junk";
 const FUNDER_MNEMONIC = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+const OTHER_MNEMONIC = "legal winner thank year wave sausage worth useful legal winner thank yellow";
 
 describe("drillGuardianPath", () => {
   it("is ~/.config/qday/drill-guardian.env, never inside the repo", () => {
@@ -148,6 +151,27 @@ describe("drillGuardianInit", () => {
     }
   });
 
+  it("test_refusesWithoutFunderMnemonic: never falls back to OWNER_MNEMONIC (the watched owner)", async () => {
+    for (const e of [{ OWNER_MNEMONIC: OTHER_MNEMONIC }, { FUNDER_MNEMONIC: "  ", OWNER_MNEMONIC: OTHER_MNEMONIC }, {}]) {
+      const { d } = deps();
+      await expect(drillGuardianInit(e, d)).rejects.toThrow(/FUNDER_MNEMONIC is not set/);
+      expect(d.broadcast).not.toHaveBeenCalled();
+      expect(existsSync(drillGuardianPath(home))).toBe(false);
+    }
+  });
+
+  it("test_refusesWhenFunderIsWatchedOwner: OWNER_EVM_ADDRESS (any case) or the OWNER_MNEMONIC account", async () => {
+    for (const e of [
+      { FUNDER_MNEMONIC, OWNER_EVM_ADDRESS: funder.evm.toUpperCase().replace("0X", "0x") },
+      { FUNDER_MNEMONIC, OWNER_MNEMONIC: FUNDER_MNEMONIC },
+    ]) {
+      const { d } = deps();
+      await expect(drillGuardianInit(e, d)).rejects.toThrow(/watched owner/);
+      expect(d.broadcast).not.toHaveBeenCalled();
+      expect(existsSync(drillGuardianPath(home))).toBe(false);
+    }
+  });
+
   it("test_refusesWhenFunderShort", async () => {
     const { d } = deps({ funderBalance: DRILL_GUARDIAN_TARGET_UQOR + FEE_RESERVE_UQOR - 1n });
     await expect(drillGuardianInit(env(), d)).rejects.toThrow(/funder has/);
@@ -163,10 +187,83 @@ describe("drillGuardianInit", () => {
   });
 });
 
+describe("drillGuardianCheck", () => {
+  let home: string;
+  let drill: UnifiedAccount;
+  beforeEach(async () => {
+    home = mkdtempSync(join(tmpdir(), "qday-drillcheck-"));
+    drill = await deriveUnifiedAccount(DRILL_MNEMONIC);
+  });
+  afterEach(() => rmSync(home, { recursive: true, force: true }));
+
+  function writeDrillFile(address: string = drill.evm, mode = 0o600) {
+    const file = drillGuardianPath(home);
+    mkdirSync(join(home, ".config", "qday"), { recursive: true, mode: 0o700 });
+    writeFileSync(file, `DRILL_GAS_MNEMONIC="${DRILL_MNEMONIC}"\nDRILL_GUARDIAN_ADDRESS="${address}"\n`, { mode });
+    chmodSync(file, mode);
+  }
+  function deps(balance: bigint) {
+    const lines: string[] = [];
+    return { lines, d: { home, log: (l: string) => void lines.push(l), uqorBalance: vi.fn(async () => balance) } };
+  }
+  const env = { FUNDER_MNEMONIC };
+
+  it("is 0.5 QOR", () => {
+    expect(DRILL_GUARDIAN_MIN_UQOR).toBe(500_000n);
+  });
+
+  it("test_checkPassesAtOrAboveMin: reads the drill guardian's balance, logs no secret", async () => {
+    writeDrillFile();
+    const { d, lines } = deps(DRILL_GUARDIAN_MIN_UQOR);
+    const out = await drillGuardianCheck(env, d);
+    expect(d.uqorBalance).toHaveBeenCalledWith(drill.cosmos);
+    expect(out).toEqual({ address: drill.evm, cosmos: drill.cosmos, balance: DRILL_GUARDIAN_MIN_UQOR });
+    expect(lines.join("\n")).toContain(drill.evm);
+    expect(lines.join("\n")).toContain("0.5 QOR");
+    expect(lines.join("\n")).not.toContain("test test");
+  });
+
+  it("test_checkFailsBelowMin with the init hint", async () => {
+    writeDrillFile();
+    const { d, lines } = deps(DRILL_GUARDIAN_MIN_UQOR - 1n);
+    await expect(drillGuardianCheck(env, d)).rejects.toThrow(
+      "drill guardian has 0.499999 QOR, needs at least 0.5 QOR: run pnpm cli drill-guardian init",
+    );
+    expect(lines.join("\n")).not.toContain("test test");
+  });
+
+  it("refuses a missing file, a loose file and a file whose address does not match", async () => {
+    await expect(drillGuardianCheck(env, deps(DRILL_GUARDIAN_TARGET_UQOR).d)).rejects.toThrow(/no drill guardian file .*pnpm cli drill-guardian init/);
+    writeDrillFile(drill.evm, 0o644);
+    await expect(drillGuardianCheck(env, deps(DRILL_GUARDIAN_TARGET_UQOR).d)).rejects.toThrow(/0600/);
+    writeDrillFile("0x00000000000000000000000000000000000000aa");
+    const { d } = deps(DRILL_GUARDIAN_TARGET_UQOR);
+    await expect(drillGuardianCheck(env, d)).rejects.toThrow(/does not match/);
+    expect(d.uqorBalance).not.toHaveBeenCalled();
+  });
+
+  it("test_checkRefusesFunderProblems: no FUNDER_MNEMONIC, or the funder is the watched owner", async () => {
+    writeDrillFile();
+    const funder = await deriveUnifiedAccount(FUNDER_MNEMONIC);
+    for (const [e, re] of [
+      [{ OWNER_MNEMONIC: OTHER_MNEMONIC }, /FUNDER_MNEMONIC is not set/],
+      [{ FUNDER_MNEMONIC, OWNER_EVM_ADDRESS: funder.evm.toLowerCase() }, /watched owner/],
+      [{ FUNDER_MNEMONIC, OWNER_MNEMONIC: FUNDER_MNEMONIC }, /watched owner/],
+    ] as const) {
+      const { d } = deps(DRILL_GUARDIAN_TARGET_UQOR);
+      await expect(drillGuardianCheck(e, d)).rejects.toThrow(re);
+      expect(d.uqorBalance).not.toHaveBeenCalled();
+    }
+    // A different watched owner is fine.
+    await expect(drillGuardianCheck({ FUNDER_MNEMONIC, OWNER_MNEMONIC: OTHER_MNEMONIC }, deps(DRILL_GUARDIAN_TARGET_UQOR).d)).resolves.toBeDefined();
+  });
+});
+
 describe("runDrillGuardian", () => {
-  it("refuses anything but init", async () => {
-    await expect(runDrillGuardian(["bogus"])).rejects.toThrow("usage: drill-guardian init");
-    await expect(runDrillGuardian([])).rejects.toThrow("usage: drill-guardian init");
-    await expect(runDrillGuardian(["init", "x"])).rejects.toThrow("usage: drill-guardian init");
+  it("refuses anything but init or check", async () => {
+    await expect(runDrillGuardian(["bogus"])).rejects.toThrow("usage: drill-guardian init|check");
+    await expect(runDrillGuardian([])).rejects.toThrow("usage: drill-guardian init|check");
+    await expect(runDrillGuardian(["init", "x"])).rejects.toThrow("usage: drill-guardian init|check");
+    await expect(runDrillGuardian(["check", "x"])).rejects.toThrow("usage: drill-guardian init|check");
   });
 });

@@ -15,6 +15,8 @@ type Msg = { typeUrl: string; value: unknown };
 export const DRILL_GUARDIAN_FILE = "drill-guardian.env";
 /** What the drill guardian is topped up to: one drill costs it a window open (~0.225 QOR) plus rescue gas. */
 export const DRILL_GUARDIAN_TARGET_UQOR = 2_000_000n;
+/** Below this `drill-guardian check` (run by `demo.sh --drill` before the funder pays anything) refuses the drill. */
+export const DRILL_GUARDIAN_MIN_UQOR = 500_000n;
 
 const qor = (uqor: bigint) => `${formatUnits(uqor, 6)} QOR`;
 
@@ -50,6 +52,38 @@ function readDrillFile(file: string): { mnemonic: string; address: string } {
   return { mnemonic: vars.DRILL_GAS_MNEMONIC, address: vars.DRILL_GUARDIAN_ADDRESS };
 }
 
+/** The drill guardian file's account, derived from its mnemonic and checked against its address. Never logs a secret. */
+async function loadDrillGuardian(file: string): Promise<UnifiedAccount> {
+  const saved = readDrillFile(file);
+  const drill = await deriveSecret(saved.mnemonic, "DRILL_GAS_MNEMONIC");
+  if (saved.address.toLowerCase() !== drill.evm.toLowerCase()) {
+    throw new Error(`${file}: DRILL_GUARDIAN_ADDRESS does not match DRILL_GAS_MNEMONIC`);
+  }
+  return drill;
+}
+
+/**
+ * The account that pays for drills: FUNDER_MNEMONIC only, never the OWNER_MNEMONIC fallback `fresh-owner` has for a
+ * plain demo. It must not be the watched owner (OWNER_EVM_ADDRESS, or the root OWNER_MNEMONIC account): a drill
+ * spends ~2 QOR of the funder and must never spend the watched owner's QOR.
+ */
+async function drillFunder(env: Env): Promise<UnifiedAccount> {
+  const mnemonic = env.FUNDER_MNEMONIC?.trim();
+  if (!mnemonic) {
+    throw new Error("FUNDER_MNEMONIC is not set: a drill is funded by FUNDER_MNEMONIC only, never by the watched owner (OWNER_MNEMONIC)");
+  }
+  const funder = await deriveSecret(mnemonic, "FUNDER_MNEMONIC");
+  const watched = env.OWNER_EVM_ADDRESS?.trim();
+  if (watched && watched.toLowerCase() === funder.evm.toLowerCase()) {
+    throw new Error(`the funder (FUNDER_MNEMONIC) ${funder.evm} is the watched owner (OWNER_EVM_ADDRESS): use a separate funder account`);
+  }
+  const ownerMnemonic = env.OWNER_MNEMONIC?.trim();
+  if (ownerMnemonic && (await deriveSecret(ownerMnemonic, "OWNER_MNEMONIC")).cosmos === funder.cosmos) {
+    throw new Error(`the funder (FUNDER_MNEMONIC) ${funder.evm} is the watched owner (OWNER_MNEMONIC): use a separate funder account`);
+  }
+  return funder;
+}
+
 /**
  * Provision the fire drill's own guardian account (never the real guardian: a drill agent sharing it would unscope
  * the real owner's EVM window). Idempotent: create the account only when the file is missing (written 0600 BEFORE
@@ -57,24 +91,19 @@ function readDrillFile(file: string): { mnemonic: string; address: string } {
  * (classical, bootstrap-exempt, as `fresh-owner` does) only when not registered. Logs addresses and tx hashes only.
  */
 export async function drillGuardianInit(env: Env, deps: DrillGuardianDeps) {
+  // The funder first: no FUNDER_MNEMONIC (or the watched owner as funder) refuses before anything is written or sent.
+  const funder = await drillFunder(env);
   const file = drillGuardianPath(deps.home);
   const existing = existsSync(file);
-  const saved = existing ? readDrillFile(file) : undefined;
-  const mnemonic = saved ? saved.mnemonic : deps.newMnemonic();
-  const drill = await deriveSecret(mnemonic, existing ? "DRILL_GAS_MNEMONIC" : "the generated mnemonic");
+  const mnemonic = existing ? undefined : deps.newMnemonic();
+  const drill = mnemonic ? await deriveSecret(mnemonic, "the generated mnemonic") : await loadDrillGuardian(file);
   const address = drill.evm as Hex;
-  if (saved && saved.address.toLowerCase() !== address.toLowerCase()) {
-    throw new Error(`${file}: DRILL_GUARDIAN_ADDRESS does not match DRILL_GAS_MNEMONIC`);
-  }
 
   // The drill guardian must be its own account: refuse any other role's account before anything is written or sent.
-  const funderName = env.FUNDER_MNEMONIC?.trim() ? "FUNDER_MNEMONIC" : "OWNER_MNEMONIC";
-  const funderMnemonic = env.FUNDER_MNEMONIC?.trim() || env.OWNER_MNEMONIC?.trim();
-  const funder = funderMnemonic ? await deriveSecret(funderMnemonic, funderName) : undefined;
   for (const name of ["GAS_MNEMONIC", "OWNER_MNEMONIC", "FUNDER_MNEMONIC"]) {
     const m = env[name]?.trim();
     if (!m) continue;
-    const role = name === funderName && funder ? funder : await deriveSecret(m, name);
+    const role = name === "FUNDER_MNEMONIC" ? funder : await deriveSecret(m, name);
     if (role.cosmos === drill.cosmos) throw new Error(`the drill guardian account is the ${name} account; it must be its own account`);
   }
 
@@ -83,7 +112,7 @@ export async function drillGuardianInit(env: Env, deps: DrillGuardianDeps) {
     writeRunFile(
       dirname(file),
       DRILL_GUARDIAN_FILE,
-      formatRunEnv({ DRILL_GAS_MNEMONIC: mnemonic, DRILL_GUARDIAN_ADDRESS: address }),
+      formatRunEnv({ DRILL_GAS_MNEMONIC: mnemonic as string, DRILL_GUARDIAN_ADDRESS: address }),
       { exclusive: true },
     );
     created = true;
@@ -94,7 +123,6 @@ export async function drillGuardianInit(env: Env, deps: DrillGuardianDeps) {
   let fundTx: string | undefined;
   const balance = await deps.uqorBalance(drill.cosmos);
   if (balance < DRILL_GUARDIAN_TARGET_UQOR) {
-    if (!funder || !funderMnemonic) throw new Error("FUNDER_MNEMONIC (or OWNER_MNEMONIC) is not set");
     const topUp = DRILL_GUARDIAN_TARGET_UQOR - balance;
     checkFunderBalance(await deps.uqorBalance(funder.cosmos), topUp, "the drill guardian");
     fundTx = await deps.broadcast(funder, [buildFundMsg(funder.cosmos, drill.cosmos, topUp)], "qday: fund drill guardian", "hybrid");
@@ -123,6 +151,25 @@ export async function drillGuardianInit(env: Env, deps: DrillGuardianDeps) {
   return { address, cosmos: drill.cosmos, created, fundTx, registerTx };
 }
 
+/**
+ * `drill-guardian check` (read-only, run by `demo.sh --drill` before `fresh-owner`): the funder is FUNDER_MNEMONIC
+ * and not the watched owner, the drill guardian file is sound, and the drill guardian holds at least
+ * `DRILL_GUARDIAN_MIN_UQOR`. Throws otherwise, so a dry drill guardian stops the drill before the funder pays anything.
+ * Logs the address and balance only.
+ */
+export async function drillGuardianCheck(env: Env, deps: Pick<DrillGuardianDeps, "home" | "log" | "uqorBalance">) {
+  await drillFunder(env);
+  const file = drillGuardianPath(deps.home);
+  if (!existsSync(file)) throw new Error(`no drill guardian file ${file} (create and fund it: run pnpm cli drill-guardian init)`);
+  const drill = await loadDrillGuardian(file);
+  const balance = await deps.uqorBalance(drill.cosmos);
+  if (balance < DRILL_GUARDIAN_MIN_UQOR) {
+    throw new Error(`drill guardian has ${qor(balance)}, needs at least ${qor(DRILL_GUARDIAN_MIN_UQOR)}: run pnpm cli drill-guardian init`);
+  }
+  deps.log(`drill guardian ${drill.evm} has ${qor(balance)} (at least ${qor(DRILL_GUARDIAN_MIN_UQOR)})`);
+  return { address: drill.evm as Hex, cosmos: drill.cosmos, balance };
+}
+
 /** Diana wiring for `drillGuardianInit`. */
 export function productionDrillGuardianDeps(): DrillGuardianDeps {
   return {
@@ -138,8 +185,9 @@ export function productionDrillGuardianDeps(): DrillGuardianDeps {
   };
 }
 
-/** `pnpm cli drill-guardian init`. */
+/** `pnpm cli drill-guardian init|check`. */
 export async function runDrillGuardian(args: string[], env: Env = process.env): Promise<void> {
-  if (args.length !== 1 || args[0] !== "init") throw new Error("usage: drill-guardian init");
-  await drillGuardianInit(env, productionDrillGuardianDeps());
+  if (args.length !== 1 || (args[0] !== "init" && args[0] !== "check")) throw new Error("usage: drill-guardian init|check");
+  if (args[0] === "check") await drillGuardianCheck(env, productionDrillGuardianDeps());
+  else await drillGuardianInit(env, productionDrillGuardianDeps());
 }
