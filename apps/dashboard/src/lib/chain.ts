@@ -98,3 +98,20 @@ export async function readReceipt(hash: Hex): Promise<ReceiptLike | null> {
     throw e;
   }
 }
+
+/** The sender of a mined tx; cached (it never changes). null when the chain has no such tx (yet). Throws on RPC errors. */
+const senders = new Map<string, string>();
+
+export async function readTxSender(hash: Hex): Promise<string | null> {
+  const key = hash.toLowerCase();
+  const hit = senders.get(key);
+  if (hit) return hit;
+  try {
+    const tx = await publicClient.getTransaction({ hash });
+    senders.set(key, tx.from);
+    return tx.from;
+  } catch (e) {
+    if (e instanceof Error && e.name === "TransactionNotFoundError") return null;
+    throw e;
+  }
+}

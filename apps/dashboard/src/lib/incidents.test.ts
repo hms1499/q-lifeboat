@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { incidentTag, mergeIncident, parseIncidentList, sortIncidents, triggerKind } from "./incidents";
+import { incidentTag, mergeIncident, partitionByOwner, parseIncidentList, sortIncidents, triggerKind } from "./incidents";
 
 const inc = (id: string, detectedAt: string, extra: Record<string, unknown> = {}) =>
   ({ id, detectedAt, trigger: { kind: "transfer" }, rescues: [], ...extra }) as never;
@@ -84,5 +84,26 @@ describe("mergeIncident / parseIncidentList", () => {
       { ...good, agentPubkey: undefined },
     ];
     for (const b of bad) expect(parseIncidentList([b]), JSON.stringify(b).slice(0, 80)).toEqual([]);
+  });
+});
+
+describe("partitionByOwner", () => {
+  const OWNER = "0xAbCdEf0000000000000000000000000000000001";
+  const h = (n: number) => `0x${String(n).repeat(64)}`;
+  const t = (id: string, n: number) => ({ id, trigger: { hash: h(n).toUpperCase().replace("0X", "0x") } }) as never;
+  const list = [t("a", 1), t("b", 2), t("c", 3), t("d", 4)];
+  it("splits by sender, case-insensitive, keeping order", () => {
+    const r = partitionByOwner(
+      list,
+      { [h(1)]: OWNER.toLowerCase(), [h(2)]: "0x0000000000000000000000000000000000000009", [h(3)]: null },
+      OWNER,
+    );
+    expect(r.mine.map((i) => i.id)).toEqual(["a"]);
+    expect(r.others.map((i) => i.id)).toEqual(["b"]);
+    expect(r.checking.map((i) => i.id)).toEqual(["c", "d"]);
+  });
+  it("keeps order within a bucket", () => {
+    const r = partitionByOwner(list, { [h(1)]: OWNER, [h(2)]: OWNER, [h(3)]: OWNER, [h(4)]: OWNER.toUpperCase() }, OWNER);
+    expect(r.mine.map((i) => i.id)).toEqual(["a", "b", "c", "d"]);
   });
 });

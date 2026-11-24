@@ -72,3 +72,24 @@ export function big(v: unknown): bigint {
   if (typeof v === "string" && /^\d+$/.test(v)) return BigInt(v);
   return 0n;
 }
+
+/**
+ * Split by who sent the trigger tx, as read from the chain (`senders`, keyed by lowercase trigger hash). The agent's
+ * file also holds reports for other demo owners and has no owner field, so ownership never comes from the agent.
+ * A sender not read yet (null / missing) is "checking": kept visible, never dropped. Order preserved.
+ */
+export function partitionByOwner(
+  list: readonly Incident[],
+  senders: Record<string, string | null | undefined>,
+  owner: string,
+): { mine: Incident[]; others: Incident[]; checking: Incident[] } {
+  const out = { mine: [] as Incident[], others: [] as Incident[], checking: [] as Incident[] };
+  const me = owner.toLowerCase();
+  for (const i of list) {
+    const from = senders[String(i.trigger?.hash ?? "").toLowerCase()];
+    if (typeof from !== "string") out.checking.push(i);
+    else if (from.toLowerCase() === me) out.mine.push(i);
+    else out.others.push(i);
+  }
+  return out;
+}
