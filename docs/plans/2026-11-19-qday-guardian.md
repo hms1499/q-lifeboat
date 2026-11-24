@@ -328,7 +328,9 @@ Spec `docs/specs/2026-11-24-submission-gaps.md`, from checking the event's publi
   also closes an older cache gap), the guardian row fails under a failed config check and never throws, "could not check" on a
   REST outage, co-signer setup can not stop the agent, and the docs now say the co-signature can be dropped (n/a rests on the
   classical key). Review Focus 8 is covered by the existing `record` tests: co-signing runs inside `record`.
-- [ ] **Gap 4:** README section for judges.
+- [x] **Gap 4:** README rewritten as a project README (builder's call, 2026-11-24): why, how it works, the agent's limits
+  (key → power → enforced by), honest limits, getting started, demos, "Verify it yourself" (each tx checked on diana REST or RPC),
+  QoreChain features → code → why, why rescues skip the linked key, layout, roadmap.
 
 ### Task 7: Audit Stage 2 + submission (Nov 30 → Dec 2)
 
