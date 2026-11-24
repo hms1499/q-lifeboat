@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { type Incident } from "@qday/core";
 import { bigintReplacer } from "@qday/core/chain";
+import { DrillError, type DrillRunner } from "./drill";
 import { parsePolicy, type PolicyFile } from "./policy";
 import { readIncidents } from "./report";
 
@@ -18,7 +19,9 @@ export type ServerOptions = {
   config?: () => unknown;
   /** GET/PUT /policy. */
   policy?: { get(): PolicyFile; set(input: unknown): PolicyFile };
-  /** Origins allowed to read and write /policy from a browser (the dashboard). */
+  /** POST/GET /drill, GET /drill/events and /drill/runs (Task 6G fire drill). */
+  drill?: DrillRunner;
+  /** Origins allowed to read and write /policy and /drill from a browser (the dashboard). */
   dashboardOrigins?: string[];
   /** Server-side failures (e.g. a policy write that hit EACCES); their details never go into a response. */
   log?: (line: string) => void;
@@ -39,15 +42,16 @@ export function isLocalHost(host: string | undefined, port: number): boolean {
 export type PolicyWriteRequest = { remoteAddress?: string; host?: string; origin?: string; contentType?: string };
 
 /**
- * Review Focus 6: who may replace the trusted list. A loopback bind alone is not enough, since any web page the owner
- * opens can send requests to 127.0.0.1 (CSRF) or reach it under its own name (DNS rebinding). Returns null when the
- * write is allowed, else the refusal. An absent Origin is allowed (curl, the CLI): browsers always send one on a PUT.
+ * Review Focus 6: who may replace the trusted list (PUT /policy) or start a fire drill (POST /drill, Task 6G). A
+ * loopback bind alone is not enough, since any web page the owner opens can send requests to 127.0.0.1 (CSRF) or reach
+ * it under its own name (DNS rebinding). Returns null when the write is allowed, else the refusal. An absent Origin is
+ * allowed (curl, the CLI): browsers always send one on a PUT or POST.
  */
 export function checkPolicyWrite(
   req: PolicyWriteRequest,
   opts: { port: number; origins: string[] },
 ): { status: number; error: string } | null {
-  if (!isLoopbackPeer(req.remoteAddress)) return { status: 403, error: "policy writes are accepted from loopback only" };
+  if (!isLoopbackPeer(req.remoteAddress)) return { status: 403, error: "writes are accepted from loopback only" };
   if (!isLocalHost(req.host, opts.port)) return { status: 403, error: "unexpected Host header" };
   if (req.origin !== undefined && !opts.origins.includes(req.origin)) return { status: 403, error: "origin not allowed" };
   const type = (req.contentType ?? "").split(";")[0].trim().toLowerCase();
@@ -76,7 +80,9 @@ function readBody(req: IncomingMessage, limit: number): Promise<string | null> {
 
 /**
  * HTTP API on loopback: GET /incidents (JSON array), GET /events (SSE, one `incident` event each), GET /health,
- * GET /config (public addresses for the dashboard) and GET/PUT /policy (the trusted list). Only PUT /policy writes, and only behind `checkPolicyWrite`.
+ * GET /config (public addresses for the dashboard), GET/PUT /policy (the trusted list) and the fire drill: POST /drill
+ * (start), GET /drill (state), GET /drill/events (SSE, `drill` events) and GET /drill/runs (verdicts). Only PUT /policy
+ * and POST /drill change anything, and only behind `checkPolicyWrite`.
  */
 export async function startServer(opts: ServerOptions): Promise<Server> {
   const host = opts.host ?? "127.0.0.1";
@@ -85,6 +91,7 @@ export async function startServer(opts: ServerOptions): Promise<Server> {
   const log = opts.log ?? (() => {});
   let boundPort = opts.port;
   const clients = new Set<ServerResponse>();
+  const drillClients = new Set<ServerResponse>();
 
   const json = (res: ServerResponse, status: number, headers: Record<string, string>, body: unknown) =>
     res.writeHead(status, { ...headers, "Content-Type": "application/json" }).end(JSON.stringify(body, bigintReplacer));
@@ -127,9 +134,53 @@ export async function startServer(opts: ServerOptions): Promise<Server> {
     }
   }
 
+  /** /drill*: every method checks the Host header; CORS names only a dashboard origin; POST as strict as PUT /policy. */
+  function routeDrill(req: IncomingMessage, res: ServerResponse, path: string) {
+    const cors = policyCors(req.headers.origin);
+    const drill = opts.drill;
+    if (!isLocalHost(req.headers.host, boundPort)) {
+      req.resume();
+      return json(res, 403, cors, { error: "unexpected Host header" });
+    }
+    if (req.method === "OPTIONS") {
+      return res.writeHead(204, { ...cors, "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }).end();
+    }
+    if (!drill) return res.writeHead(404, cors).end();
+    if (path === "/drill" && req.method === "POST") {
+      req.resume(); // the body carries nothing: never read it
+      const refused = checkPolicyWrite(
+        { remoteAddress: req.socket.remoteAddress, host: req.headers.host, origin: req.headers.origin, contentType: req.headers["content-type"] },
+        { port: boundPort, origins },
+      );
+      if (refused) return json(res, refused.status, cors, { error: refused.error });
+      try {
+        return json(res, 202, cors, drill.start());
+      } catch (e) {
+        if (e instanceof DrillError) return json(res, e.status, cors, { error: e.message });
+        log(`POST /drill error: ${e instanceof Error ? e.message : String(e)}`);
+        return json(res, 500, cors, { error: "could not start the fire drill" });
+      }
+    }
+    if (req.method !== "GET") return res.writeHead(path === "/drill" ? 405 : 404, cors).end();
+    if (path === "/drill") return json(res, 200, cors, drill.state());
+    if (path === "/drill/runs") return json(res, 200, cors, drill.runs());
+    if (path !== "/drill/events") return res.writeHead(404, cors).end();
+    res.writeHead(200, { ...cors, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+    const send = (s: unknown) => res.write(`event: drill\ndata: ${JSON.stringify(s)}\n\n`);
+    send(drill.state());
+    const off = drill.subscribe(send);
+    drillClients.add(res);
+    req.on("close", () => {
+      off();
+      drillClients.delete(res);
+    });
+  }
+
   function route(req: IncomingMessage, res: ServerResponse) {
     const path = (req.url ?? "").split("?")[0];
-    if (path === "/policy") {
+    if (path === "/drill" || path.startsWith("/drill/")) {
+      routeDrill(req, res, path);
+    } else if (path === "/policy") {
       const cors = policyCors(req.headers.origin);
       if (!isLocalHost(req.headers.host, boundPort)) {
         // Every method: a DNS-rebinding page must not even read the trusted list.
@@ -178,7 +229,7 @@ export async function startServer(opts: ServerOptions): Promise<Server> {
     }
   });
 
-  const heartbeat = setInterval(() => clients.forEach((c) => c.write(": heartbeat\n\n")), 15_000);
+  const heartbeat = setInterval(() => [...clients, ...drillClients].forEach((c) => c.write(": heartbeat\n\n")), 15_000);
   heartbeat.unref();
 
   await new Promise<void>((resolve, reject) => {
@@ -198,7 +249,7 @@ export async function startServer(opts: ServerOptions): Promise<Server> {
     close: () =>
       new Promise<void>((resolve) => {
         clearInterval(heartbeat);
-        clients.forEach((c) => c.end());
+        [...clients, ...drillClients].forEach((c) => c.end());
         server.close(() => resolve());
         server.closeAllConnections();
       }),

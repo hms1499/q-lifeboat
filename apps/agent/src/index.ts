@@ -1,7 +1,13 @@
+import { spawn } from "node:child_process";
+import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { vaultAbi } from "@qday/core";
 import { publicClient } from "@qday/core/chain";
 import type { Hex } from "viem";
 import { checkVaultGuardian, DATA_DIR, loadAgentConfig, publicConfig } from "./config";
+import { createDrillRunner } from "./drill";
 import { createGuardian } from "./guardian";
 import { createHealth } from "./health";
 import { createNotifier } from "./notify";
@@ -18,6 +24,25 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 const WINDOW_CHECK_MS = 30_000;
 const GAS_CHECK_MS = 60_000;
+const REPO_ROOT = resolve(fileURLToPath(import.meta.url), "../../../..");
+const QDAY_DIR = join(homedir(), ".config", "qday");
+
+/** Fire drill (Task 6G): `demo.sh --drill` in its own process group, so stop() and the timeout kill all of it. */
+function productionDrill() {
+  return createDrillRunner({
+    spawn: (cmd, args, opts) => spawn(cmd, args, opts),
+    kill: (pid, signal) => process.kill(pid, signal),
+    repoRoot: REPO_ROOT,
+    runsDir: join(QDAY_DIR, "runs"),
+    guardianFile: join(QDAY_DIR, "drill-guardian.env"),
+    exists: existsSync,
+    readFile: (p) => readFileSync(p, "utf8"),
+    listDirs: (p) => (existsSync(p) ? readdirSync(p, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name) : []),
+    appendFile: (p, data) => appendFileSync(p, data, { mode: 0o600 }),
+    now: () => new Date(),
+    log,
+  });
+}
 
 async function main() {
   const startedAt = new Date().toISOString();
@@ -59,6 +84,17 @@ async function main() {
   setInterval(gasTick, GAS_CHECK_MS).unref();
 
   const pub = publicConfig(cfg);
+  // The fire drill runner, except in a drill's own agent (demo.sh --drill exports DRILL=1): no drill inside a drill.
+  // Review Focus 4: a drill never outlives the agent. Killing its process group stops demo.sh, whose exit trap stops
+  // the drill agent.
+  const drill = process.env.DRILL?.trim() === "1" ? undefined : productionDrill();
+  process.once("exit", () => drill?.stop()); // a fatal error too (stop is synchronous and sends one SIGTERM per run)
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.once(sig, () => {
+      drill?.stop();
+      process.exit(sig === "SIGINT" ? 130 : 143);
+    });
+  }
   const server = await startServer({
     file,
     port: cfg.port,
@@ -66,6 +102,7 @@ async function main() {
     config: () => pub,
     policy: policyStore,
     dashboardOrigins: cfg.dashboardOrigins,
+    drill,
     log,
   });
   const deps = productionDeps(cfg, windowKeeper, log);

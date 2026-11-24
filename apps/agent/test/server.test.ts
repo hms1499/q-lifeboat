@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHealth } from "../src/health";
 import { createPolicyStore } from "../src/policy";
 import { appendIncident } from "../src/report";
+import { DrillError, type DrillRunner, type DrillRunSummary, type DrillState } from "../src/drill";
 import { checkPolicyWrite, startServer, type Server } from "../src/server";
 
 let srv: Server | undefined;
@@ -308,5 +309,155 @@ describe("server: GET /config", () => {
   it("404s /config when no provider is wired", async () => {
     srv = await startServer({ file: join(tmpdir(), "nope.jsonl"), port: 0 });
     expect((await fetch(`http://127.0.0.1:${srv.port}/config`)).status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------- Task 6G: /drill (fire drill)
+
+function fakeDrill(over: { start?: () => DrillState } = {}) {
+  const idle: DrillState = { status: "idle", runId: null, stage: null, startedAt: null, endedAt: null, error: null, lines: [] };
+  let state = idle;
+  const subs = new Set<(s: DrillState) => void>();
+  const runner = {
+    start: vi.fn(over.start ?? (() => {
+      state = { ...idle, status: "running", startedAt: "2026-11-24T09:30:00.000Z" };
+      subs.forEach((f) => f(state));
+      return state;
+    })),
+    state: () => state,
+    subscribe: (fn: (s: DrillState) => void) => { subs.add(fn); return () => void subs.delete(fn); },
+    runs: vi.fn(() => [] as DrillRunSummary[]),
+    stop: vi.fn(),
+  } satisfies DrillRunner;
+  return { runner, subs, emit: (s: DrillState) => { state = s; subs.forEach((f) => f(s)); } };
+}
+
+describe("server: /drill", () => {
+  const json = { "Content-Type": "application/json" };
+
+  it("test_drillPostRejectedFromNonLoopback", () => {
+    // The peer address cannot be forged over real HTTP here: POST /drill runs the same pure check as PUT /policy.
+    const ok = { remoteAddress: "127.0.0.1", host: "127.0.0.1:8787", origin: DASH, contentType: "application/json" };
+    expect(checkPolicyWrite(ok, { port: 8787, origins: [DASH] })).toBeNull();
+    expect(checkPolicyWrite({ ...ok, remoteAddress: "192.168.1.5" }, { port: 8787, origins: [DASH] })?.status).toBe(403);
+    expect(checkPolicyWrite({ ...ok, remoteAddress: "::ffff:10.0.0.1" }, { port: 8787, origins: [DASH] })?.status).toBe(403);
+  });
+
+  it("test_drillPostRejectsForeignOrigin", async () => {
+    const { runner } = fakeDrill();
+    srv = await startServer({ file: join(tmpdir(), "nope.jsonl"), port: 0, drill: runner, dashboardOrigins: [DASH] });
+    for (const origin of ["https://evil.example", "null", "http://localhost:5174"]) {
+      const r = await raw(srv.port, "POST", "/drill", { ...json, Origin: origin }, "{}");
+      expect(r.status).toBe(403);
+      expect(r.headers["access-control-allow-origin"]).toBeUndefined();
+    }
+    expect(runner.start).not.toHaveBeenCalled();
+  });
+
+  it("test_drillPostRejectsTextPlain", async () => {
+    const { runner } = fakeDrill();
+    srv = await startServer({ file: join(tmpdir(), "nope.jsonl"), port: 0, drill: runner, dashboardOrigins: [DASH] });
+    // A simple form POST needs no preflight: text/plain, form-encoded or no type at all.
+    for (const type of ["text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"]) {
+      expect((await raw(srv.port, "POST", "/drill", { "Content-Type": type, Origin: DASH }, "{}")).status).toBe(415);
+    }
+    expect((await raw(srv.port, "POST", "/drill", { Origin: DASH })).status).toBe(415);
+    expect(runner.start).not.toHaveBeenCalled();
+  });
+
+  it("test_drillRoutesRejectForeignHost", async () => {
+    const { runner } = fakeDrill();
+    srv = await startServer({ file: join(tmpdir(), "nope.jsonl"), port: 0, drill: runner, dashboardOrigins: [DASH] });
+    const evil = { Host: `evil.example:${srv.port}` };
+    expect((await raw(srv.port, "POST", "/drill", { ...evil, ...json }, "{}")).status).toBe(403);
+    for (const path of ["/drill", "/drill/events", "/drill/runs"]) {
+      const r = await raw(srv.port, "GET", path, { ...evil, Origin: DASH });
+      expect(r.status).toBe(403);
+      expect(r.headers["content-type"]).toBe("application/json");
+    }
+    expect((await raw(srv.port, "OPTIONS", "/drill", { ...evil, Origin: DASH })).status).toBe(403);
+    expect(runner.start).not.toHaveBeenCalled();
+    expect(runner.runs).not.toHaveBeenCalled();
+  });
+
+  it("test_drillPostFromDashboardOriginStarts", async () => {
+    const { runner } = fakeDrill();
+    srv = await startServer({ file: join(tmpdir(), "nope.jsonl"), port: 0, drill: runner, dashboardOrigins: [DASH] });
+    const pre = await raw(srv.port, "OPTIONS", "/drill", { Origin: DASH, "Access-Control-Request-Method": "POST" });
+    expect(pre.status).toBe(204);
+    expect(pre.headers["access-control-allow-origin"]).toBe(DASH);
+    expect(pre.headers["access-control-allow-methods"]).toBe("GET, POST, OPTIONS");
+    expect(pre.headers["access-control-allow-headers"]).toBe("Content-Type");
+    const r = await raw(srv.port, "POST", "/drill", { ...json, Origin: DASH }, "{}");
+    expect(r.status).toBe(202);
+    expect(r.headers["access-control-allow-origin"]).toBe(DASH);
+    expect(r.headers["vary"]).toBe("Origin");
+    expect(JSON.parse(r.body)).toMatchObject({ status: "running", startedAt: "2026-11-24T09:30:00.000Z" });
+    expect(runner.start).toHaveBeenCalledTimes(1);
+    // A reload mid-drill reads the running state; the runs list comes from the runner.
+    const get = await raw(srv.port, "GET", "/drill", { Origin: DASH });
+    expect(get.status).toBe(200);
+    expect(get.headers["access-control-allow-origin"]).toBe(DASH);
+    expect(JSON.parse(get.body).status).toBe("running");
+    runner.runs.mockReturnValue([{ runId: "r1" } as DrillRunSummary]);
+    const runs = await raw(srv.port, "GET", "/drill/runs", { Origin: "https://evil.example" });
+    expect(runs.status).toBe(200);
+    expect(runs.headers["access-control-allow-origin"]).toBeUndefined(); // CORS never names a foreign origin
+    expect(JSON.parse(runs.body)).toEqual([{ runId: "r1" }]);
+    expect((await raw(srv.port, "DELETE", "/drill")).status).toBe(405);
+  });
+
+  it("test_drillPost409Passthrough", async () => {
+    const lines: string[] = [];
+    const busy = fakeDrill({ start: () => { throw new DrillError(409, "a fire drill is already running"); } });
+    srv = await startServer({ file: join(tmpdir(), "nope.jsonl"), port: 0, drill: busy.runner, dashboardOrigins: [DASH], log: (l) => void lines.push(l) });
+    const r = await raw(srv.port, "POST", "/drill", { ...json, Origin: DASH }, "{}");
+    expect(r.status).toBe(409);
+    expect(JSON.parse(r.body)).toEqual({ error: "a fire drill is already running" });
+    await srv.close();
+
+    const noGuardian = fakeDrill({ start: () => { throw new DrillError(503, "no drill guardian (run: pnpm cli drill-guardian init)"); } });
+    srv = await startServer({ file: join(tmpdir(), "nope.jsonl"), port: 0, drill: noGuardian.runner, dashboardOrigins: [DASH] });
+    const r2 = await raw(srv.port, "POST", "/drill", json, "{}");
+    expect(r2.status).toBe(503);
+    expect(JSON.parse(r2.body).error).toContain("drill-guardian init");
+    await srv.close();
+
+    // Anything else is the server's failure: 500, generic, logged.
+    const broken = fakeDrill({ start: () => { throw new Error("EACCES /home/owner/secret"); } });
+    srv = await startServer({ file: join(tmpdir(), "nope.jsonl"), port: 0, drill: broken.runner, log: (l) => void lines.push(l) });
+    const r3 = await raw(srv.port, "POST", "/drill", json, "{}");
+    expect(r3.status).toBe(500);
+    expect(r3.body).not.toContain("/home");
+    expect(lines.some((l) => l.includes("EACCES"))).toBe(true);
+  });
+
+  it("test_drillEventsSendsStateOnConnect", async () => {
+    const d = fakeDrill();
+    srv = await startServer({ file: join(tmpdir(), "nope.jsonl"), port: 0, drill: d.runner, dashboardOrigins: [DASH] });
+    const ac = new AbortController();
+    const r = await fetch(`http://127.0.0.1:${srv.port}/drill/events`, { signal: ac.signal, headers: { Origin: DASH } });
+    expect(r.headers.get("content-type")).toBe("text/event-stream");
+    expect(r.headers.get("access-control-allow-origin")).toBe(DASH);
+    const reader = r.body!.getReader();
+    const dec = new TextDecoder();
+    let text = "";
+    while (!text.includes('"status":"idle"')) text += dec.decode((await reader.read()).value);
+    expect(text).toMatch(/^event: drill\ndata: \{.*"status":"idle".*\}\n\n$/s);
+    d.emit({ status: "running", runId: "R1", stage: "setup", startedAt: "t", endedAt: null, error: null, lines: ["--- setup"] });
+    text = "";
+    while (!text.includes('"stage":"setup"')) text += dec.decode((await reader.read()).value);
+    expect(text).toContain("event: drill\n");
+    expect(text).toContain('"runId":"R1"');
+    expect(d.subs.size).toBe(1);
+    ac.abort();
+    for (let i = 0; i < 50 && d.subs.size > 0; i++) await new Promise((res) => setTimeout(res, 10));
+    expect(d.subs.size).toBe(0); // unsubscribed on client close
+  });
+
+  it("test_drillRoutes404WithoutRunner", async () => {
+    srv = await startServer({ file: join(tmpdir(), "nope.jsonl"), port: 0, dashboardOrigins: [DASH] });
+    expect((await raw(srv.port, "POST", "/drill", { ...json, Origin: DASH }, "{}")).status).toBe(404);
+    for (const path of ["/drill", "/drill/events", "/drill/runs"]) expect((await raw(srv.port, "GET", path)).status).toBe(404);
   });
 });
