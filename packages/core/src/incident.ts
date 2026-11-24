@@ -25,6 +25,19 @@ export type IncidentBody = {
   summary: string;
   /** Who wrote `summary`: the LLM, or the deterministic template fallback. */
   summarySource: "llm" | "template";
+  /** `qor1` account that co-signed the report with QoreSign (the vault's guardian). Covered by both signatures. */
+  guardian?: string;
+};
+
+/**
+ * A QoreSign message signature (`@qorechain/qoresign` `MessageSignature`): the signer's classical key over the ADR-36 sign
+ * document and its ML-DSA-87 key over `"qorechain-msg-v1|" + chainId + "|" + data`. Declared here so core needs no QoreSign
+ * dependency; the agent signs and the dashboard verifies with QoreSign itself.
+ */
+export type GuardianSignature = {
+  signatureType: "ml-dsa-87-hybrid" | "secp256k1";
+  classical: { keyType: string; publicKey: string; signature: string };
+  pq?: { algorithmId: number; signature: string };
 };
 
 export type Incident = IncidentBody & {
@@ -32,6 +45,8 @@ export type Incident = IncidentBody & {
   agentPubkey: string;
   /** ed25519 signature over `incidentSigningBytes`, 64-byte hex without 0x. */
   sig: string;
+  /** The guardian's QoreSign signature over the same `incidentSigningBytes` (submission gap 3). Absent on older reports. */
+  guardianSig?: GuardianSignature;
 };
 
 const DOMAIN = "QDAY-GUARDIAN-INCIDENT-V1\n";
@@ -56,19 +71,37 @@ function sortKeys(v: unknown): unknown {
   return v;
 }
 
-/** The bytes that get signed: the domain tag plus the canonical JSON of the incident without `sig`. */
-export function incidentSigningBytes(i: IncidentBody & { agentPubkey: string; sig?: string }): Uint8Array {
-  const { sig: _sig, ...rest } = i;
+/** The bytes that get signed: the domain tag plus the canonical JSON of the incident without `sig` and `guardianSig`. */
+export function incidentSigningBytes(i: IncidentBody & { agentPubkey: string; sig?: string; guardianSig?: GuardianSignature }): Uint8Array {
+  const { sig: _sig, guardianSig: _guardianSig, ...rest } = i;
   return new TextEncoder().encode(DOMAIN + canonicalJson(rest));
 }
 
 const strip0x = (h: string) => (h.startsWith("0x") ? h.slice(2) : h);
 
-/** Sign an incident body with the agent key. Sets `agentPubkey` and `sig`. */
-export function signIncident(body: IncidentBody, sk: Uint8Array): Incident {
+/** Co-signs an incident's signing bytes as `guardian` (QoreSign, in the agent). A throw leaves a plain ed25519 report. */
+export type GuardianCoSigner = { guardian: string; sign(bytes: Uint8Array): GuardianSignature; onError?: (e: unknown) => void };
+
+/**
+ * Sign an incident body with the agent key. Sets `agentPubkey` and `sig`, and with a co-signer also `guardian` (inside the
+ * signed bytes) and `guardianSig` (outside them). A co-signer failure never blocks the report: it is reported through
+ * `onError` and the report goes out with the ed25519 signature only, exactly as it would without a co-signer.
+ */
+export function signIncident(body: IncidentBody, sk: Uint8Array, coSigner?: GuardianCoSigner): Incident {
   const agentPubkey = strip0x(bytesToHex(ed25519.getPublicKey(sk)));
-  const sig = strip0x(bytesToHex(ed25519.sign(incidentSigningBytes({ ...body, agentPubkey }), sk)));
-  return { ...body, agentPubkey, sig };
+  let signedBody: IncidentBody = body;
+  let guardianSig: GuardianSignature | undefined;
+  if (coSigner) {
+    try {
+      const withGuardian = { ...body, guardian: coSigner.guardian };
+      guardianSig = coSigner.sign(incidentSigningBytes({ ...withGuardian, agentPubkey }));
+      signedBody = withGuardian;
+    } catch (e) {
+      coSigner.onError?.(e);
+    }
+  }
+  const sig = strip0x(bytesToHex(ed25519.sign(incidentSigningBytes({ ...signedBody, agentPubkey }), sk)));
+  return guardianSig ? { ...signedBody, agentPubkey, sig, guardianSig } : { ...signedBody, agentPubkey, sig };
 }
 
 /** True when `sig` is a valid signature by `agentPubkey` over the incident. Never throws. */

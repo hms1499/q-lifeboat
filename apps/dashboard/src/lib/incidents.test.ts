@@ -58,6 +58,12 @@ describe("mergeIncident / parseIncidentList", () => {
     expect(mergeIncident(one, inc("b", "2026-11-21T10:00:09.000Z"))).toHaveLength(2);
   });
 
+  it("a live frame with the same sig but another body (e.g. a different co-signature) replaces the stored one", () => {
+    const a = { ...(inc("a", "2026-11-21T10:00:00.000Z") as object), sig: "s1", guardianSig: { pq: { signature: "x" } } } as never;
+    const b = { ...(inc("a", "2026-11-21T10:00:00.000Z") as object), sig: "s1", guardianSig: { pq: { signature: "y" } } } as never;
+    expect(mergeIncident([a], b)[0]).toMatchObject({ guardianSig: { pq: { signature: "y" } } });
+  });
+
   it("keeps only well-formed incidents from the /incidents body", () => {
     expect(parseIncidentList([full(), null, 5, { id: 3 }, { nope: 1 }]).map((i: { id: string }) => i.id)).toEqual(["ok-1"]);
     expect(parseIncidentList({ not: "an array" })).toEqual([]);

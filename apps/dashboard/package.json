@@ -14,6 +14,7 @@
   "dependencies": {
     "@qday/core": "workspace:*",
     "@qorechain/evm": "0.14.0",
+    "@qorechain/qoresign": "0.2.0",
     "@qorechain/sdk": "0.14.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",

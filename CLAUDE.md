@@ -155,7 +155,8 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSig
 `linkAuthenticatorMsgs`, `signAuthenticatorLinkEd25519`, `revokeAuthenticatorMsg`,
 `buildPhantomExecuteEvm`, `fetchAuthNonce`, `fetchSpendingRules`, `fetchAuthenticators`,
 `decodeAuthenticatorExecutions`, `resolveEvmAuthDigestVersion`, `openEvmWindowMsg`,
-`closeEvmWindowMsg`, `fetchPqcStatus`. Check typings before using anything else. Working references:
+`closeEvmWindowMsg`, `fetchPqcStatus`. `@qorechain/qoresign@0.2.0` (agent + dashboard): `classicalKeyFromPrivate(pk,
+"eth_secp256k1")`, `signMessage`, `verifyMessage`, and `verifyMessageWithChain` from `@qorechain/qoresign/network`. Check typings before using anything else. Working references:
 `spike/probe/probe.mjs` and `spike/workshop/workshop-2/`.
 
 ## Session notes
@@ -181,6 +182,8 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSig
   `getUpdates`). The agent's API on :8787 serves `/incidents`, `/events`, `/health`, `/config` and `/policy` (policy in
   `data/policy-<owner>.json`, writes from loopback + dashboard origin only). Demo run logs in `~/.config/qday/runs/`
   are not readable from this session: ask the builder for what they show.
+- The root owner's agent key is linked until 2026-12-24 13:51 UTC (30-day TTL, renewed 2026-11-24). `pnpm cli link` does not renew a
+  live key: renew with `pnpm cli unlink --expect <0x>` then `pnpm cli link --expect <0x>` (chain fact 21).
 - One drill costs the funder ~1.5 QOR + fees and the drill guardian ~0.47 QOR (2026-11-24, run `20261124T081242Z`). The drill's
   incidents live in its run dir, never in `data/incidents.jsonl`; `GET /drill/runs` reads `verdict.json` only.
 

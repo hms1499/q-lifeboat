@@ -1,4 +1,4 @@
-import type { Incident } from "@qday/core";
+import { canonicalJson, type Incident } from "@qday/core";
 
 /**
  * Incidents as the agent serves them: JSON, so every bigint is a decimal string. They are kept exactly as received,
@@ -26,13 +26,13 @@ export function incidentTag(i: Incident): "Rescue" | "Alert" {
 }
 
 /**
- * Add a live (SSE) incident; a replay of the same body is ignored, a new body under a known id replaces the old one
+ * Add a live (SSE) incident; a replay of the same report (every field, co-signature included) is ignored, a new body under a known id replaces the old one
  * (its verdict is then pending until it is verified: see verifyPolicy). Result sorted.
  */
 export function mergeIncident(list: readonly Incident[], incoming: Incident): Incident[] {
   const at = list.findIndex((i) => i.id === incoming.id);
   if (at < 0) return sortIncidents([...list, incoming]);
-  if (list[at].sig === incoming.sig) return sortIncidents(list);
+  if (canonicalJson(list[at]) === canonicalJson(incoming)) return sortIncidents(list); // the same report, co-signature included
   return sortIncidents(list.map((i, n) => (n === at ? incoming : i)));
 }
 
