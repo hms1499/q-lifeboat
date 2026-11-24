@@ -133,6 +133,17 @@ If (1) or (2) fails, stop and report. The fallback is to sign with `pqSign` from
 sign-bytes, and verify the ML-DSA-87 part in the browser against `fetchPqcStatus`. That still makes the report post-quantum, but
 it is not the QoreSign kit, so the kit is not detected.
 
+**Spike results (2026-11-24, `spike/qoresign/`, `@qorechain/qoresign@0.2.0`): all four pass, no departure from the design.**
+
+| # | Question | Result |
+|---|---|---|
+| 1 | Classical key type for the guardian | `classicalKeyTypeFor` returns `eth_secp256k1` for the guardian's key and `qor1l7pv44nr3gudwqyap4wlkat3x6cvqwzsvtm0pt` |
+| 2 | SDK ML-DSA-87 key vs the chain | The SDK-derived public key equals the registered one (`keyType: hybrid`, `possessionProven: true`); `verifyMessageWithChain` returns `{possessionProven: true}`. The drill guardian `qor1wlnrzxmgrtpafdhqcwcnu5708qtf9sg46d5xga` is registered the same way |
+| 3 | Browser | `@qorechain/qoresign/network` bundles for the browser with esbuild: 82 KB minified, 31 KB gzip. Run in the dashboard's page on `127.0.0.1:5173` with `rest = origin + "/qore-rest"`, it verified the sample (`possessionProven: true`) and rejected a changed body |
+| 4 | Rejections | Changed data → `CLASSICAL_SIGNATURE_INVALID`; another claimed signer (the funder) → `ADDRESS_MISMATCH`; no `pq` part with `requirePq` → `PQ_LAYER_MISSING`; a `pq` part taken from another message with a valid classical part → `PQ_SIGNATURE_INVALID` |
+
+No chain tx was needed (message signatures are off chain; the only chain read is the guardian's key status).
+
 **Tests (red first).**
 - `core`:
   - the signing bytes exclude `sig` and `guardianSig`;
