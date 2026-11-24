@@ -5,8 +5,9 @@ following the workshop-2 flow. An AI audit does not replace a human audit before
 
 | Stage | Contract version | Date | Score / risk | Report |
 |---|---|---|---|---|
-| 1 | v1 (`a069e98`) | 2026-11-20 | 85/100, MEDIUM, 4 findings | [`docs/audit/stage1-2026-11-20.md`](audit/stage1-2026-11-20.md) |
-| 2 | v3 final (`4dc7600`) | 2026-11-24 | MEDIUM, 4 findings (no score in the copied text) | [`docs/audit/stage2-2026-11-24.md`](audit/stage2-2026-11-24.md) |
+| 1 | v1 (`a069e98`) | 2026-11-20 | 85/100, MEDIUM, 4 findings | [`docs/audit/stage1-2026-11-20.md`](audit/stage1-2026-11-20.md) (text; the PDF was not kept) |
+| 1, re-run | v1 (`a069e98`, same source) | 2026-11-24 | 85/100, MEDIUM, 4 findings | [`docs/audit/stage1-v1-rerun-2026-11-24.pdf`](audit/stage1-v1-rerun-2026-11-24.pdf) |
+| 2 | v3 final (`4dc7600`) | 2026-11-24 | 85/100, MEDIUM, 4 findings | [`docs/audit/stage2-2026-11-24.pdf`](audit/stage2-2026-11-24.pdf), text in [`stage2-2026-11-24.md`](audit/stage2-2026-11-24.md) |
 
 ## Stage 1 findings and how each was handled
 
@@ -33,6 +34,21 @@ unchanged. The finding's concern still holds: a stranger cannot sweep or emit `R
 (`NotAuthorized`), `test_constructorRejectsZeroGuardian`, `test_guardianCannotWithdrawWithoutSignature`,
 `test_guardianGetterReturnsConstructorValue`. The shared withdrawal-message vector is unchanged (the
 message has no guardian field). **Stage 2 must re-check the guardian path** (done: no finding on it, see below).
+
+## Stage 1 re-run on the same v1 source (2026-11-24)
+
+The PDF of the original Stage 1 run (2026-11-20) was not kept; only its text is in `docs/audit/stage1-2026-11-20.md`. To have a dated
+PDF of a Stage 1 audit, the exact v1 source (`git show a069e98:contracts/src/GuardianVault.sol`) was audited again with the same
+setting (Ethereum). It scored the same (85/100, MEDIUM, 4 findings) but **listed different findings**: an AI audit is not
+deterministic. Notably the re-run did **not** flag the missing access control on `rescue`, the one real issue the original run found
+(fixed, see Stage 1 #1 above). QCAI's line numbers again do not match the file; findings are matched by function name.
+
+| # | Severity | Finding (re-run) | Fix / test / explanation |
+|---|---|---|---|
+| R1 | HIGH | Missing access control on the withdrawal function | **False positive.** `withdraw` may be submitted by anyone on purpose (a fresh, funded account relays the owner's signed withdrawal), and it is authorised by the owner's ML-DSA-87 signature, checked against the key `pqcKeyStatus` reports as registered and proven for `owner`. Tests: `test_revertsBadSignature`, `test_revertsWhenKeyNotRegistered`, `test_revertsWhenKeyNotProven`, `test_frontRunnerCanOnlyPayTheSignedRecipient` |
+| R2 | MEDIUM | Potential overflow in `rescue` | **False positive.** `rescue` does no arithmetic: it takes `min(balance, allowance)`. Solidity 0.8 checks arithmetic anyway, and the only increment (`nonce = n + 1` in `withdraw`) can not realistically overflow a `uint256`. Tests: `test_rescueCapsAtAllowance`, `test_rescueWithBalanceButNoAllowance`, `test_rescueZeroBalanceDoesNotRevert` |
+| R3 | LOW | "Unbounded loop" in the safe transfer functions | Same as Stage 1 #3: no loop; the token return value is checked with SafeERC20 semantics (`_succeeded`). Tests listed under Stage 1 #3 |
+| R4 | INFO | Nonce management | Same as Stage 1 #2: the nonce is bound in the signed message and bumped before any external call. Tests: `test_nonceIncrementsBeforeTransfer`, `test_signatureWorksOnce` |
 
 ## Stage 2 findings and how each was handled
 

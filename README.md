@@ -261,8 +261,9 @@ Every change is test-first. A claim about the chain counts only with a real tran
 
 - [Threat model](docs/THREAT_MODEL.md), including the honest limits
 - [Audit](docs/AUDIT.md):
-  - QCAI Stage 1: 85/100, MEDIUM.
-  - Stage 2, on the final contract: MEDIUM, no finding on the guardian path.
+  - QCAI Stage 1 on v1: 85/100, MEDIUM (dated PDF of a re-run on the same source).
+  - Stage 2 on the final contract: 85/100, MEDIUM, no finding on the guardian path.
+  - Reports in [`docs/audit/`](docs/audit).
   - Every finding is fixed, covered by a test, or explained.
 - [On-chain evidence](docs/EVIDENCE.md)
 - [Spec](docs/specs/2026-11-19-qday-guardian-mvp.md) and [plan](docs/plans/2026-11-19-qday-guardian.md)
