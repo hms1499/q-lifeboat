@@ -5,21 +5,13 @@ import { CheckRow, TxHash } from "../components/ui";
 import { readReceipt } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { ago, fmtAmount, fmtInt, shortAddr, shortHash, tokenSymbol, when } from "../lib/format";
+import { describeIncident } from "../lib/explain";
 import { big, incidentTag, triggerKind } from "../lib/incidents";
+import { useOwnedIncidents } from "../lib/useOwned";
 import type { VerifyResult } from "../lib/verify";
 import { useApp } from "../state";
 
 const HASH_RE = /^0x[0-9a-fA-F]{64}$/;
-
-function title(i: Incident, cfg: AgentConfig | null): string {
-  const done = i.rescues.filter((r) => r.success);
-  if (incidentTag(i) === "Rescue") {
-    if (!done.length) return "Rescue attempted, nothing moved";
-    const parts = done.map((r) => `${fmtAmount(big(r.amount))} ${tokenSymbol(cfg, r.token)}`);
-    return `${parts.join(" + ")} moved to your vault`;
-  }
-  return triggerKind(i) === "approval" ? "Approval to a spender you don't trust" : "Outgoing transfer flagged";
-}
 
 function subtitle(i: Incident, cfg: AgentConfig | null): string {
   const t = i.trigger;
@@ -94,8 +86,9 @@ function Detail({ i, cfg, v }: { i: Incident; cfg: AgentConfig | null; v: Verify
               Incident {i.id}
             </div>
             <h2 className="h" style={{ margin: "6px 0 0", fontSize: 24 }}>
-              {title(i, cfg)}
+              {describeIncident(i, cfg).headline}
             </h2>
+            <p style={{ margin: "6px 0 0", fontSize: 15, color: "var(--ink-2)" }}>{describeIncident(i, cfg).detail}</p>
           </div>
           <VerifyBadge v={v} />
         </div>
@@ -109,13 +102,9 @@ function Detail({ i, cfg, v }: { i: Incident; cfg: AgentConfig | null; v: Verify
           ))}
         </div>
 
-        <div style={{ marginTop: 22 }}>
-          <div className="lbl" style={{ marginBottom: 8 }}>
-            Summary · {i.summarySource === "llm" ? "written by AI" : "template"}
-          </div>
-          <p className="wrap-any" style={{ margin: 0, fontSize: 15, lineHeight: 1.65 }}>
-            {i.summary}
-          </p>
+        <div className="agent-note">
+          <div className="lbl">Agent's summary · {i.summarySource === "llm" ? "written by AI" : "template"}</div>
+          <p className="wrap-any">{i.summary}</p>
         </div>
 
         <div style={{ marginTop: 22 }}>
@@ -210,8 +199,28 @@ function Detail({ i, cfg, v }: { i: Incident; cfg: AgentConfig | null; v: Verify
 
 export function Incidents({ selected }: { selected?: string }) {
   const { incidents, incidentsError, verdictFor, config } = useApp();
+  const { own, others, isChecking } = useOwnedIncidents();
   const cfg = config.cfg;
-  const current = incidents.find((i) => i.id === selected) ?? incidents[0];
+  // A report opened by link may belong to another account: show it, and the list stays the owner's.
+  const current = incidents.find((i) => i.id === selected) ?? own[0] ?? others[0];
+
+  const card = (i: Incident) => {
+    const tag = incidentTag(i);
+    const v = verdictFor(i);
+    return (
+      <a key={i.id} className="inc-item" href={`#/incidents/${encodeURIComponent(i.id)}`} aria-current={i === current ? "true" : undefined}>
+        <span className="between" style={{ alignItems: "center" }}>
+          <span className={`tag ${tag === "Rescue" ? "orange" : ""}`}>{tag}</span>
+          <span style={{ fontSize: 12, color: "var(--muted)" }} title={i.detectedAt}>
+            {ago(i.detectedAt)} {v ? (v.ok ? <span style={{ color: "var(--blue)" }}>✓</span> : <span style={{ color: "var(--red)" }}>✗</span>) : "…"}
+          </span>
+        </span>
+        <span className="t">{describeIncident(i, cfg).headline}</span>
+        <span className="s">{subtitle(i, cfg)}</span>
+        {isChecking(i) ? <span className="inc-owner">checking owner…</span> : null}
+      </a>
+    );
+  };
 
   return (
     <>
@@ -222,22 +231,14 @@ export function Incidents({ selected }: { selected?: string }) {
       {incidents.length ? (
         <div className="row">
           <section aria-label="Incident list" className="inc-list">
-            {incidents.map((i) => {
-              const tag = incidentTag(i);
-              const v = verdictFor(i);
-              return (
-                <a key={i.id} className="inc-item" href={`#/incidents/${encodeURIComponent(i.id)}`} aria-current={i === current ? "true" : undefined}>
-                  <span className="between" style={{ alignItems: "center" }}>
-                    <span className={`tag ${tag === "Rescue" ? "orange" : ""}`}>{tag}</span>
-                    <span style={{ fontSize: 12, color: "var(--muted)" }} title={i.detectedAt}>
-                      {ago(i.detectedAt)} {v ? (v.ok ? <span style={{ color: "var(--blue)" }}>✓</span> : <span style={{ color: "var(--red)" }}>✗</span>) : "…"}
-                    </span>
-                  </span>
-                  <span className="t">{title(i, cfg)}</span>
-                  <span className="s">{subtitle(i, cfg)}</span>
-                </a>
-              );
-            })}
+            {own.length ? own.map(card) : <div className="empty">No incidents for your account yet.</div>}
+            {others.length ? (
+              <details className="others">
+                <summary>Other accounts ({others.length})</summary>
+                <p className="note">Reports this agent wrote for other accounts (e.g. demo runs). They don't verify against your vault.</p>
+                {others.map(card)}
+              </details>
+            ) : null}
           </section>
           {current ? <Detail key={current.id} i={current} cfg={cfg} v={verdictFor(current)} /> : null}
         </div>
