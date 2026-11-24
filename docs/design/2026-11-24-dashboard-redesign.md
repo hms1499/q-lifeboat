@@ -83,7 +83,7 @@ Nothing animates on page load.
 └────────────┴──────────────────────────────────────────────┘
 ```
 
-- Sidebar 248px, `--harbour` background, white text. Brand at top (shield-lifebuoy mark + "Q-Lifeboat"). Nav in two
+- Sidebar 248px, `--harbour` background, white text. Brand at top ("Harbor shield" mark, direction C of the Q-Lifeboat logo canvas, + "Q-Lifeboat"). Nav in two
   groups: "Monitor" (Overview, Incidents, Recover) and "Set up" (Protect, Rules, Fire drill); group labels are small
   sentence-case text, not caps. Active item: white text with a 3px `--rescue` bar on its left edge (the only orange in
   the shell). Footer: agent status dot + "Guardian online/degraded/offline", watched account (mono, short), network

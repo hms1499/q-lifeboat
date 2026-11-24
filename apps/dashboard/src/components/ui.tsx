@@ -1,16 +1,24 @@
-import { Component, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, useId, useState, type ErrorInfo, type ReactNode } from "react";
 import { explorerTxUrl } from "../lib/chain";
 import { shortHash } from "../lib/format";
 import type { CheckStatus } from "../lib/verify";
 
-/** The brand mark: a shield (the vault) holding a lifebuoy (the rescue). Inherits `currentColor`. */
-export function LifeboatMark({ size = 28 }: { size?: number }) {
+/**
+ * The brand mark, "Harbor shield" (direction C of the Q-Lifeboat logo canvas): a shield (the vault) with a lifebuoy, a boat
+ * and a wave cut out of it. The shield takes `currentColor`; the cut-outs are real holes (a mask), so they show whatever
+ * is behind the mark.
+ */
+export function LifeboatMark({ size = 32 }: { size?: number }) {
+  const id = `lb-cut-${useId().replace(/:/g, "")}`;
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 2.5l8 3.2v5.6c0 5-3.4 9-8 10.7-4.6-1.7-8-5.7-8-10.7V5.7l8-3.2z" />
-      <circle cx="12" cy="11.5" r="4" />
-      <circle cx="12" cy="11.5" r="1.6" />
-      <path d="M9.2 8.7l1.6 1.6M14.8 8.7l-1.6 1.6M9.2 14.3l1.6-1.6M14.8 14.3l-1.6-1.6" />
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+      <mask id={id} maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+        <rect width="64" height="64" fill="#fff" />
+        <circle cx="32" cy="22" r="4.5" fill="none" stroke="#000" strokeWidth="3" />
+        <path d="M18 31 H46 L42 40 Q41 42 39 42 H25 Q23 42 22 40 Z" fill="#000" />
+        <path d="M21 48 q2.75 -2.5 5.5 0 t5.5 0 t5.5 0 t5.5 0" fill="none" stroke="#000" strokeWidth="2.6" strokeLinecap="round" />
+      </mask>
+      <path d="M32 5 L54 13 V30 C54 44 44 54 32 59 C20 54 10 44 10 30 V13 Z" fill="currentColor" mask={`url(#${id})`} />
     </svg>
   );
 }
