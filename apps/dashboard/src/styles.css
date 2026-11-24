@@ -187,3 +187,21 @@ dl.kv dd small { display: block; color: var(--muted); font-weight: 400; font-siz
   .tl { grid-template-columns: 1fr; gap: 4px; }
   .indent { margin-left: 0; }
 }
+
+/* Task 6H: explainer, slow-chain notes, plain-words incident text */
+.explainer { border-color: var(--blue-line); }
+.explainer .ex-lead { margin: 6px 0 14px; font-size: 15px; line-height: 1.55; color: var(--ink-2); max-width: 760px; }
+.ex-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.ex-steps li { display: flex; flex-direction: column; gap: 4px; background: var(--well); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.ex-label { font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 500; color: var(--blue); }
+.ex-text { font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.tip { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+.slow { color: var(--orange); }
+.linklike { background: none; border: 0; padding: 0; font: inherit; font-size: 14px; font-weight: 600; color: var(--blue); cursor: pointer; text-decoration: underline; }
+.agent-note { margin-top: 22px; }
+.agent-note .lbl { font-size: 11px; }
+.agent-note p { margin: 4px 0 0; font-size: 13px; line-height: 1.55; color: var(--muted); }
+.others { margin-top: 10px; }
+.others summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--muted); padding: 8px 2px; }
+.others .note { margin: 0 0 8px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.inc-owner { font-size: 12px; color: var(--muted); font-style: italic; }

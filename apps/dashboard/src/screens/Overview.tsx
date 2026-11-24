@@ -1,17 +1,37 @@
 import type { EvmWindow } from "@qorechain/evm/window";
 import { useState } from "react";
 import { erc20Abi, getAbiItem, type Hex } from "viem";
+import { HowItWorks, useHowItWorks } from "../components/HowItWorks";
 import { GasTank } from "../components/GasTank";
 import { RescueNow } from "../components/RescueNow";
 import { TxHash, WindowCommand } from "../components/ui";
-import { fetchHealth, fetchPolicy } from "../lib/agent";
+import { fetchHealth, fetchPolicy, type Health as AgentHealth } from "../lib/agent";
 import { publicClient, readSpendingRules, readWindow } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { ago, fmtAmount, fmtInt, shortAddr, tokenSymbol } from "../lib/format";
 import { usePoll, type Polled } from "../lib/hooks";
 import { big, incidentTag, triggerKind } from "../lib/incidents";
 import { coverage, describeAgentRule, heroRescue, labelCounterparty, windowTargetsLabel } from "../lib/overview";
+import { useOwnedIncidents } from "../lib/useOwned";
 import { useApp } from "../state";
+
+const SLOW_TEXT = "diana is slow to answer. Still trying…";
+const WINDOW_TIP = "A time-limited permission your account opens for EVM transactions; while it is closed, a leaked ECDSA key can't send anything.";
+
+/** Wrap the words "EVM window" in a hover explanation. */
+function withTip(text: string) {
+  const at = text.indexOf("EVM window");
+  if (at < 0) return text;
+  return (
+    <>
+      {text.slice(0, at)}
+      <span className="tip" title={WINDOW_TIP}>
+        EVM window
+      </span>
+      {text.slice(at + "EVM window".length)}
+    </>
+  );
+}
 
 const SYMBOLS = ["fUSD", "fETH", "fBTC"] as const;
 const ACTIVITY_BLOCKS = 2000n;
@@ -57,8 +77,10 @@ async function readActivity(cfg: AgentConfig): Promise<{ tip: bigint; items: Act
   return { tip, items: items.slice(0, 25) };
 }
 
-function Hero({ cfg, win, winError }: { cfg: AgentConfig; win: EvmWindow | undefined; winError: string | null }) {
-  const { incidents, verdictFor } = useApp();
+function Hero({ cfg, win, winError, winSlow, health }: { cfg: AgentConfig; win: EvmWindow | undefined; winError: string | null; winSlow: boolean; health: AgentHealth | undefined }) {
+  const { verdictFor } = useApp();
+  // Only reports whose trigger tx came from this owner (or is still being checked): never the agent's word alone.
+  const { own: incidents } = useOwnedIncidents();
   const [show, setShow] = useState<"close" | "open" | null>(null);
   const reported = heroRescue(incidents, verdictFor);
   // "Your tokens are safe" only for a report verified against the chain (Review: never from the agent's word alone).
@@ -102,8 +124,11 @@ function Hero({ cfg, win, winError }: { cfg: AgentConfig; win: EvmWindow | undef
   } else {
     kicker = "Checking";
     title = winError ? "Can't read your EVM window" : "Reading your EVM window…";
-    body = winError ? `diana REST did not answer: ${winError}. Retrying every 10 s.` : "One moment.";
+    body = winError ? `diana REST did not answer: ${winError}. Retrying every 10 s.` : winSlow ? SLOW_TEXT : "One moment.";
   }
+
+  const degraded = health && !health.ok ? `Guardian degraded: its last block was ${ago(health.lastBlockAt)}.` : null;
+  if (degraded) kicker = `${kicker} · Guardian degraded`;
 
   const totalBlocks = win ? Number(win.expiryHeight - win.openedHeight) : 0;
   const blocksPct = win && totalBlocks > 0 ? Math.min(100, (Number(win.remainingBlocks) / totalBlocks) * 100) : 0;
@@ -113,8 +138,13 @@ function Hero({ cfg, win, winError }: { cfg: AgentConfig; win: EvmWindow | undef
       <div className="hero-grid">
         <div style={{ flex: "1 1 520px", minWidth: 0 }}>
           <div className="kicker">{kicker}</div>
-          <h1>{title}</h1>
+          <h1>{withTip(title)}</h1>
           <p>{body}</p>
+          {degraded ? (
+            <p className="slow" style={{ marginTop: 8, fontWeight: 600 }}>
+              {degraded}
+            </p>
+          ) : null}
           <div className="actions">
             {open ? (
               <button type="button" className="btn dark" onClick={() => setShow(show === "close" ? null : "close")} aria-expanded={show === "close"}>
@@ -157,7 +187,9 @@ function Hero({ cfg, win, winError }: { cfg: AgentConfig; win: EvmWindow | undef
           ) : null}
         </div>
         <div className="window-box">
-          <div className="lbl">Your EVM window</div>
+          <div className="lbl">
+            Your <span className="tip" title={WINDOW_TIP}>EVM window</span>
+          </div>
           <div className="value" style={{ color: open ? "var(--ink)" : "var(--blue)" }}>
             {!win ? "…" : open ? `Open · ~${Math.max(1, Math.round((Number(win.remainingBlocks) * BLOCK_SECONDS) / 60))} min left` : "Closed"}
           </div>
@@ -252,7 +284,7 @@ function Assets({ cfg, win }: { cfg: AgentConfig; win: Polled<EvmWindow> }) {
             ) : (
               <tr>
                 <td colSpan={4} className="empty">
-                  {assets.error ? `Could not read balances: ${assets.error}` : "Reading balances…"}
+                  {assets.error ? `Could not read balances: ${assets.error}` : assets.slow ? SLOW_TEXT : "Reading balances…"}
                 </td>
               </tr>
             )}
@@ -265,9 +297,8 @@ function Assets({ cfg, win }: { cfg: AgentConfig; win: Polled<EvmWindow> }) {
   );
 }
 
-function Health({ cfg, win }: { cfg: AgentConfig; win: Polled<EvmWindow> }) {
+function Health({ cfg, win, health }: { cfg: AgentConfig; win: Polled<EvmWindow>; health: Polled<AgentHealth> }) {
   const { config } = useApp();
-  const health = usePoll(fetchHealth, 10_000, "health");
   const rules = usePoll(() => readSpendingRules(cfg.owner), 30_000, cfg.owner);
   const h = config.agentOnline ? health.data : undefined;
   const rule = rules.data ? describeAgentRule(rules.data, cfg.vault) : null;
@@ -299,7 +330,7 @@ function Health({ cfg, win }: { cfg: AgentConfig; win: Polled<EvmWindow> }) {
           <div>
             <dt>Its permission on your account</dt>
             <dd style={rule && !rule.ok ? { color: "var(--orange)" } : undefined}>
-              {rule ? rule.text : rules.error ? "could not read" : "…"}
+              {rule ? rule.text : rules.error ? "could not read" : rules.slow ? SLOW_TEXT : "…"}
               <small>{rule?.ok ? "enforced by the chain" : rule ? "not the expected rule" : ""}</small>
             </dd>
           </div>
@@ -364,7 +395,7 @@ function ActivityAndTrusted({ cfg }: { cfg: AgentConfig }) {
             );
           })
         ) : (
-          <div className="empty">{activity.error ? `Could not read logs: ${activity.error}` : activity.data ? "Nothing sent from your account in this range." : "Reading logs…"}</div>
+          <div className="empty">{activity.error ? `Could not read logs: ${activity.error}` : activity.data ? "Nothing sent from your account in this range." : activity.slow ? SLOW_TEXT : "Reading logs…"}</div>
         )}
       </section>
 
@@ -412,13 +443,24 @@ export function Overview() {
   const { config } = useApp();
   const cfg = config.cfg;
   const win = usePoll(() => readWindow(cfg!.owner), 10_000, cfg ? cfg.owner : null);
+  const health = usePoll(fetchHealth, 10_000, "health");
+  const how = useHowItWorks();
   if (!cfg) return null;
   return (
     <>
-      <Hero cfg={cfg} win={win.data} winError={win.error} />
+      {how.shown ? (
+        <HowItWorks onDismiss={how.dismiss} />
+      ) : (
+        <div style={{ textAlign: "right" }}>
+          <button type="button" className="linklike" onClick={how.reopen}>
+            How it works
+          </button>
+        </div>
+      )}
+      <Hero cfg={cfg} win={win.data} winError={win.error} winSlow={win.slow} health={config.agentOnline ? health.data : undefined} />
       <div className="row">
         <Assets cfg={cfg} win={win} />
-        <Health cfg={cfg} win={win} />
+        <Health cfg={cfg} win={win} health={health} />
       </div>
       <ActivityAndTrusted cfg={cfg} />
       <p style={{ margin: 0, fontSize: 12, color: "var(--muted)" }}>Live data · qorechain-diana testnet</p>
