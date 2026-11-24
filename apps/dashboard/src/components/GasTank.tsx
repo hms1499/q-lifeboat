@@ -81,7 +81,7 @@ export function GasTank({ cfg, health, win }: { cfg: AgentConfig; health: Health
     <section className="card">
       <div className="between">
         <h2>Gas tank</h2>
-        <span className="mono" style={{ fontSize: 18, fontWeight: 500 }}>
+        <span className="num-lg">
           {b === null ? "—" : `${fmtAmount(b)} QOR`}
         </span>
       </div>

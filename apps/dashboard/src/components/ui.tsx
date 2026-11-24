@@ -3,11 +3,58 @@ import { explorerTxUrl } from "../lib/chain";
 import { shortHash } from "../lib/format";
 import type { CheckStatus } from "../lib/verify";
 
-export function ShieldIcon({ size = 26 }: { size?: number }) {
+/** The brand mark: a shield (the vault) holding a lifebuoy (the rescue). Inherits `currentColor`. */
+export function LifeboatMark({ size = 28 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#1E4FD8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 2.5l8 3.2v5.6c0 5-3.4 9-8 10.7-4.6-1.7-8-5.7-8-10.7V5.7l8-3.2z" />
+      <circle cx="12" cy="11.5" r="4" />
+      <circle cx="12" cy="11.5" r="1.6" />
+      <path d="M9.2 8.7l1.6 1.6M14.8 8.7l-1.6 1.6M9.2 14.3l1.6-1.6M14.8 14.3l-1.6-1.6" />
+    </svg>
+  );
+}
+
+const NAV_PATHS: Record<string, ReactNode> = {
+  overview: (
+    <>
+      <path d="M3 12h4l3-7 4 14 3-7h4" />
+    </>
+  ),
+  incidents: (
+    <>
+      <path d="M5 21V4h11l-2 4 2 4H5" />
+    </>
+  ),
+  recover: (
+    <>
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M12 15V3M8 7l4-4 4 4" />
+    </>
+  ),
+  protect: (
+    <>
       <path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z" />
-      <path d="M9 12l2 2 4-4" />
+    </>
+  ),
+  rules: (
+    <>
+      <path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" />
+    </>
+  ),
+  drill: (
+    <>
+      <circle cx="12" cy="13" r="8" />
+      <path d="M12 9v4l2.5 2.5M9 2h6" />
+    </>
+  ),
+};
+
+/** 20px line icons for the main nav. */
+export function NavIcon({ name }: { name: string }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {NAV_PATHS[name]}
     </svg>
   );
 }
@@ -115,7 +162,7 @@ export function WindowCommand({ action, owner, children }: { action: "open" | "c
   return (
     <Command cmd={`pnpm cli window ${action} --expect ${owner}`}>
       {children}
-      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
+      <div style={{ fontSize: 13, lineHeight: "19px", color: "var(--muted)", marginTop: 8 }}>
         It refuses to sign unless the CLI's owner is {owner}. For a demo.sh owner, run it with that run's env:{" "}
         <span className="mono wrap-any">
           (set -a &amp;&amp; . ~/.config/qday/runs/&lt;run id&gt;/run.env &amp;&amp; set +a &amp;&amp; pnpm cli window {action} --expect {owner})

@@ -1,5 +1,5 @@
 import type { EvmWindow } from "@qorechain/evm/window";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { erc20Abi, getAbiItem, type Hex } from "viem";
 import { HowItWorks, useHowItWorks } from "../components/HowItWorks";
 import { GasTank } from "../components/GasTank";
@@ -77,77 +77,117 @@ async function readActivity(cfg: AgentConfig): Promise<{ tip: bigint; items: Act
   return { tip, items: items.slice(0, 25) };
 }
 
-function Hero({ cfg, win, winError, winSlow, health }: { cfg: AgentConfig; win: EvmWindow | undefined; winError: string | null; winSlow: boolean; health: AgentHealth | undefined }) {
+type Tone = "calm" | "open" | "rescued" | "unverified";
+
+const pct = (part: bigint, total: bigint) => (total === 0n ? 0 : Number((part * 10_000n) / total) / 100);
+
+/**
+ * The status board: what state the account is in (headline, EVM window) above the waterline, and each token's split
+ * between the account (exposed) and the vault (safe) below it. Replaces the hero and the Protected assets card.
+ */
+function StatusBoard({ cfg, win: winPoll, health }: { cfg: AgentConfig; win: Polled<EvmWindow>; health: AgentHealth | undefined }) {
   const { verdictFor } = useApp();
+  const win = winPoll.data;
+  const winError = winPoll.error;
+  const winSlow = winPoll.slow;
   // Only reports whose trigger tx came from this owner (or is still being checked): never the agent's word alone.
   const { own: incidents } = useOwnedIncidents();
   const [show, setShow] = useState<"close" | "open" | null>(null);
+  const assets = usePoll(() => readAssets(cfg), 10_000, `${cfg.owner}/${cfg.vault}`);
   const reported = heroRescue(incidents, verdictFor);
   // "Your tokens are safe" only for a report verified against the chain (Review: never from the agent's word alone).
   const rescue = reported?.state === "safe" ? reported.incident : undefined;
   const doubt = reported && reported.state !== "safe" ? reported : undefined;
   const open = !!win?.live;
 
-  let kicker: string;
+  // The one animation: a rescue detected while this page is open grows the vault part of the bars once the balances
+  // are re-read. A rescue that predates the page (page load, tab switch) does not animate.
+  const mountedAt = useRef(Date.now());
+  const seenRescue = useRef<string | null>(null);
+  const awaitingBalances = useRef(false);
+  const [grow, setGrow] = useState(0);
+  useEffect(() => {
+    if (!rescue || seenRescue.current === rescue.id) return;
+    seenRescue.current = rescue.id;
+    if (Date.parse(rescue.detectedAt) >= mountedAt.current - 2_000) {
+      awaitingBalances.current = true;
+      assets.refresh();
+    }
+  }, [rescue?.id]);
+  useEffect(() => {
+    if (!awaitingBalances.current || assets.at === null) return;
+    awaitingBalances.current = false;
+    setGrow((g) => g + 1);
+  }, [assets.at]);
+
+  let status: string;
+  let when: string | null = null;
   let title: string;
   let body: string;
-  let tone = open ? "open" : "";
+  let tone: Tone = open ? "open" : "calm";
   if (rescue) {
     const t = rescue.trigger;
     const sym = tokenSymbol(cfg, t.token);
     const kept = rescue.rescues.filter((r) => r.success).map((r) => `${fmtAmount(big(r.amount))} ${tokenSymbol(cfg, r.token)}`);
     tone = "rescued";
-    kicker = `Rescue completed · ${ago(rescue.detectedAt)}`;
+    status = "Rescue completed";
+    when = ago(rescue.detectedAt);
     title = "Your tokens are safe in your vault";
     body =
       triggerKind(rescue) === "approval"
         ? `At block #${fmtInt(String(t.block))} your ECDSA key approved ${shortAddr(t.to)}, a spender you don't trust, for ${sym}. The Guardian moved ${kept.join(", ")} into your vault. Treat that key as leaked.`
         : `At block #${fmtInt(String(t.block))} your ECDSA key sent ${fmtAmount(big(t.amount))} ${sym} to ${shortAddr(t.to)}, an address you don't trust. The Guardian moved ${kept.join(", ")} into your vault. Treat that key as leaked.`;
   } else if (doubt) {
-    tone = doubt.state === "unverified" ? "rescued" : open ? "open" : "";
-    kicker = doubt.state === "unverified" ? `Unverified rescue report · ${ago(doubt.incident.detectedAt)}` : "Checking a rescue report";
+    tone = doubt.state === "unverified" ? "unverified" : open ? "open" : "calm";
+    status = doubt.state === "unverified" ? "Unverified rescue report" : "Checking a rescue report";
+    when = doubt.state === "unverified" ? ago(doubt.incident.detectedAt) : null;
     title = doubt.state === "unverified" ? "The agent reports a rescue that did not verify" : "Checking the agent's rescue report…";
     body =
       doubt.state === "unverified"
         ? "Its report failed a check against the chain (signature, linked key or the rescue txs), so this page does not treat your tokens as safe. Open the report to see which check failed, and check your balances below."
         : "The agent reports a rescue. This page shows it as safe only once the signed report checks out against the chain.";
   } else if (open) {
-    kicker = "Protected · Guardian is watching";
+    status = "Protected, the Guardian is watching";
     title = "Your EVM window is open";
     body =
       "While it is open, anyone holding your ECDSA key can send txs inside it. If a transfer goes to an address you don't trust, the Guardian moves your tokens into your vault within a block or two.";
   } else if (win) {
-    kicker = "Protected · nothing exposed";
+    status = "Protected, nothing exposed";
     title = "No exposure right now";
     body =
       "Your EVM window is closed, so a leaked ECDSA key can't move anything: native-lane txs need your hybrid signature. The Guardian stays armed for the next window you open.";
   } else {
-    kicker = "Checking";
+    status = "Checking";
     title = winError ? "Can't read your EVM window" : "Reading your EVM window…";
     body = winError ? `diana REST did not answer: ${winError}. Retrying every 10 s.` : winSlow ? SLOW_TEXT : "One moment.";
   }
 
   const degraded = health && !health.ok ? `Guardian degraded: its last block was ${ago(health.lastBlockAt)}.` : null;
-  if (degraded) kicker = `${kicker} · Guardian degraded`;
 
   const totalBlocks = win ? Number(win.expiryHeight - win.openedHeight) : 0;
   const blocksPct = win && totalBlocks > 0 ? Math.min(100, (Number(win.remainingBlocks) / totalBlocks) * 100) : 0;
 
+  const rescueRows = assets.data
+    ?.filter((a): a is AssetRow & { sym: (typeof SYMBOLS)[number]; allowance: bigint } => a.allowance !== null && (SYMBOLS as readonly string[]).includes(a.sym))
+    .map((a) => ({ sym: a.sym, token: cfg.tokens[a.sym], owner: a.owner, allowance: a.allowance }));
+
   return (
-    <section className={`hero ${tone}`}>
-      <div className="hero-grid">
-        <div style={{ flex: "1 1 520px", minWidth: 0 }}>
-          <div className="kicker">{kicker}</div>
-          <h1>{withTip(title)}</h1>
+    <section className={`board ${tone}`} aria-labelledby="board-title">
+      <div className="board-top">
+        <div className="board-main">
+          <div className="board-status">
+            <span className="st">{status}</span>
+            {when ? <span className="when">{when}</span> : null}
+            {degraded ? <span className="degraded">Guardian degraded</span> : null}
+          </div>
+          <h2 id="board-title" className="board-title">
+            {withTip(title)}
+          </h2>
           <p>{body}</p>
-          {degraded ? (
-            <p className="slow" style={{ marginTop: 8, fontWeight: 600 }}>
-              {degraded}
-            </p>
-          ) : null}
+          {degraded ? <p className="slow">{degraded}</p> : null}
           <div className="actions">
             {open ? (
-              <button type="button" className="btn dark" onClick={() => setShow(show === "close" ? null : "close")} aria-expanded={show === "close"}>
+              <button type="button" className="btn primary" onClick={() => setShow(show === "close" ? null : "close")} aria-expanded={show === "close"}>
                 Close EVM window now
               </button>
             ) : null}
@@ -186,14 +226,17 @@ function Hero({ cfg, win, winError, winSlow, health }: { cfg: AgentConfig; win: 
             </WindowCommand>
           ) : null}
         </div>
-        <div className="window-box">
+        <div className={`window-box${open ? " open" : ""}`}>
           <div className="lbl">
-            Your <span className="tip" title={WINDOW_TIP}>EVM window</span>
+            Your{" "}
+            <span className="tip" title={WINDOW_TIP}>
+              EVM window
+            </span>
           </div>
-          <div className="value" style={{ color: open ? "var(--ink)" : "var(--blue)" }}>
-            {!win ? "…" : open ? `Open · ~${Math.max(1, Math.round((Number(win.remainingBlocks) * BLOCK_SECONDS) / 60))} min left` : "Closed"}
+          <div className="value">
+            {!win ? "…" : open ? `Open, ~${Math.max(1, Math.round((Number(win.remainingBlocks) * BLOCK_SECONDS) / 60))} min left` : "Closed"}
           </div>
-          <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4, lineHeight: 1.5 }}>
+          <div className="note">
             {!win
               ? ""
               : open
@@ -207,7 +250,7 @@ function Hero({ cfg, win, winError, winSlow, health }: { cfg: AgentConfig; win: 
               <div className="bar">
                 <div style={{ width: `${blocksPct}%` }} />
               </div>
-              <div className="between" style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
+              <div className="counts">
                 <span>
                   {fmtInt(win.remainingBlocks)} of {fmtInt(totalBlocks)} blocks left
                 </span>
@@ -219,85 +262,103 @@ function Hero({ cfg, win, winError, winSlow, health }: { cfg: AgentConfig; win: 
           ) : null}
         </div>
       </div>
+
       {rescue ? (
-        <div style={{ marginTop: 22, paddingTop: 18, borderTop: "1px solid var(--orange-line)" }}>
-          <div className="lbl" style={{ marginBottom: 10 }}>
-            Do next
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
+        <div className="do-next">
+          <h3>Do next</h3>
+          <ul>
             {[
               { t: "Close your EVM window", s: open ? "Stops the leaked key from sending more txs." : "Done. The key can't send anything now.", done: !open && !!win },
               { t: "Stop using this ECDSA key", s: "Move to a new account for future EVM use.", done: false },
               { t: "Recover to a safe address", s: "Sign with Guardian Signer, then submit.", done: false },
             ].map((x) => (
-              <div key={x.t} className="check" style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 14px" }}>
-                <span className={`mark ${x.done ? "pass" : ""}`}>{x.done ? "✓" : "•"}</span>
+              <li key={x.t} className="check">
+                <span className={`mark ${x.done ? "pass" : ""}`} aria-label={x.done ? "done" : "to do"}>
+                  {x.done ? "✓" : "•"}
+                </span>
                 <div>
                   <div className="ct">{x.t}</div>
-                  <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>{x.s}</div>
+                  <div className="cs">{x.s}</div>
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       ) : null}
-    </section>
-  );
-}
 
-function Assets({ cfg, win }: { cfg: AgentConfig; win: Polled<EvmWindow> }) {
-  const assets = usePoll(() => readAssets(cfg), 10_000, `${cfg.owner}/${cfg.vault}`);
-  const rescueRows = assets.data
-    ?.filter((a): a is AssetRow & { sym: (typeof SYMBOLS)[number]; allowance: bigint } => a.allowance !== null && (SYMBOLS as readonly string[]).includes(a.sym))
-    .map((a) => ({ sym: a.sym, token: cfg.tokens[a.sym], owner: a.owner, allowance: a.allowance }));
-  return (
-    <section className="card grow">
-      <div className="between" style={{ marginBottom: 8 }}>
-        <h2>Protected assets</h2>
-        <span style={{ fontSize: 13, color: "var(--muted)" }}>EVM lane · vault {shortAddr(cfg.vault)}</span>
-      </div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ minWidth: 520 }}>
+      <div className="tide">
+        <div className="tide-head">
+          <h3>Where your tokens are</h3>
+          <span className="lbl">
+            EVM lane, vault <span className="mono">{shortAddr(cfg.vault)}</span>
+          </span>
+        </div>
+        <table>
           <thead>
             <tr>
-              <th style={{ paddingLeft: 0 }}>Token</th>
+              <th>Token</th>
               <th className="num">On your account</th>
+              <th>
+                <span className="sr-only">Split between account and vault</span>
+              </th>
               <th className="num">In your vault</th>
-              <th>Coverage</th>
+              <th>Approval</th>
             </tr>
           </thead>
           <tbody>
             {assets.data ? (
               assets.data.map((a) => {
                 const cov = a.allowance === null ? null : coverage(a.allowance);
+                const vault = a.vault ?? 0n;
+                const total = a.owner + vault;
                 return (
                   <tr key={a.sym}>
-                    <td style={{ paddingLeft: 0, fontWeight: 600 }}>{a.sym}</td>
-                    <td className="num mono">{fmtAmount(a.owner)}</td>
-                    <td className="num mono" style={a.vault ? { fontWeight: 600, color: "var(--blue)" } : undefined}>
-                      {a.vault === null ? "—" : fmtAmount(a.vault)}
+                    <td className="sym">{a.sym}</td>
+                    <td className={`amt owner${a.owner === 0n ? " zero" : ""}`}>{fmtAmount(a.owner)}</td>
+                    <td className="split-cell">
+                      {a.allowance === null ? (
+                        <span className="qor-note">Not swept, window budget only</span>
+                      ) : (
+                        <div className="split" aria-hidden="true">
+                          {a.owner > 0n ? <span className="acct" style={{ width: `${pct(a.owner, total)}%` }} /> : null}
+                          {vault > 0n ? <span key={`${a.sym}-${grow}`} className={`vault${grow ? " grow" : ""}`} style={{ width: `${pct(vault, total)}%` }} /> : null}
+                        </div>
+                      )}
                     </td>
-                    <td>{cov ? <span className={`tag ${cov.tone}`}>{cov.text}</span> : <span className="tag">Window budget only</span>}</td>
+                    <td className={`amt vault${a.vault ? "" : " zero"}`}>{a.vault === null ? "—" : fmtAmount(a.vault)}</td>
+                    <td className="cov">{cov ? <span className={`tag ${cov.tone}`}>{cov.text}</span> : null}</td>
                   </tr>
                 );
               })
             ) : (
               <tr>
-                <td colSpan={4} className="empty">
+                <td colSpan={5} className="empty">
                   {assets.error ? `Could not read balances: ${assets.error}` : assets.slow ? SLOW_TEXT : "Reading balances…"}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        <div className="tide-legend">
+          <span>
+            <i className="acct" aria-hidden="true" />
+            On your account: a leaked key can reach it while your window is open
+          </span>
+          <span>
+            <i className="vault" aria-hidden="true" />
+            In your vault: only your ML-DSA-87 key opens it
+          </span>
+        </div>
       </div>
-      <p style={{ margin: "14px 0 0", fontSize: 13, color: "var(--muted)" }}>QOR is not swept. A leaked key can spend it only up to your window's budget.</p>
-      <RescueNow cfg={cfg} rows={rescueRows} win={win} onSent={assets.refresh} />
+
+      <div className="board-foot">
+        <RescueNow cfg={cfg} rows={rescueRows} win={winPoll} onSent={assets.refresh} />
+      </div>
     </section>
   );
 }
 
-function Health({ cfg, win, health }: { cfg: AgentConfig; win: Polled<EvmWindow>; health: Polled<AgentHealth> }) {
+function GuardianHealth({ cfg, win, health }: { cfg: AgentConfig; win: Polled<EvmWindow>; health: Polled<AgentHealth> }) {
   const { config } = useApp();
   const rules = usePoll(() => readSpendingRules(cfg.owner), 30_000, cfg.owner);
   const h = config.agentOnline ? health.data : undefined;
@@ -305,33 +366,37 @@ function Health({ cfg, win, health }: { cfg: AgentConfig; win: Polled<EvmWindow>
   const channels = h ? Object.entries(h.alerts).filter(([, on]) => on).map(([n]) => (n === "telegram" ? "Telegram" : "Webhook")) : [];
 
   return (
-    <div className="side">
+    <>
       <section className="card">
         <h2>Guardian health</h2>
         <dl className="kv">
           <div>
             <dt>Agent</dt>
-            <dd style={{ color: !h ? "var(--orange)" : h.ok ? "var(--blue)" : "var(--orange)", fontWeight: 600 }}>
-              {!h ? "Offline" : `${h.ok ? "Online" : "Degraded"} · block #${h.lastBlock ? fmtInt(h.lastBlock) : "?"}`}
-              {h ? <small>last block {ago(h.lastBlockAt)}</small> : null}
+            <dd style={{ color: h?.ok ? "var(--safe)" : "var(--danger)", fontWeight: 600 }}>
+              {!h ? "Offline" : h.ok ? "Online" : "Degraded"}
+              {h ? (
+                <small>
+                  Block #{h.lastBlock ? fmtInt(h.lastBlock) : "?"}, {ago(h.lastBlockAt)}
+                </small>
+              ) : null}
             </dd>
           </div>
           <div>
             <dt>Guardian window</dt>
             <dd>
-              {!h?.window ? "unknown" : h.window.live ? `${fmtInt(h.window.remainingBlocks)} blocks left` : "closed"}
-              {h?.window?.live ? <small>{fmtInt(h.window.remainingTxs)} txs left · the agent renews it</small> : null}
+              {!h?.window ? "Unknown" : h.window.live ? `${fmtInt(h.window.remainingBlocks)} blocks left` : "Closed"}
+              {h?.window?.live ? <small>{fmtInt(h.window.remainingTxs)} txs left, the agent renews it</small> : null}
             </dd>
           </div>
           <div>
             <dt>Alerts</dt>
-            <dd>{!h ? "—" : channels.length ? `${channels.join(", ")} · on` : "none set"}</dd>
+            <dd>{!h ? "—" : channels.length ? `${channels.join(", ")} on` : "None set"}</dd>
           </div>
           <div>
             <dt>Its permission on your account</dt>
-            <dd style={rule && !rule.ok ? { color: "var(--orange)" } : undefined}>
-              {rule ? rule.text : rules.error ? "could not read" : rules.slow ? SLOW_TEXT : "…"}
-              <small>{rule?.ok ? "enforced by the chain" : rule ? "not the expected rule" : ""}</small>
+            <dd style={rule && !rule.ok ? { color: "var(--danger)" } : undefined}>
+              {rule ? rule.text : rules.error ? "Could not read" : rules.slow ? SLOW_TEXT : "…"}
+              <small>{rule?.ok ? "Enforced by the chain" : rule ? "Not the expected rule" : ""}</small>
             </dd>
           </div>
           <div>
@@ -341,23 +406,21 @@ function Health({ cfg, win, health }: { cfg: AgentConfig; win: Polled<EvmWindow>
         </dl>
       </section>
       <GasTank cfg={cfg} health={h} win={win} />
-    </div>
+    </>
   );
 }
 
-function ActivityAndTrusted({ cfg }: { cfg: AgentConfig }) {
+function LowerGrid({ cfg, win, health }: { cfg: AgentConfig; win: Polled<EvmWindow>; health: Polled<AgentHealth> }) {
   const { incidents } = useApp();
   const policy = usePoll(fetchPolicy, 15_000, "policy");
   const activity = usePoll(() => readActivity(cfg), 15_000, `${cfg.owner}/${Object.values(cfg.tokens).join()}`);
   const byHash = new Map(incidents.map((i) => [String(i.trigger?.hash ?? "").toLowerCase(), i]));
 
   return (
-    <div className="row">
-      <section className="card grow">
-        <h2 style={{ marginBottom: 4 }}>Outgoing activity</h2>
-        <p style={{ margin: "0 0 8px", fontSize: 13, color: "var(--muted)" }}>
-          Every token transfer and approval from your account in the last {fmtInt(ACTIVITY_BLOCKS)} blocks
-        </p>
+    <div className="ov-grid">
+      <section className="card">
+        <h2>Outgoing activity</h2>
+        <p className="caption">Every token transfer and approval from your account in the last {fmtInt(ACTIVITY_BLOCKS)} blocks</p>
         {activity.data?.items.length ? (
           activity.data.items.map((e) => {
             const who = labelCounterparty(e.to, cfg, policy.data);
@@ -370,18 +433,18 @@ function ActivityAndTrusted({ cfg }: { cfg: AgentConfig }) {
                 : { text: "Not trusted", tone: "orange" };
             return (
               <div key={`${e.hash}/${e.logIndex}`} className="activity">
-                <span className="mono" style={{ fontSize: 12, color: "var(--muted)" }}>
-                  #{fmtInt(e.block)}
+                <span className="muted" style={{ fontSize: 13 }}>
+                  Block {fmtInt(e.block)}
                 </span>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>
+                  <div className="what">
                     {e.kind === "transfer" ? `Sent ${fmtAmount(e.amount)} ${sym} to ${who.label}` : `Approved ${fmtAmount(e.amount)} ${sym} for ${who.label}`}
                   </div>
-                  <div className="wrap-any" style={{ fontSize: 13, color: "var(--muted)" }}>
-                    {e.to} · {who.trusted ? "trusted" : "not a trusted address"}
+                  <div className="meta wrap-any">
+                    <span className="mono">{e.to}</span>, {who.trusted ? "trusted" : "not a trusted address"}
                   </div>
-                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-                    tx <TxHash hash={e.hash} />
+                  <div className="meta" style={{ marginTop: 2 }}>
+                    Tx <TxHash hash={e.hash} />
                   </div>
                 </div>
                 {inc ? (
@@ -399,42 +462,45 @@ function ActivityAndTrusted({ cfg }: { cfg: AgentConfig }) {
         )}
       </section>
 
-      <section className="card side" style={{ gap: 0 }}>
-        <div className="between">
-          <h2>Trusted wallets and apps</h2>
-          <a href="#/rules" style={{ fontSize: 14, fontWeight: 600 }}>
-            Manage
-          </a>
-        </div>
-        <p style={{ margin: "6px 0 12px", fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-          A transfer or approval to anything else triggers a rescue. Add a recipient or dApp before you use it.
-        </p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {policy.data?.trusted.map((t) => (
-            <div key={t.address} className="trusted">
-              <span style={{ fontWeight: 500 }}>
-                {t.label}
-                {t.kind === "app" ? <span className="kind">APP</span> : null}
-              </span>
-              <span className="mono" style={{ fontSize: 12, color: "var(--ink-2)" }} title={t.address}>
-                {shortAddr(t.address)}
-              </span>
-            </div>
-          ))}
-          <div className="trusted">
-            <span style={{ fontWeight: 500 }}>Your vault</span>
-            <span className="mono" style={{ fontSize: 12, color: "var(--ink-2)" }} title={cfg.vault}>
-              {shortAddr(cfg.vault)}
-            </span>
+      <div className="side">
+        <GuardianHealth cfg={cfg} win={win} health={health} />
+        <section className="card">
+          <div className="between">
+            <h2>Trusted wallets and apps</h2>
+            <a href="#/rules" style={{ fontSize: 14, fontWeight: 600 }}>
+              Manage
+            </a>
           </div>
-          {policy.error ? <div className="empty">Trusted list unavailable: {policy.error}</div> : null}
-          {policy.data ? (
-            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-              Transfers above {fmtAmount(big(policy.data.maxOutbound))} trigger a rescue even to a trusted wallet.
+          <p className="caption" style={{ margin: "6px 0 12px" }}>
+            A transfer or approval to anything else triggers a rescue. Add a recipient or dApp before you use it.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {policy.data?.trusted.map((t) => (
+              <div key={t.address} className="trusted">
+                <span style={{ fontWeight: 500 }}>
+                  {t.label}
+                  {t.kind === "app" ? <span className="kind">App</span> : null}
+                </span>
+                <span className="mono" style={{ color: "var(--harbour-2)" }} title={t.address}>
+                  {shortAddr(t.address)}
+                </span>
+              </div>
+            ))}
+            <div className="trusted">
+              <span style={{ fontWeight: 500 }}>Your vault</span>
+              <span className="mono" style={{ color: "var(--harbour-2)" }} title={cfg.vault}>
+                {shortAddr(cfg.vault)}
+              </span>
             </div>
-          ) : null}
-        </div>
-      </section>
+            {policy.error ? <div className="empty">Trusted list unavailable: {policy.error}</div> : null}
+            {policy.data ? (
+              <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
+                Transfers above {fmtAmount(big(policy.data.maxOutbound))} trigger a rescue even to a trusted wallet.
+              </div>
+            ) : null}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
@@ -448,22 +514,18 @@ export function Overview() {
   if (!cfg) return null;
   return (
     <>
-      {how.shown ? (
-        <HowItWorks onDismiss={how.dismiss} />
-      ) : (
-        <div style={{ textAlign: "right" }}>
-          <button type="button" className="linklike" onClick={how.reopen}>
+      <div className="page-head">
+        <h1>Overview</h1>
+        {!how.shown ? (
+          <button type="button" className="btn small" onClick={how.reopen}>
             How it works
           </button>
-        </div>
-      )}
-      <Hero cfg={cfg} win={win.data} winError={win.error} winSlow={win.slow} health={config.agentOnline ? health.data : undefined} />
-      <div className="row">
-        <Assets cfg={cfg} win={win} />
-        <Health cfg={cfg} win={win} health={health} />
+        ) : null}
       </div>
-      <ActivityAndTrusted cfg={cfg} />
-      <p style={{ margin: 0, fontSize: 12, color: "var(--muted)" }}>Live data · qorechain-diana testnet</p>
+      {how.shown ? <HowItWorks onDismiss={how.dismiss} /> : null}
+      <StatusBoard cfg={cfg} win={win} health={config.agentOnline ? health.data : undefined} />
+      <LowerGrid cfg={cfg} win={win} health={health} />
+      <p className="ov-foot">Live data from the qorechain-diana testnet</p>
     </>
   );
 }

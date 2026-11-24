@@ -41,8 +41,11 @@ const STEPS = [
 
 export function HowItWorks({ onDismiss }: { onDismiss: () => void }) {
   return (
-    <section className="card explainer" aria-label="How Q-Lifeboat works">
-      <h2>Q-Lifeboat keeps your tokens safe if your wallet key leaks</h2>
+    <section className="card explainer" aria-labelledby="how-title">
+      <h2 id="how-title">Q-Lifeboat keeps your tokens safe if your wallet key leaks</h2>
+      <button type="button" className="btn ghost small ex-dismiss" onClick={onDismiss}>
+        Dismiss
+      </button>
       <p className="ex-lead">
         Quantum computers (or a plain leak) can expose the ECDSA key behind your EVM account. Q-Lifeboat watches it and moves your tokens somewhere only
         your post-quantum key can open.
@@ -50,23 +53,21 @@ export function HowItWorks({ onDismiss }: { onDismiss: () => void }) {
       <ol className="ex-steps">
         {STEPS.map((s) => (
           <li key={s.n}>
-            <span className="ex-label">
-              {s.n} {s.label}
+            <span className="ex-num" aria-hidden="true">
+              {s.n}
             </span>
+            <span className="ex-step">{s.label}</span>
             <span className="ex-text">{s.text}</span>
           </li>
         ))}
       </ol>
-      <div className="actions" style={{ marginTop: 14 }}>
+      <div className="actions">
         <a className="btn primary small" href="#/protect">
           Set up protection
         </a>
         <a className="btn small" href="#/drill">
           Watch a fire drill (~90 s)
         </a>
-        <button type="button" className="btn small" onClick={onDismiss}>
-          Dismiss
-        </button>
       </div>
     </section>
   );

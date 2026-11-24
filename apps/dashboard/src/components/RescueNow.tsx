@@ -30,9 +30,11 @@ export function RescueNow({ cfg, rows, win, onSent }: { cfg: AgentConfig; rows: 
   const fees = usePoll(readFees, 15_000, open ? "fees" : null);
 
   if (!open) {
+    // Orange only while something is still on the account for the vault to pull.
+    const remaining = !!rows?.some((r) => rescuable(r.owner, r.allowance) > 0n);
     return (
-      <div className="actions" style={{ marginTop: 16 }}>
-        <button type="button" className="btn" onClick={() => setOpen(true)} aria-expanded={false}>
+      <div className="actions">
+        <button type="button" className={`btn${remaining ? " rescue" : ""}`} onClick={() => setOpen(true)} aria-expanded={false}>
           Rescue now
         </button>
       </div>
@@ -102,9 +104,9 @@ export function RescueNow({ cfg, rows, win, onSent }: { cfg: AgentConfig; rows: 
   }
 
   return (
-    <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--line-soft)" }}>
+    <div className="rescue-panel">
       <div className="between">
-        <h3 className="h" style={{ margin: 0, fontSize: 17, fontWeight: 600 }}>
+        <h3 style={{ margin: 0, fontSize: 18, lineHeight: "24px" }}>
           Rescue now
         </h3>
         {!busy ? (
