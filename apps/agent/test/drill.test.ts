@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import {
   createDrillRunner,
+  DRILL_KILL_GRACE_MS,
   DRILL_STAGES,
   DRILL_TIMEOUT_MS,
   DrillError,
@@ -45,12 +46,30 @@ describe("parseDrillLine", () => {
 describe("redactLine", () => {
   it("test_redactsMnemonicLikeLine", () => {
     expect(redactLine(MNEMONIC)).toBe("[redacted]");
-    expect(redactLine(`OWNER_MNEMONIC="${MNEMONIC} zoo zone"`)).toBe('OWNER_MNEMONIC="[redacted]"');
+    expect(redactLine(`seed "${MNEMONIC} zoo zone" printed`)).toBe('seed "[redacted]" printed');
     const addrLine = `run ${RUN}: fresh owner ${ADDR} (qor14zxae5abc), attacker 0x1, safe 0x2`;
     expect(redactLine(addrLine)).toBe(addrLine);
     const tx = "rescue tx 0xb4119a4c00000000000000000000000000000000000000000000000000000000 in block 123";
     expect(redactLine(tx)).toBe(tx);
     const eleven = MNEMONIC.split(" ").slice(0, 11).join(" ");
+    expect(redactLine(eleven)).toBe(eleven);
+  });
+
+  it("redacts a line that assigns a mnemonic or a secret key, whatever its value looks like", () => {
+    expect(redactLine("OWNER_MNEMONIC=abandon ability")).toBe("[redacted]");
+    expect(redactLine("export drill_gas_mnemonic='x y z'")).toBe("[redacted]");
+    expect(redactLine("AGENT_ED25519_SK=0x" + "ab".repeat(32))).toBe("[redacted]");
+    expect(redactLine("agent_ed25519_sk=deadbeef")).toBe("[redacted]");
+    expect(redactLine("DRILL_GUARDIAN_ADDRESS=" + ADDR)).toBe("DRILL_GUARDIAN_ADDRESS=" + ADDR);
+  });
+
+  it("redacts 12+ words split by any whitespace, and a JSON array of 12+ quoted words", () => {
+    const words = MNEMONIC.split(" ");
+    expect(redactLine(words.join("  "))).toBe("[redacted]");
+    expect(redactLine(`seed: ${words.join(" \t")}.`)).toBe("seed: [redacted].");
+    expect(redactLine(`words ${JSON.stringify(words)} end`)).toBe("words [redacted] end");
+    expect(redactLine(`{"w":${JSON.stringify(words, null, 1).replace(/\n/g, " ")}}`)).toBe('{"w":[redacted]}');
+    const eleven = JSON.stringify(words.slice(0, 11));
     expect(redactLine(eleven)).toBe(eleven);
   });
 });
@@ -69,12 +88,12 @@ describe("drillEnv", () => {
 
 // ---------------------------------------------------------------- the runner, with a fake child process
 
-type FakeChild = EventEmitter & { pid: number; stdout: EventEmitter; stderr: EventEmitter };
+type FakeChild = EventEmitter & { pid: number | undefined; stdout: EventEmitter; stderr: EventEmitter };
 const fakeChild = (pid = 4242): FakeChild => Object.assign(new EventEmitter(), { pid, stdout: new EventEmitter(), stderr: new EventEmitter() });
 
 function setup(over: { guardian?: boolean; dirs?: string[]; files?: Record<string, string>; runDirExists?: boolean } = {}) {
   const child = fakeChild();
-  const spawn = vi.fn(() => child);
+  const spawn = vi.fn((): FakeChild => child);
   const kill = vi.fn();
   const appended: [string, string][] = [];
   const logs: string[] = [];
@@ -91,6 +110,7 @@ function setup(over: { guardian?: boolean; dirs?: string[]; files?: Record<strin
     repoRoot: "/repo",
     runsDir: "/home/o/.config/qday/runs",
     guardianFile: "/home/o/.config/qday/drill-guardian.env",
+    home: "/home/o",
     env: { PATH: "/bin", HOME: "/home/o", GAS_MNEMONIC: MNEMONIC, AGENT_PORT: "8787", INCIDENTS_FILE: "/repo/data/i.jsonl" },
     exists: (p) =>
       p === "/home/o/.config/qday/drill-guardian.env" ? over.guardian !== false
@@ -150,6 +170,8 @@ describe("createDrillRunner: start", () => {
     expect(e).toBeInstanceOf(DrillError);
     expect((e as DrillError).status).toBe(503);
     expect((e as DrillError).message).toContain("pnpm cli drill-guardian init");
+    expect((e as DrillError).message).toContain("~/.config/qday/drill-guardian.env");
+    expect((e as DrillError).message).not.toContain("/home/o"); // home-relative: no user name in the browser
     expect(spawn).not.toHaveBeenCalled();
     expect(runner.state().status).toBe("idle");
   });
@@ -216,6 +238,25 @@ describe("createDrillRunner: a run", () => {
     expect(runner.state()).toMatchObject({ status: "fail", error: "spawn bash ENOENT" });
   });
 
+  it("a spawn error with no pid (no close follows) fails the drill, and a later start works", () => {
+    const { runner, spawn, timers } = setup();
+    const dead = Object.assign(fakeChild(), { pid: undefined }); // spawn failed: node leaves pid undefined
+    spawn.mockReturnValueOnce(dead);
+    runner.start();
+    dead.emit("error", new Error("spawn bash ENOENT"));
+    expect(runner.state()).toMatchObject({ status: "fail", error: "spawn bash ENOENT" });
+    expect(timers[0].cleared).toBe(true);
+    expect(runner.start().status).toBe("running");
+    expect(spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it("a signal exit with no kill reason reports the signal", () => {
+    const { runner, exit } = setup();
+    runner.start();
+    exit(null, "SIGKILL");
+    expect(runner.state()).toMatchObject({ status: "fail", error: "exit signal SIGKILL" });
+  });
+
   it("redacts mnemonic-like output in state and drill.log", () => {
     const { runner, out, exit, appended } = setup();
     runner.start();
@@ -264,6 +305,33 @@ describe("createDrillRunner: stop and timeout", () => {
     expect(runner.state()).toMatchObject({ status: "fail", error: expect.stringMatching(/stopped/) });
     runner.stop(); // finished: no second kill
     expect(kill).toHaveBeenCalledTimes(1);
+  });
+
+  it("escalates to one SIGKILL when the group has not closed 15 s after the SIGTERM", () => {
+    const { runner, kill, timers, exit } = setup();
+    runner.start();
+    runner.stop();
+    expect(DRILL_KILL_GRACE_MS).toBe(15_000);
+    expect(timers).toHaveLength(2);
+    expect(timers[1].ms).toBe(DRILL_KILL_GRACE_MS);
+    expect(kill.mock.calls).toEqual([[-4242, "SIGTERM"]]);
+    timers[1].fn();
+    expect(kill.mock.calls).toEqual([[-4242, "SIGTERM"], [-4242, "SIGKILL"]]);
+    runner.stop(); // still once
+    expect(kill).toHaveBeenCalledTimes(2);
+    exit(null, "SIGKILL");
+    expect(runner.state()).toMatchObject({ status: "fail", error: expect.stringMatching(/stopped/) });
+    expect(runner.start().status).toBe("running"); // not stuck at 409
+  });
+
+  it("no SIGKILL when the group closes within the grace period", () => {
+    const { runner, kill, timers, exit } = setup();
+    runner.start();
+    timers[0].fn(); // the timeout's SIGTERM
+    exit(130);
+    expect(timers[1].cleared).toBe(true);
+    timers[1].fn(); // even if it fired late
+    expect(kill.mock.calls).toEqual([[-4242, "SIGTERM"]]);
   });
 
   it("a kill that throws (the group is already gone) is logged, not thrown", () => {

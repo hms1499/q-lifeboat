@@ -78,6 +78,78 @@ function readBody(req: IncomingMessage, limit: number): Promise<string | null> {
   });
 }
 
+const sendJson = (res: ServerResponse, status: number, headers: Record<string, string>, body: unknown) =>
+  res.writeHead(status, { ...headers, "Content-Type": "application/json" }).end(JSON.stringify(body, bigintReplacer));
+
+/** Browser routes that matter (/policy, /drill*): CORS names only a dashboard origin, never `*`. */
+const dashboardCors = (origin: string | undefined, origins: string[]): Record<string, string> =>
+  origin !== undefined && origins.includes(origin) ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {};
+
+export type DrillRouteContext = {
+  drill?: DrillRunner;
+  port: number;
+  origins: string[];
+  /** Open /drill/events responses (heartbeat and close). */
+  sse: Set<ServerResponse>;
+  log: (line: string) => void;
+};
+
+/**
+ * /drill*: every method checks the Host header; CORS names only a dashboard origin; POST /drill passes the same
+ * `checkPolicyWrite` as PUT /policy. A throw answers 500 with the dashboard CORS (never the server-wide `*`).
+ */
+export function handleDrillRequest(req: IncomingMessage, res: ServerResponse, ctx: DrillRouteContext): void {
+  const cors = dashboardCors(req.headers.origin, ctx.origins);
+  try {
+    drillRoute(req, res, ctx, cors);
+  } catch (e) {
+    ctx.log(`${req.method} ${req.url} error: ${e instanceof Error ? e.message : String(e)}`);
+    if (!res.headersSent) sendJson(res, 500, cors, { error: "internal error" });
+    else res.end();
+  }
+}
+
+function drillRoute(req: IncomingMessage, res: ServerResponse, ctx: DrillRouteContext, cors: Record<string, string>) {
+  const path = (req.url ?? "").split("?")[0];
+  const { drill } = ctx;
+  if (!isLocalHost(req.headers.host, ctx.port)) {
+    req.resume();
+    return sendJson(res, 403, cors, { error: "unexpected Host header" });
+  }
+  if (req.method === "OPTIONS") {
+    return res.writeHead(204, { ...cors, "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }).end();
+  }
+  if (!drill) return res.writeHead(404, cors).end();
+  if (path === "/drill" && req.method === "POST") {
+    req.resume(); // the body carries nothing: never read it
+    const refused = checkPolicyWrite(
+      { remoteAddress: req.socket.remoteAddress, host: req.headers.host, origin: req.headers.origin, contentType: req.headers["content-type"] },
+      { port: ctx.port, origins: ctx.origins },
+    );
+    if (refused) return sendJson(res, refused.status, cors, { error: refused.error });
+    try {
+      return sendJson(res, 202, cors, drill.start());
+    } catch (e) {
+      if (e instanceof DrillError) return sendJson(res, e.status, cors, { error: e.message });
+      throw e;
+    }
+  }
+  if (req.method !== "GET") return res.writeHead(path === "/drill" ? 405 : 404, cors).end();
+  if (path === "/drill") return sendJson(res, 200, cors, drill.state());
+  if (path === "/drill/runs") return sendJson(res, 200, cors, drill.runs());
+  if (path !== "/drill/events") return res.writeHead(404, cors).end();
+  const state = drill.state();
+  res.writeHead(200, { ...cors, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+  const send = (s: unknown) => res.write(`event: drill\ndata: ${JSON.stringify(s)}\n\n`);
+  send(state);
+  const off = drill.subscribe(send);
+  ctx.sse.add(res);
+  req.on("close", () => {
+    off();
+    ctx.sse.delete(res);
+  });
+}
+
 /**
  * HTTP API on loopback: GET /incidents (JSON array), GET /events (SSE, one `incident` event each), GET /health,
  * GET /config (public addresses for the dashboard), GET/PUT /policy (the trusted list) and the fire drill: POST /drill
@@ -93,12 +165,8 @@ export async function startServer(opts: ServerOptions): Promise<Server> {
   const clients = new Set<ServerResponse>();
   const drillClients = new Set<ServerResponse>();
 
-  const json = (res: ServerResponse, status: number, headers: Record<string, string>, body: unknown) =>
-    res.writeHead(status, { ...headers, "Content-Type": "application/json" }).end(JSON.stringify(body, bigintReplacer));
-
-  /** /policy CORS: only a dashboard origin is named (never `*`). */
-  const policyCors = (origin: string | undefined): Record<string, string> =>
-    origin !== undefined && origins.includes(origin) ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {};
+  const json = sendJson;
+  const policyCors = (origin: string | undefined) => dashboardCors(origin, origins);
 
   async function putPolicy(req: IncomingMessage, res: ServerResponse, cors: Record<string, string>, policy: NonNullable<ServerOptions["policy"]>) {
     const refused = checkPolicyWrite(
@@ -134,52 +202,10 @@ export async function startServer(opts: ServerOptions): Promise<Server> {
     }
   }
 
-  /** /drill*: every method checks the Host header; CORS names only a dashboard origin; POST as strict as PUT /policy. */
-  function routeDrill(req: IncomingMessage, res: ServerResponse, path: string) {
-    const cors = policyCors(req.headers.origin);
-    const drill = opts.drill;
-    if (!isLocalHost(req.headers.host, boundPort)) {
-      req.resume();
-      return json(res, 403, cors, { error: "unexpected Host header" });
-    }
-    if (req.method === "OPTIONS") {
-      return res.writeHead(204, { ...cors, "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }).end();
-    }
-    if (!drill) return res.writeHead(404, cors).end();
-    if (path === "/drill" && req.method === "POST") {
-      req.resume(); // the body carries nothing: never read it
-      const refused = checkPolicyWrite(
-        { remoteAddress: req.socket.remoteAddress, host: req.headers.host, origin: req.headers.origin, contentType: req.headers["content-type"] },
-        { port: boundPort, origins },
-      );
-      if (refused) return json(res, refused.status, cors, { error: refused.error });
-      try {
-        return json(res, 202, cors, drill.start());
-      } catch (e) {
-        if (e instanceof DrillError) return json(res, e.status, cors, { error: e.message });
-        log(`POST /drill error: ${e instanceof Error ? e.message : String(e)}`);
-        return json(res, 500, cors, { error: "could not start the fire drill" });
-      }
-    }
-    if (req.method !== "GET") return res.writeHead(path === "/drill" ? 405 : 404, cors).end();
-    if (path === "/drill") return json(res, 200, cors, drill.state());
-    if (path === "/drill/runs") return json(res, 200, cors, drill.runs());
-    if (path !== "/drill/events") return res.writeHead(404, cors).end();
-    res.writeHead(200, { ...cors, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
-    const send = (s: unknown) => res.write(`event: drill\ndata: ${JSON.stringify(s)}\n\n`);
-    send(drill.state());
-    const off = drill.subscribe(send);
-    drillClients.add(res);
-    req.on("close", () => {
-      off();
-      drillClients.delete(res);
-    });
-  }
-
   function route(req: IncomingMessage, res: ServerResponse) {
     const path = (req.url ?? "").split("?")[0];
     if (path === "/drill" || path.startsWith("/drill/")) {
-      routeDrill(req, res, path);
+      handleDrillRequest(req, res, { drill: opts.drill, port: boundPort, origins, sse: drillClients, log });
     } else if (path === "/policy") {
       const cors = policyCors(req.headers.origin);
       if (!isLocalHost(req.headers.host, boundPort)) {

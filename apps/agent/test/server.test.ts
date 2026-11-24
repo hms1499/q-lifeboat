@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EventEmitter } from "node:events";
 import type { AddressInfo } from "node:net";
 import { writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +10,7 @@ import { createHealth } from "../src/health";
 import { createPolicyStore } from "../src/policy";
 import { appendIncident } from "../src/report";
 import { DrillError, type DrillRunner, type DrillRunSummary, type DrillState } from "../src/drill";
-import { checkPolicyWrite, startServer, type Server } from "../src/server";
+import { checkPolicyWrite, handleDrillRequest, startServer, type Server } from "../src/server";
 
 let srv: Server | undefined;
 afterEach(async () => { await srv?.close(); srv = undefined; });
@@ -336,11 +337,46 @@ describe("server: /drill", () => {
   const json = { "Content-Type": "application/json" };
 
   it("test_drillPostRejectedFromNonLoopback", () => {
-    // The peer address cannot be forged over real HTTP here: POST /drill runs the same pure check as PUT /policy.
-    const ok = { remoteAddress: "127.0.0.1", host: "127.0.0.1:8787", origin: DASH, contentType: "application/json" };
-    expect(checkPolicyWrite(ok, { port: 8787, origins: [DASH] })).toBeNull();
-    expect(checkPolicyWrite({ ...ok, remoteAddress: "192.168.1.5" }, { port: 8787, origins: [DASH] })?.status).toBe(403);
-    expect(checkPolicyWrite({ ...ok, remoteAddress: "::ffff:10.0.0.1" }, { port: 8787, origins: [DASH] })?.status).toBe(403);
+    // A non-loopback peer cannot connect to the loopback bind in a test, so the route runs on a request whose socket
+    // reports one (the route reads req.socket.remoteAddress, as on a real connection).
+    const { runner } = fakeDrill();
+    const call = (remoteAddress: string) => {
+      const reply = { status: 0, headers: {} as Record<string, string>, body: "" };
+      const req = Object.assign(new EventEmitter(), {
+        method: "POST", url: "/drill", socket: { remoteAddress }, resume: () => {},
+        headers: { host: "127.0.0.1:8787", origin: DASH, "content-type": "application/json" },
+      });
+      const res = {
+        headersSent: false,
+        writeHead(status: number, headers: Record<string, string>) { reply.status = status; reply.headers = headers; this.headersSent = true; return this; },
+        end(body?: string) { reply.body = body ?? ""; return this; },
+      };
+      handleDrillRequest(req as never, res as never, { drill: runner, port: 8787, origins: [DASH], sse: new Set(), log: () => {} });
+      return reply;
+    };
+    for (const peer of ["192.168.1.5", "::ffff:10.0.0.1", "10.0.0.7"]) {
+      const r = call(peer);
+      expect(r.status).toBe(403);
+      expect(JSON.parse(r.body).error).toMatch(/loopback/);
+    }
+    expect(runner.start).not.toHaveBeenCalled();
+    expect(call("127.0.0.1").status).toBe(202); // the same request from loopback starts it
+    expect(runner.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("a throwing drill route answers 500 with the dashboard CORS, never `*`", async () => {
+    const lines: string[] = [];
+    const { runner } = fakeDrill();
+    runner.runs.mockImplementation(() => { throw new Error("EACCES /home/owner/.config/qday/runs"); });
+    srv = await startServer({ file: join(tmpdir(), "nope.jsonl"), port: 0, drill: runner, dashboardOrigins: [DASH], log: (l) => void lines.push(l) });
+    const r = await raw(srv.port, "GET", "/drill/runs", { Origin: DASH });
+    expect(r.status).toBe(500);
+    expect(r.headers["access-control-allow-origin"]).toBe(DASH);
+    expect(JSON.parse(r.body)).toEqual({ error: "internal error" });
+    const evil = await raw(srv.port, "GET", "/drill/runs", { Origin: "https://evil.example" });
+    expect(evil.status).toBe(500);
+    expect(evil.headers["access-control-allow-origin"]).toBeUndefined();
+    expect(lines.some((l) => l.includes("EACCES"))).toBe(true);
   });
 
   it("test_drillPostRejectsForeignOrigin", async () => {

@@ -89,10 +89,11 @@ async function main() {
   // the drill agent.
   const drill = process.env.DRILL?.trim() === "1" ? undefined : productionDrill();
   process.once("exit", () => drill?.stop()); // a fatal error too (stop is synchronous and sends one SIGTERM per run)
-  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+  const SIGNAL_EXIT = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 } as const;
+  for (const sig of ["SIGHUP", "SIGINT", "SIGTERM"] as const) {
     process.once(sig, () => {
       drill?.stop();
-      process.exit(sig === "SIGINT" ? 130 : 143);
+      process.exit(SIGNAL_EXIT[sig]);
     });
   }
   const server = await startServer({

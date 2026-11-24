@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 /**
@@ -55,6 +56,8 @@ export class DrillError extends Error {
 }
 
 export const DRILL_TIMEOUT_MS = 15 * 60_000;
+/** After the SIGTERM, how long the group gets before one SIGKILL (a stuck `running` would 409 every later drill). */
+export const DRILL_KILL_GRACE_MS = 15_000;
 const MAX_LINES = 200;
 const MAX_RUNS = 20;
 const RUN_ID = "[0-9A-Za-z_-]+";
@@ -76,9 +79,16 @@ export function parseDrillLine(line: string): { stage?: DrillStage; runId?: stri
   return null;
 }
 
-/** Review Focus 3: anything that looks like a mnemonic (12+ lowercase words, single spaces) never leaves the agent. */
+/**
+ * Review Focus 3: nothing that looks like a secret leaves the agent. A line that assigns a mnemonic or a secret key
+ * (`…MNEMONIC=`, `…_SK=`) is dropped whole; a run of 12+ lowercase words (any whitespace between them, or a JSON array
+ * of quoted words) is replaced.
+ */
 export function redactLine(line: string): string {
-  return line.replace(/(?<![A-Za-z0-9])[a-z]+(?: [a-z]+){11,}(?![A-Za-z0-9])/g, "[redacted]");
+  if (/MNEMONIC=|_SK=/i.test(line)) return "[redacted]";
+  return line
+    .replace(/\[\s*"[a-z]+"(?:\s*,\s*"[a-z]+"){11,}\s*\]/g, "[redacted]")
+    .replace(/(?<![A-Za-z0-9])[a-z]+(?:\s+[a-z]+){11,}(?![A-Za-z0-9])/g, "[redacted]");
 }
 
 /**
@@ -121,6 +131,8 @@ export type DrillDeps = {
   appendFile(p: string, data: string): void;
   now(): Date;
   timeoutMs?: number;
+  /** For the 503 message: the guardian file is shown home-relative (`~/…`). Default os.homedir(). */
+  home?: string;
   /** setTimeout; returns its cancel. */
   setTimer?: (fn: () => void, ms: number) => () => void;
   log: (line: string) => void;
@@ -145,6 +157,7 @@ export function createDrillRunner(deps: DrillDeps): DrillRunner {
   let run: {
     pid?: number;
     cancelTimer: () => void;
+    cancelKill: () => void;
     killReason: string | null;
     spawnError: string | null;
     passLine: boolean;
@@ -211,27 +224,43 @@ export function createDrillRunner(deps: DrillDeps): DrillRunner {
     };
   }
 
-  /** One SIGTERM per run: a second one would cut demo.sh's exit trap (which stops the drill agent) short. */
+  /**
+   * One SIGTERM per run: a second one would cut demo.sh's exit trap (which stops the drill agent) short. If the group
+   * has not closed DRILL_KILL_GRACE_MS later, one SIGKILL (demo.sh's trap cannot run then).
+   */
   function killGroup(reason: string) {
-    if (!run || run.finished || run.pid === undefined || run.killReason) return;
-    run.killReason = reason;
-    try {
-      deps.kill(-run.pid, "SIGTERM");
-    } catch (e) {
-      log(`drill kill failed: ${errorText(e)}`);
-    }
+    const current = run;
+    if (!current || current.finished || current.pid === undefined || current.killReason) return;
+    current.killReason = reason;
+    const pid = current.pid;
+    const send = (signal: NodeJS.Signals) => {
+      try {
+        deps.kill(-pid, signal);
+      } catch (e) {
+        log(`drill kill (${signal}) failed: ${errorText(e)}`);
+      }
+    };
+    send("SIGTERM");
+    current.cancelKill = setTimer(() => {
+      if (current.finished) return;
+      log(`fire drill still running ${DRILL_KILL_GRACE_MS / 1000} s after SIGTERM: SIGKILL`);
+      send("SIGKILL");
+    }, DRILL_KILL_GRACE_MS);
   }
 
   return {
     start() {
       if (state.status === "running") throw new DrillError(409, "a fire drill is already running");
       if (!deps.exists(deps.guardianFile)) {
-        throw new DrillError(503, `no drill guardian file ${deps.guardianFile} (create and fund it: pnpm cli drill-guardian init)`);
+        const home = resolve(deps.home ?? homedir());
+        const shown = deps.guardianFile.startsWith(`${home}/`) ? `~/${deps.guardianFile.slice(home.length + 1)}` : deps.guardianFile;
+        throw new DrillError(503, `no drill guardian file ${shown} (create and fund it: pnpm cli drill-guardian init)`);
       }
       const out = lineSplitter();
       const err = lineSplitter();
       const current: NonNullable<typeof run> = {
         cancelTimer: () => {},
+        cancelKill: () => {},
         killReason: null,
         spawnError: null,
         passLine: false,
@@ -244,16 +273,17 @@ export function createDrillRunner(deps: DrillDeps): DrillRunner {
       state = { ...IDLE };
       update({ status: "running", startedAt: deps.now().toISOString() });
 
-      const finish = (code: number | null) => {
+      const finish = (code: number | null, signal: NodeJS.Signals | null = null) => {
         if (current.finished) return;
         out.end();
         err.end();
         current.cancelTimer();
+        current.cancelKill();
         flushLog();
         if (current.pendingLog.length && !current.logBroken) log("drill.log not written: the run dir was never created");
         current.finished = true;
         const pass = code === 0 && current.passLine && !current.killReason && !current.spawnError;
-        const error = pass ? null : current.killReason ?? current.spawnError ?? current.lastFail ?? `exit ${code}`;
+        const error = pass ? null : current.killReason ?? current.spawnError ?? current.lastFail ?? (code === null && signal ? `exit signal ${signal}` : `exit ${code}`);
         update({ status: pass ? "pass" : "fail", error, endedAt: deps.now().toISOString() });
         run = null;
       };
@@ -278,7 +308,7 @@ export function createDrillRunner(deps: DrillDeps): DrillRunner {
         current.spawnError ??= errorText(e);
         if (child.pid === undefined) finish(null); // never started: no close may follow
       });
-      child.on("close", (code) => finish(code));
+      child.on("close", (code, signal) => finish(code, signal));
       current.cancelTimer = setTimer(() => {
         log(`fire drill timed out after ${timeoutMs / 60_000} min: killing it`);
         killGroup(`timed out after ${timeoutMs / 60_000} min`);
