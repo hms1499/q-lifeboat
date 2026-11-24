@@ -156,13 +156,13 @@ export function Recover() {
         Only your ML-DSA-87 key can release funds. You sign on your own machine with Guardian Signer, then any wallet can submit the signed file.
       </p>
       <div className="row">
-        <div className="stack" style={{ flex: "999 1 600px", minWidth: 0 }}>
-          <section className="card" style={{ padding: 24 }}>
+        <div className="stack grow">
+          <section className="card roomy">
             <div className="step">
               <Dot n={1} on={false} done />
               <h2>Sign on your machine</h2>
             </div>
-            <p className="indent" style={{ margin: "10px 0 0 36px", fontSize: 14, color: "var(--ink-2)", lineHeight: 1.55 }}>
+            <p className="indent step-text">
               QoreX can't sign arbitrary messages, so the post-quantum signature comes from Guardian Signer, which keeps your ML-DSA key on your machine.
               It writes <span className="mono">withdrawal.json</span> in the repo root.
             </p>
@@ -176,7 +176,7 @@ export function Recover() {
             </div>
           </section>
 
-          <section className="card" style={{ padding: 24 }}>
+          <section className="card roomy">
             <div className="step">
               <Dot n={2} on={!file} done={!!file && allPass} />
               <h2>Load the signed file</h2>
@@ -204,11 +204,11 @@ export function Recover() {
                   <div className="fields">
                     {[
                       { k: "Pay to", v: file.w.to },
-                      { k: "Token", v: `${tokenSymbol(cfg, file.w.token)}${tokenSymbol(cfg, file.w.token).startsWith("0x") ? "" : ` · ${shortAddr(file.w.token)}`}` },
+                      { k: "Token", v: `${tokenSymbol(cfg, file.w.token)}${tokenSymbol(cfg, file.w.token).startsWith("0x") ? "" : ` (${shortAddr(file.w.token)})`}` },
                       { k: "Amount", v: fmtAmount(file.w.amount, 6) },
                       { k: "Vault nonce", v: file.w.nonce.toString() },
                       { k: "Vault", v: file.w.vault },
-                      { k: "Signature", v: `ML-DSA-87 · ${fmtInt((file.w.sig.length - 2) / 2)} bytes` },
+                      { k: "Signature", v: `ML-DSA-87, ${fmtInt((file.w.sig.length - 2) / 2)} bytes` },
                     ].map((f) => (
                       <div key={f.k} className="field">
                         <div className="k">{f.k}</div>
@@ -235,12 +235,12 @@ export function Recover() {
             </div>
           </section>
 
-          <section className="card" style={{ padding: 24 }}>
+          <section className="card roomy">
             <div className="step">
               <Dot n={3} on={!!file && allPass && !done} done={done} />
               <h2>Submit</h2>
             </div>
-            <p className="indent" style={{ margin: "10px 0 14px 36px", fontSize: 14, color: "var(--ink-2)", lineHeight: 1.55 }}>
+            <p className="indent step-text" style={{ marginBottom: 14 }}>
               The signature is what authorizes the payout, so any funded wallet with an open EVM window can send it. Use a fresh one if you think this
               account is compromised.
             </p>
@@ -253,18 +253,18 @@ export function Recover() {
                     <dt>Submitting account</dt>
                     <dd className="mono">
                       {shortAddr(wallet.account)}
-                      <small>{isOwner ? "the owner" : "not the owner: fine, the signature authorizes the payout"}</small>
+                      <small>{isOwner ? "The owner" : "Not the owner: fine, the signature authorizes the payout"}</small>
                     </dd>
                   </div>
                   <div>
                     <dt>Network</dt>
-                    <dd style={onDiana ? undefined : { color: "var(--orange)" }}>{onDiana ? "diana · 9800" : `chain ${chainId ?? "?"}: switch to diana`}</dd>
+                    <dd style={onDiana ? undefined : { color: "var(--danger)" }}>{onDiana ? "diana (9800)" : `Chain ${chainId ?? "?"}: switch to diana`}</dd>
                   </div>
                   <div>
                     <dt>Its EVM window</dt>
-                    <dd style={win && (!win.live || !winAllowsVault) ? { color: "var(--orange)" } : undefined}>
-                      {!win ? (submitterWindow.error ? "could not read" : "…") : win.live ? `open · ${fmtInt(win.remainingBlocks)} blocks, ${fmtInt(win.remainingTxs)} txs left` : "closed"}
-                      {win?.live ? <small>targets: {windowTargetsLabel(win.allowedTargets, cfg)}</small> : null}
+                    <dd style={win && (!win.live || !winAllowsVault) ? { color: "var(--danger)" } : undefined}>
+                      {!win ? (submitterWindow.error ? "Could not read" : "…") : win.live ? `Open, ${fmtInt(win.remainingBlocks)} blocks and ${fmtInt(win.remainingTxs)} txs left` : "Closed"}
+                      {win?.live ? <small>Targets: {windowTargetsLabel(win.allowedTargets, cfg)}</small> : null}
                     </dd>
                   </div>
                 </dl>
@@ -287,7 +287,7 @@ export function Recover() {
 
               {done && submit.state === "done" ? (
                 <div className="done-box" style={{ marginTop: 14 }}>
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1E4FD8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M5 12l5 5 9-10" />
                   </svg>
                   <div>
@@ -296,9 +296,11 @@ export function Recover() {
                         ? `${fmtAmount(submit.w.amount, 6)} ${tokenSymbol(cfg, submit.w.token)} sent to ${shortAddr(submit.w.to)}`
                         : "The withdraw reverted on chain"}
                     </div>
-                    <div className="mono wrap-any" style={{ fontSize: 12, color: "var(--ink-2)", marginTop: 4 }}>
-                      tx <TxHash hash={submit.hash} full /> · vault nonce {submit.nonceBefore.toString()} →{" "}
-                      {submit.nonceAfter === null ? "?" : submit.nonceAfter.toString()}
+                    <div className="wrap-any" style={{ fontSize: 13, color: "var(--harbour-2)", marginTop: 4 }}>
+                      Tx <TxHash hash={submit.hash} full />
+                    </div>
+                    <div style={{ fontSize: 13, color: "var(--harbour-2)", marginTop: 2 }}>
+                      Vault nonce {submit.nonceBefore.toString()} to {submit.nonceAfter === null ? "?" : submit.nonceAfter.toString()}
                     </div>
                   </div>
                 </div>
@@ -320,7 +322,7 @@ export function Recover() {
         <aside className="side">
           <section className="card">
             <div className="lbl">Your vault</div>
-            <div className="mono wrap-any" style={{ fontSize: 13, color: "var(--ink-2)", marginTop: 4 }}>
+            <div className="mono wrap-any" style={{ fontSize: 13, color: "var(--harbour-2)", marginTop: 4 }}>
               {cfg.vault}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
@@ -328,7 +330,7 @@ export function Recover() {
                 ? vault.data.map((v) => (
                     <div key={v.s} className="between" style={{ fontSize: 15 }}>
                       <span style={{ fontWeight: 600 }}>{v.s}</span>
-                      <span className="mono">{fmtAmount(v.a)}</span>
+                      <span style={{ fontWeight: 600 }}>{fmtAmount(v.a)}</span>
                     </div>
                   ))
                 : <div className="empty">{vault.error ?? "Reading…"}</div>}

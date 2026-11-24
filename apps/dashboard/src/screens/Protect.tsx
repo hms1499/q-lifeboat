@@ -74,7 +74,7 @@ function RunView({ run }: { run: Run }) {
         </div>
       ) : null}
       {run.hashes.map((h) => (
-        <div key={h} style={{ fontSize: 12, color: "var(--ink-2)", marginTop: 4 }}>
+        <div key={h} style={{ fontSize: 12, color: "var(--harbour-2)", marginTop: 4 }}>
           tx <TxHash hash={h} full />
         </div>
       ))}
@@ -91,7 +91,7 @@ function Cmd({ c, children }: { c: Command | { command: string; note: string }; 
   return (
     <CommandBox cmd={c.command}>
       {children}
-      <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5 }}>{c.note}</div>
+      <div style={{ fontSize: 13, color: "var(--harbour-2)", lineHeight: 1.5 }}>{c.note}</div>
     </CommandBox>
   );
 }
@@ -345,8 +345,8 @@ export function Protect() {
             </div>
             <div>
               <dt>Network</dt>
-              <dd style={wc.chainId === NETWORK.evmChainId ? undefined : { color: "var(--orange)" }}>
-                {wc.chainId === NETWORK.evmChainId ? `diana · ${NETWORK.evmChainId}` : `chain ${wc.chainId ?? "?"}`} <SwitchToDiana w={wc} />
+              <dd style={wc.chainId === NETWORK.evmChainId ? undefined : { color: "var(--danger)" }}>
+                {wc.chainId === NETWORK.evmChainId ? `diana (${NETWORK.evmChainId})` : `Chain ${wc.chainId ?? "?"}`} <SwitchToDiana w={wc} />
               </dd>
             </div>
             <div>
@@ -372,7 +372,7 @@ export function Protect() {
         {wc.error ? <div className="err">{wc.error}</div> : null}
         {wallet && pqc.data && !pqc.data.registered ? (
           <CommandBox cmd="pnpm cli fresh-owner --no-vault">
-            <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5 }}>
+            <div style={{ fontSize: 13, color: "var(--harbour-2)", lineHeight: 1.5 }}>
               A brand-new account needs an ML-DSA-87 key before the vault can lock funds. This creates a demo owner with one and no vault yet; import its
               mnemonic into MetaMask.
             </div>
@@ -458,7 +458,7 @@ export function Protect() {
             ) : null}
             {roleOffer === "offer" && windowCommand && deployRun.state !== "busy" ? (
               <Cmd c={windowCommand}>
-                <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5 }}>
+                <div style={{ fontSize: 13, color: "var(--harbour-2)", lineHeight: 1.5 }}>
                   A deploy is a contract creation, which a window scoped to named addresses refuses, so this opens an unscoped one (replacing the current
                   one) for 1800 blocks (about 42 minutes) and 5 txs, with a value budget of about 1.69 QOR. Until it closes, a holder of a leaked ECDSA
                   key could send that QOR to any address. Close it as soon as you are done: <span className="mono">pnpm cli window close --expect {account}</span>.
@@ -468,7 +468,7 @@ export function Protect() {
             <RunView run={deployRun} />
             <form
               className="form"
-              style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--line-soft)" }}
+              style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--rope-soft)" }}
               onSubmit={(e) => {
                 e.preventDefault();
                 void useExisting();
@@ -540,7 +540,7 @@ export function Protect() {
             ) : null}
             {approvePlan.command && approveRun.state !== "busy" && cmds ? (
               <Cmd c={{ command: approvePlan.command, note: cmds.window.note }}>
-                <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5 }}>
+                <div style={{ fontSize: 13, color: "var(--harbour-2)", lineHeight: 1.5 }}>
                   Each approval is a window tx (about {fmtUqor(approvePlan.cost)} QOR of budget in all). This opens one that fits.
                 </div>
               </Cmd>
@@ -648,7 +648,7 @@ export function Protect() {
           >
             {editor.current?.trusted.length ? "Looks good, continue" : "Continue without"}
           </button>
-          {local.trustedReviewed ? <span className="tag blue">reviewed</span> : null}
+          {local.trustedReviewed ? <span className="tag safe">Reviewed</span> : null}
         </div>
       </>
     );
@@ -692,11 +692,11 @@ export function Protect() {
               Saved: <span className="mono wrap-any">{recovery}</span>
             </div>
             <CommandBox cmd={signWithdrawCommand(recovery, "fUSD", "1")}>
-              <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5 }}>
+              <div style={{ fontSize: 13, color: "var(--harbour-2)", lineHeight: 1.5 }}>
                 When you need the funds, sign a withdrawal to that address on your own machine (here 1 fUSD; use fETH, fBTC, QOR or a token address). Then load
                 the file in Recover.
               </div>
-              {vault ? <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5, marginTop: 6 }}>{ownerEnvNote(vault)}</div> : null}
+              {vault ? <div style={{ fontSize: 13, color: "var(--harbour-2)", lineHeight: 1.5, marginTop: 6 }}>{ownerEnvNote(vault)}</div> : null}
             </CommandBox>
           </>
         ) : null}
@@ -727,12 +727,12 @@ export function Protect() {
       <>
         {windowOpen && cmds ? <OnboardingWindowWarning owner={account!} note={cmds.window.note} /> : null}
         <div className="done-box">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1E4FD8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M5 12l5 5 9-10" />
           </svg>
           <div>
             <div style={{ fontSize: 17, fontWeight: 600 }}>{allDone ? "You're protected" : "Not protected yet"}</div>
-            <div style={{ fontSize: 14, color: "var(--ink-2)", marginTop: 4, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 14, color: "var(--harbour-2)", marginTop: 4, lineHeight: 1.5 }}>
               {allDone
                 ? "Your vault, approvals and Guardian are all confirmed on chain, and the agent is running."
                 : "Every step above turns ✓ only when the chain or the agent confirms it. Finish the open steps."}
@@ -776,7 +776,7 @@ export function Protect() {
               <button
                 key={id}
                 type="button"
-                className="step-item"
+                className={`step-item ${st.state}`}
                 aria-current={view === id ? "step" : undefined}
                 onClick={() => setSelected(id)}
               >
@@ -790,22 +790,22 @@ export function Protect() {
               </button>
             );
           })}
-          <button type="button" className="step-item" aria-current={view === "done" ? "step" : undefined} onClick={() => setSelected("done")}>
+          <button type="button" className={`step-item final${allDone ? " done" : ""}`} aria-current={view === "done" ? "step" : undefined} onClick={() => setSelected("done")}>
             <span className={`stepnum ${allDone ? "done" : ""}`}>{allDone ? "✓" : "★"}</span>
             <span style={{ minWidth: 0 }}>
               <span className="t">{allDone ? "You're protected" : "Done"}</span>
-              <span className="s">{allDone ? "all six steps confirmed" : "after every step is confirmed"}</span>
+              <span className="s">{allDone ? "All six steps confirmed" : "After every step is confirmed"}</span>
             </span>
           </button>
         </nav>
-        <section className="card" style={{ padding: 24 }} aria-live="polite">
+        <section className="card roomy" aria-live="polite">
           {view !== "done" ? (
             <div className="between" style={{ marginBottom: 6 }}>
               <span className="lbl">
                 Step {ORDER.indexOf(view) + 1} of 6
               </span>
-              <span className={`tag ${stateOf(view).state === "done" ? "blue" : stateOf(view).state === "blocked" ? "orange" : ""}`}>
-                {stateOf(view).state === "done" ? "done" : stateOf(view).state === "blocked" ? "blocked" : stateOf(view).state === "current" ? "next" : "to do"}
+              <span className={`tag ${stateOf(view).state === "done" ? "safe" : stateOf(view).state === "blocked" ? "red" : ""}`}>
+                {stateOf(view).state === "done" ? "Done" : stateOf(view).state === "blocked" ? "Blocked" : stateOf(view).state === "current" ? "Next" : "To do"}
               </span>
             </div>
           ) : null}

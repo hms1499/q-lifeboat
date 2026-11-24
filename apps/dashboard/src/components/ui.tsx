@@ -1,13 +1,68 @@
-import { Component, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, useId, useState, type ErrorInfo, type ReactNode } from "react";
 import { explorerTxUrl } from "../lib/chain";
 import { shortHash } from "../lib/format";
 import type { CheckStatus } from "../lib/verify";
 
-export function ShieldIcon({ size = 26 }: { size?: number }) {
+/**
+ * The brand mark, "Harbor shield" (direction C of the Q-Lifeboat logo canvas): a shield (the vault) with a lifebuoy, a boat
+ * and a wave cut out of it. The shield takes `currentColor`; the cut-outs are real holes (a mask), so they show whatever
+ * is behind the mark.
+ */
+export function LifeboatMark({ size = 32 }: { size?: number }) {
+  const id = `lb-cut-${useId().replace(/:/g, "")}`;
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#1E4FD8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+      <mask id={id} maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+        <rect width="64" height="64" fill="#fff" />
+        <circle cx="32" cy="22" r="4.5" fill="none" stroke="#000" strokeWidth="3" />
+        <path d="M18 31 H46 L42 40 Q41 42 39 42 H25 Q23 42 22 40 Z" fill="#000" />
+        <path d="M21 48 q2.75 -2.5 5.5 0 t5.5 0 t5.5 0 t5.5 0" fill="none" stroke="#000" strokeWidth="2.6" strokeLinecap="round" />
+      </mask>
+      <path d="M32 5 L54 13 V30 C54 44 44 54 32 59 C20 54 10 44 10 30 V13 Z" fill="currentColor" mask={`url(#${id})`} />
+    </svg>
+  );
+}
+
+const NAV_PATHS: Record<string, ReactNode> = {
+  overview: (
+    <>
+      <path d="M3 12h4l3-7 4 14 3-7h4" />
+    </>
+  ),
+  incidents: (
+    <>
+      <path d="M5 21V4h11l-2 4 2 4H5" />
+    </>
+  ),
+  recover: (
+    <>
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M12 15V3M8 7l4-4 4 4" />
+    </>
+  ),
+  protect: (
+    <>
       <path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z" />
-      <path d="M9 12l2 2 4-4" />
+    </>
+  ),
+  rules: (
+    <>
+      <path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" />
+    </>
+  ),
+  drill: (
+    <>
+      <circle cx="12" cy="13" r="8" />
+      <path d="M12 9v4l2.5 2.5M9 2h6" />
+    </>
+  ),
+};
+
+/** 20px line icons for the main nav. */
+export function NavIcon({ name }: { name: string }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {NAV_PATHS[name]}
     </svg>
   );
 }
@@ -115,7 +170,7 @@ export function WindowCommand({ action, owner, children }: { action: "open" | "c
   return (
     <Command cmd={`pnpm cli window ${action} --expect ${owner}`}>
       {children}
-      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
+      <div style={{ fontSize: 13, lineHeight: "19px", color: "var(--muted)", marginTop: 8 }}>
         It refuses to sign unless the CLI's owner is {owner}. For a demo.sh owner, run it with that run's env:{" "}
         <span className="mono wrap-any">
           (set -a &amp;&amp; . ~/.config/qday/runs/&lt;run id&gt;/run.env &amp;&amp; set +a &amp;&amp; pnpm cli window {action} --expect {owner})
