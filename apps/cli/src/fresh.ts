@@ -56,10 +56,10 @@ export function parseFundUqor(env: Env): bigint {
   return BigInt(raw);
 }
 
-export function checkFunderBalance(balance: bigint, fund: bigint): void {
+export function checkFunderBalance(balance: bigint, fund: bigint, recipient = "the fresh owner"): void {
   const need = fund + FEE_RESERVE_UQOR;
   if (balance < need) {
-    throw new Error(`funder has ${qor(balance)}, needs ${qor(need)} (${qor(fund)} for the fresh owner + ${qor(FEE_RESERVE_UQOR)} fees); claim the faucet`);
+    throw new Error(`funder has ${qor(balance)}, needs ${qor(need)} (${qor(fund)} for ${recipient} + ${qor(FEE_RESERVE_UQOR)} fees); claim the faucet`);
   }
 }
 

@@ -1,13 +1,12 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
 import { NETWORK } from "@qday/core";
 import { clearPqcStatusCache, fetchPqcStatus, generateMnemonic, type PqcStatus, type UnifiedAccount } from "@qorechain/sdk";
 import { formatUnits, type Hex } from "viem";
 import { broadcast, uqorBalance } from "./chain";
 import { buildFundMsg, buildRegisterMsg, checkFunderBalance, deriveSecret, waitFor } from "./fresh";
-import { formatRunEnv, writeRunFile } from "./run";
+import { assertOutsideRepo, formatRunEnv, writeRunFile } from "./run";
 import { assertRegisteredKey } from "./signer";
 
 type Env = Record<string, string | undefined>;
@@ -17,15 +16,12 @@ export const DRILL_GUARDIAN_FILE = "drill-guardian.env";
 /** What the drill guardian is topped up to: one drill costs it a window open (~0.225 QOR) plus rescue gas. */
 export const DRILL_GUARDIAN_TARGET_UQOR = 2_000_000n;
 
-/** The repo root. The drill guardian's mnemonic must never land under it. */
-const REPO_ROOT = resolve(fileURLToPath(import.meta.url), "../../../..");
-
 const qor = (uqor: bigint) => `${formatUnits(uqor, 6)} QOR`;
 
 /** `~/.config/qday/drill-guardian.env`: outside the repo, so it can never be committed. */
 export function drillGuardianPath(home: string = homedir()): string {
   const file = join(resolve(home), ".config", "qday", DRILL_GUARDIAN_FILE);
-  if (!relative(REPO_ROOT, file).startsWith("..")) throw new Error(`drill guardian file ${file} is inside the repo; refusing`);
+  assertOutsideRepo(file);
   return file;
 }
 
@@ -42,6 +38,7 @@ export type DrillGuardianDeps = {
 
 /** Read `KEY="value"` lines (the `formatRunEnv` format) of an existing drill guardian file. */
 function readDrillFile(file: string): { mnemonic: string; address: string } {
+  if ((statSync(file).mode & 0o077) !== 0) throw new Error(`${file} must be mode 0600 (it holds a mnemonic): run chmod 600 on it`);
   const vars: Record<string, string> = {};
   for (const line of readFileSync(file, "utf8").split("\n")) {
     const m = /^([A-Z_][A-Z0-9_]*)="(.*)"$/.exec(line);
@@ -62,10 +59,11 @@ function readDrillFile(file: string): { mnemonic: string; address: string } {
 export async function drillGuardianInit(env: Env, deps: DrillGuardianDeps) {
   const file = drillGuardianPath(deps.home);
   const existing = existsSync(file);
-  const mnemonic = existing ? readDrillFile(file).mnemonic : deps.newMnemonic();
+  const saved = existing ? readDrillFile(file) : undefined;
+  const mnemonic = saved ? saved.mnemonic : deps.newMnemonic();
   const drill = await deriveSecret(mnemonic, existing ? "DRILL_GAS_MNEMONIC" : "the generated mnemonic");
   const address = drill.evm as Hex;
-  if (existing && readDrillFile(file).address.toLowerCase() !== address.toLowerCase()) {
+  if (saved && saved.address.toLowerCase() !== address.toLowerCase()) {
     throw new Error(`${file}: DRILL_GUARDIAN_ADDRESS does not match DRILL_GAS_MNEMONIC`);
   }
 
@@ -76,7 +74,7 @@ export async function drillGuardianInit(env: Env, deps: DrillGuardianDeps) {
   for (const name of ["GAS_MNEMONIC", "OWNER_MNEMONIC", "FUNDER_MNEMONIC"]) {
     const m = env[name]?.trim();
     if (!m) continue;
-    const role = await deriveSecret(m, name);
+    const role = name === funderName && funder ? funder : await deriveSecret(m, name);
     if (role.cosmos === drill.cosmos) throw new Error(`the drill guardian account is the ${name} account; it must be its own account`);
   }
 
@@ -98,7 +96,7 @@ export async function drillGuardianInit(env: Env, deps: DrillGuardianDeps) {
   if (balance < DRILL_GUARDIAN_TARGET_UQOR) {
     if (!funder || !funderMnemonic) throw new Error("FUNDER_MNEMONIC (or OWNER_MNEMONIC) is not set");
     const topUp = DRILL_GUARDIAN_TARGET_UQOR - balance;
-    checkFunderBalance(await deps.uqorBalance(funder.cosmos), topUp);
+    checkFunderBalance(await deps.uqorBalance(funder.cosmos), topUp, "the drill guardian");
     fundTx = await deps.broadcast(funder, [buildFundMsg(funder.cosmos, drill.cosmos, topUp)], "qday: fund drill guardian", "hybrid");
     deps.log(`fund ${qor(topUp)} from ${funder.cosmos}: ${fundTx}`);
     await waitFor(deps, () => deps.uqorBalance(drill.cosmos), (b) => b >= DRILL_GUARDIAN_TARGET_UQOR, "the drill guardian's balance");

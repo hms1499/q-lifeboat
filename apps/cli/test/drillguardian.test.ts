@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, existsSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveUnifiedAccount, type PqcStatus, type UnifiedAccount } from "@qorechain/sdk";
@@ -15,7 +15,6 @@ import { FEE_RESERVE_UQOR } from "../src/fresh";
 
 const DRILL_MNEMONIC = "test test test test test test test test test test test junk";
 const FUNDER_MNEMONIC = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-const OTHER_MNEMONIC = "legal winner thank year wave sausage worth useful legal winner thank yellow";
 
 describe("drillGuardianPath", () => {
   it("is ~/.config/qday/drill-guardian.env, never inside the repo", () => {
@@ -41,11 +40,12 @@ describe("drillGuardianInit", () => {
   const registered = (): PqcStatus => ({ registered: true, possessionProven: true, pubkey: drill.pqc.publicKey });
   const none = (): PqcStatus => ({ registered: false });
 
-  function deps(over: Partial<DrillGuardianDeps> & { drillBalance?: bigint; funderBalance?: bigint; status?: () => PqcStatus } = {}) {
+  function deps(opts: Partial<DrillGuardianDeps> & { drillBalance?: bigint; funderBalance?: bigint; status?: () => PqcStatus } = {}) {
+    const { drillBalance, funderBalance, status, ...over } = opts;
     const calls: string[] = [];
     const lines: string[] = [];
     const sent: { to: string; amount: string }[] = [];
-    let drillBal = over.drillBalance ?? 0n;
+    let drillBal = drillBalance ?? 0n;
     let regDone = false;
     const file = drillGuardianPath(home);
     const d: DrillGuardianDeps = {
@@ -53,7 +53,7 @@ describe("drillGuardianInit", () => {
       newMnemonic: vi.fn(() => DRILL_MNEMONIC),
       log: (l) => void lines.push(l),
       sleep: async () => {},
-      uqorBalance: vi.fn(async (who: string) => (who === funder.cosmos ? (over.funderBalance ?? 100_000_000n) : drillBal)),
+      uqorBalance: vi.fn(async (who: string) => (who === funder.cosmos ? (funderBalance ?? 100_000_000n) : drillBal)),
       broadcast: vi.fn(async (acc: UnifiedAccount, msgs: { typeUrl: string; value: unknown }[], _m: string, mode: "hybrid" | "classical") => {
         calls.push(`${existsSync(file) ? "file" : "nofile"}:${msgs.map((m) => m.typeUrl.split(".").pop()).join("+")}:${mode}`);
         for (const m of msgs) {
@@ -65,7 +65,7 @@ describe("drillGuardianInit", () => {
         }
         return `TX${calls.length}`;
       }),
-      pqcStatus: vi.fn(async () => (over.status ? over.status() : regDone ? registered() : none())),
+      pqcStatus: vi.fn(async () => (status ? status() : regDone ? registered() : none())),
       ...over,
     };
     return { d, calls, lines, sent, file };
@@ -95,11 +95,19 @@ describe("drillGuardianInit", () => {
 
   it("refuses a file whose address does not match its mnemonic", async () => {
     await drillGuardianInit(env(), deps().d);
-    const { d } = deps({ drillBalance: DRILL_GUARDIAN_TARGET_UQOR, status: registered, newMnemonic: () => OTHER_MNEMONIC });
+    const { d } = deps({ drillBalance: DRILL_GUARDIAN_TARGET_UQOR, status: registered });
     const f = drillGuardianPath(home);
     const bad = readFileSync(f, "utf8").replace(/0x[0-9a-fA-F]{40}/, "0x00000000000000000000000000000000000000aa");
-    (await import("node:fs")).writeFileSync(f, bad);
+    writeFileSync(f, bad, { mode: 0o600 });
     await expect(drillGuardianInit(env(), d)).rejects.toThrow(/does not match/);
+    expect(d.broadcast).not.toHaveBeenCalled();
+  });
+
+  it("refuses a reused file that is looser than 0600", async () => {
+    await drillGuardianInit(env(), deps().d);
+    chmodSync(drillGuardianPath(home), 0o644);
+    const { d } = deps({ drillBalance: DRILL_GUARDIAN_TARGET_UQOR, status: registered });
+    await expect(drillGuardianInit(env(), d)).rejects.toThrow(/0600/);
     expect(d.broadcast).not.toHaveBeenCalled();
   });
 
