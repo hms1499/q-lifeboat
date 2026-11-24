@@ -4,8 +4,8 @@ import { DRILL_STAGES, fetchDrill, fetchDrillRuns, stageStatus, startDrill, subs
 import { errorText } from "../lib/format";
 import { useApp } from "../state";
 
-/** The drill guardian setup command; the builder's repo root (the CLI reads the root .env). */
-const GUARDIAN_INIT_CMD = "cd /Users/vanhuy/Desktop/Quantum && pnpm cli drill-guardian init";
+/** The drill guardian setup command; run from the repo root (the CLI reads the root .env). */
+const GUARDIAN_INIT_CMD = "pnpm cli drill-guardian init";
 
 const MARK = { done: "pass", failed: "fail", active: "pending", pending: "pending" } as const;
 const pct = (k: string) => `${k}%`;
@@ -97,7 +97,7 @@ export function Drill() {
             ) : null}
             {needsGuardian ? (
               <Command cmd={GUARDIAN_INIT_CMD}>
-                <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>The drill needs its own guardian wallet. Create it once:</div>
+                <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>The drill needs its own guardian wallet. Create it once, from the repo root:</div>
               </Command>
             ) : null}
             {state && state.status !== "idle" ? (
