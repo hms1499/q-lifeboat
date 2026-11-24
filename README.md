@@ -122,7 +122,7 @@ The diana explorer shows Cosmos-lane txs only; EVM tx hashes in the docs are che
 ## Documents
 
 - [Threat model](docs/THREAT_MODEL.md), including the honest limits
-- [Audit](docs/AUDIT.md): QCAI Stage 1 (85/100, MEDIUM, every finding handled)
+- [Audit](docs/AUDIT.md): QCAI Stage 1 (85/100, MEDIUM) and Stage 2 on the final contract (MEDIUM, no finding on the guardian path), every finding fixed, tested or explained
 - [On-chain evidence](docs/EVIDENCE.md): every diana tx behind a claim
 - [How AI was used](AI_USAGE.md)
 - [Spec](docs/specs/2026-11-19-qday-guardian-mvp.md) and [plan](docs/plans/2026-11-19-qday-guardian.md)

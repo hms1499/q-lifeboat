@@ -322,7 +322,10 @@ only: no data, verification, signing or test logic changes.
 - Create: `docs/audit/stage2-YYYY-MM-DD.md`, `assets/cover-16x9.png`
 - Finalise: `docs/AUDIT.md`, `docs/THREAT_MODEL.md`, `AI_USAGE.md`, `README.md`
 
-- [ ] **Step 1:** Run QCAI Stage 2 on the final contract. Update the table in `AUDIT.md`: each Stage 1 finding is fixed, covered by a test, or explained.
+- [x] **Step 1:** Run QCAI Stage 2 on the final contract. Update the table in `AUDIT.md`: each Stage 1 finding is fixed, covered by a test, or explained.
+  2026-11-24 on v3 (`4dc7600`): MEDIUM, 4 findings (open `deposit`, `withdraw` front-running, "unbounded loop", ERC20 usage), none on
+  the guardian path; all explained, no contract change; two tests added (`test_strangerDepositOnlyAddsToTheOwnersVault`,
+  `test_frontRunnerCanOnlyPayTheSignedRecipient`).
 - [x] **Step 2:** Finalise `THREAT_MODEL.md` against the final code: EVM-window scope, the `approve(vault,0)` race, window budget as the only cap, a leaked agent key (the chain limits it to `rescue`), and the LLM having no authority. Add an **Honest limits** section (also in the README): a one-shot drain (`transfer` of the whole balance in one tx inside an open owner window) is not stopped, since the Guardian reacts after the tx and the window's `maxValue` bounds QOR and gas, not tokens (chain fact 4); the real defence is a closed window by default, and the Guardian covers the time a window is open and the approve-then-`transferFrom` gap; roadmap: mempool front-running, a hosted agent, a withdrawal timelock (decided 2026-11-24).
 - [x] **Step 3:** Finish the README (run instructions, qor1/0x addresses) and `AI_USAGE.md`. Cover `assets/cover-16x9.png` (source `assets/cover.html`).
 - [ ] **Step 4:** Record a video ≤ 3 minutes. Lead with **approval phishing** (decided 2026-11-24): the owner signs an `approve` to an untrusted spender, the Guardian rescues before the drainer's `transferFrom` (Task 6B trigger; rebuild it as one demo flow with fresh on-chain evidence), then the spec's 5-step drain script as the second act, the Fire drill and the Honest limits slide. Record a backup take before Dec 1.
