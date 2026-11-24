@@ -240,6 +240,12 @@ expect "nothing ran" no_stub_calls drillclash
 run_demo drillbadport "$DG" DRILL_AGENT_PORT=88x -- --drill
 expect "a non-numeric DRILL_AGENT_PORT: exit 2, nothing ran" bash -c "[ $RC -eq 2 ] && ! grep -q 'stub\]' '$WORK/drillbadport.out'"
 expect "says DRILL_AGENT_PORT must be a port" has drillbadport 'refusing --drill: DRILL_AGENT_PORT must be a port number'
+run_demo drillresume "$DG" -- --drill --resume "$WORK/re sumed/run.env"
+expect "--drill with --resume: exit 2" test "$RC" -eq 2
+expect "says a drill always starts from a fresh owner" has drillresume 'refusing --drill with --resume'
+expect "nothing ran" no_stub_calls drillresume
+run_demo resumedrill "$DG" -- --resume "$WORK/re sumed/run.env" --drill
+expect "--resume before --drill: exit 2, same refusal" bash -c "[ $RC -eq 2 ] && grep -q 'refusing --drill with --resume' '$WORK/resumedrill.out'"
 printf 'DRILL_GAS_MNEMONIC="drill guardian words"\n' >"$WORK/drill-noaddr.env"
 run_demo drillnoaddr QDAY_DRILL_GUARDIAN_FILE="$WORK/drill-noaddr.env" -- --drill
 expect "drill guardian file without DRILL_GUARDIAN_ADDRESS: exit 2, nothing ran" bash -c "[ $RC -eq 2 ] && ! grep -q 'stub\]' '$WORK/drillnoaddr.out'"

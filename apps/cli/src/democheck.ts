@@ -1,11 +1,11 @@
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { loadTokens, loadVault } from "@qday/core";
 import { erc20Abi, formatUnits, isAddress, type Hex } from "viem";
 import type { DrainRecord, ForgedRecord, MisuseRecord } from "./attacker";
 import { publicClient } from "./chain";
 import { MINT_AMOUNT } from "./fresh";
-import { runDirFromEnv } from "./run";
+import { assertOutsideRepo, runDirFromEnv } from "./run";
 
 type Env = Record<string, string | undefined>;
 
@@ -172,10 +172,21 @@ export function buildVerdictFile(
 }
 
 /** Write verdict.json with mode 0600 (an existing file keeps its old mode otherwise). The caller picks the path. */
-function writeVerdictFile(path: string, v: VerdictFile): void {
-  const file = resolve(path);
+export function writeVerdictFile(file: string, v: VerdictFile): void {
   writeFileSync(file, JSON.stringify(v, null, 2) + "\n", { mode: 0o600 });
   chmodSync(file, 0o600);
+}
+
+/** Print the verdict, write it to `out` when given (PASS and FAIL alike), and return the exit code. */
+export function reportVerdict(
+  r: ReturnType<typeof evaluateRun>,
+  ctx: Parameters<typeof buildVerdictFile>[1] & { out?: string; log?: (line: string) => void },
+): number {
+  const log = ctx.log ?? console.log;
+  for (const line of r.lines) log(line);
+  log(r.pass ? "RESULT PASS" : `RESULT FAIL: ${r.failures.join("; ")}`);
+  if (ctx.out) writeVerdictFile(ctx.out, buildVerdictFile(r, ctx));
+  return r.pass ? 0 : 1;
 }
 
 /** Poll GET /incidents until one is for these drains, or `timeoutMs` passes. Fetch errors count as "not yet". */
@@ -217,6 +228,10 @@ export async function runDemoCheck(args: string[], env: Env = process.env): Prom
   if (waitIdx >= 0 && outIdx >= 0) throw new Error("usage: demo-check --out <file> writes the verdict; it does not combine with --wait");
   const out = outIdx >= 0 ? args[outIdx + 1] : undefined;
   if (outIdx >= 0 && (!out || out.startsWith("--"))) throw new Error("usage: demo-check --out <file>");
+  if (out !== undefined) {
+    if (!isAbsolute(out)) throw new Error("demo-check --out must be an absolute path");
+    assertOutsideRepo(out);
+  }
 
   const runId = env.RUN_ID?.trim() ?? "";
   const attack = parseAttackFile(readFileSync(join(runDirFromEnv(env), "attack.json"), "utf8"));
@@ -266,11 +281,6 @@ export async function runDemoCheck(args: string[], env: Env = process.env): Prom
     recoveredFusd: safe ? await balanceOf(fUSD, safe as Hex) : 0n,
     attackerFusd: await balanceOf(fUSD, attacker as Hex),
   });
-  for (const line of r.lines) console.log(line);
-  console.log(r.pass ? "RESULT PASS" : `RESULT FAIL: ${r.failures.join("; ")}`);
-  if (out) {
-    const owner = env.OWNER_EVM_ADDRESS?.trim() ?? "";
-    writeVerdictFile(out, buildVerdictFile(r, { runId, incident: incident?.id, owner, vault, env, now: new Date() }));
-  }
-  return r.pass ? 0 : 1;
+  const owner = env.OWNER_EVM_ADDRESS?.trim() ?? "";
+  return reportVerdict(r, { runId, incident: incident?.id, owner, vault, env, now: new Date(), out });
 }

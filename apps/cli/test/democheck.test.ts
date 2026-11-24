@@ -1,5 +1,9 @@
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Hex } from "viem";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildVerdictFile,
   drainsWithoutBlock,
@@ -7,9 +11,11 @@ import {
   evaluateRun,
   parseAttackFile,
   pickIncident,
+  reportVerdict,
   rescueHashes,
   runDemoCheck,
   waitForIncident,
+  writeVerdictFile,
   type AttackFile,
   type IncidentView,
 } from "../src/democheck";
@@ -264,5 +270,53 @@ describe("runDemoCheck --out usage (Task 6G)", () => {
     await expect(runDemoCheck(["--wait", "60", "--out", "/tmp/v.json"], {})).rejects.toThrow(/--out.*--wait/);
     await expect(runDemoCheck(["--out"], {})).rejects.toThrow(/usage: demo-check --out <file>/);
     await expect(runDemoCheck(["--out", "--wait"], {})).rejects.toThrow(/usage/);
+    await expect(runDemoCheck(["--out", "--json"], {})).rejects.toThrow(/usage: demo-check --out <file>/);
+  });
+
+  it("refuses a relative --out path and one inside the repo", async () => {
+    await expect(runDemoCheck(["--out", "verdict.json"], {})).rejects.toThrow(/--out.*absolute/);
+    await expect(runDemoCheck(["--out", "./runs/verdict.json"], {})).rejects.toThrow(/--out.*absolute/);
+    const repo = resolve(fileURLToPath(import.meta.url), "../../../..");
+    await expect(runDemoCheck(["--out", join(repo, "data", "verdict.json")], {})).rejects.toThrow(/inside the repo/);
+  });
+});
+
+describe("verdict.json write (demo-check --out, Task 6G)", () => {
+  const dirs: string[] = [];
+  const tmp = () => {
+    const d = mkdtempSync(join(tmpdir(), "qday-verdict-"));
+    dirs.push(d);
+    return d;
+  };
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  const ctx = { runId: "r1", incident: "inc-1", owner: "0x7777777777777777777777777777777777777777", vault: "0x17d867860a0A0Ff528dF655439ff59176b061B3C", env: {}, now: new Date("2026-11-24T10:00:00.000Z") };
+  const pass = () => evaluateRun({ attack: attackFile(), incident: incident(D1, "inc-1"), rescueBlock: 1002n, vaultFusd: 89n * E18, recoveredFusd: 1n * E18, attackerFusd: 10n * E18 });
+  const fail = () => evaluateRun({ attack: attackFile(), incident: incident(D1, "inc-1"), rescueBlock: 1009n, vaultFusd: 50n * E18, recoveredFusd: 0n, attackerFusd: 50n * E18 });
+  const read = (f: string) => JSON.parse(readFileSync(f, "utf8"));
+
+  it("writes mode 0600 and overwrites an existing file (fixing its mode)", () => {
+    const file = join(tmp(), "verdict.json");
+    writeFileSync(file, "old", { mode: 0o644 });
+    writeVerdictFile(file, buildVerdictFile(pass(), ctx));
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(read(file)).toMatchObject({ runId: "r1", pass: true, blocks: "2", keptPct: "90.00" });
+  });
+
+  it("reportVerdict writes the file on PASS (exit 0) and on FAIL (exit 1)", () => {
+    const dir = tmp();
+    const log = vi.fn();
+    const okFile = join(dir, "ok.json");
+    expect(reportVerdict(pass(), { ...ctx, out: okFile, log })).toBe(0);
+    expect(read(okFile).pass).toBe(true);
+    expect(log).toHaveBeenCalledWith("RESULT PASS");
+
+    const badFile = join(dir, "bad.json");
+    const r = fail();
+    expect(reportVerdict(r, { ...ctx, out: badFile, log })).toBe(1);
+    expect(read(badFile)).toMatchObject({ pass: false, failures: r.failures, blocks: "9" });
+    expect(statSync(badFile).mode & 0o777).toBe(0o600);
+    expect(log).toHaveBeenCalledWith(`RESULT FAIL: ${r.failures.join("; ")}`);
   });
 });

@@ -11,7 +11,7 @@
 #                        QDAY_DRILL_GUARDIAN_FILE) deploys and rescues instead of GAS_MNEMONIC; its agent
 #                        listens on DRILL_AGENT_PORT (default 8788, never the main AGENT_PORT), writes its
 #                        incidents to <run dir>/incidents.jsonl and sends no Telegram or webhook alert. The
-#                        main agent and the real owner's protection are untouched.
+#                        main agent and the real owner's protection are untouched. Not with --resume.
 #
 # One run: fresh owner (funded by FUNDER_MNEMONIC, default OWNER_MNEMONIC; own ML-DSA key, own vault,
 # 100 fUSD) -> setup (scoped window + agent link + approvals) -> start the agent -> attack with the
@@ -92,6 +92,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if ((DRILL_MODE)) && [[ -n "$RESUME" ]]; then
+  echo "refusing --drill with --resume: a drill always starts from a fresh owner deployed for the drill guardian" >&2
+  exit 2
+fi
 if [[ -n "$RESUME" ]]; then
   ((RUNS == 1)) || { echo "refusing --resume with --runs $RUNS: a resumed run is a single run" >&2; exit 2; }
   [[ -f "$RESUME" ]] || { echo "refusing --resume: $RESUME is not a file" >&2; exit 2; }
