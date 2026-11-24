@@ -1,5 +1,6 @@
 import { runAttack } from "./attacker";
 import { runDemoCheck } from "./democheck";
+import { runDrillGuardian } from "./drillguardian";
 import { runFreshOwner } from "./fresh";
 import { runLink } from "./link";
 import { runAgentMisuse } from "./misuse";
@@ -37,6 +38,9 @@ Demo (Task 5, run by ./demo.sh):
   pnpm cli attack                             leaked owner ECDSA key drains 3 x 10 fUSD, then (a) forged withdraw,
                                               (b) agent key misuse; writes attack.json in the run dir
   pnpm cli demo-check [--wait <s>]            verdict: rescue <= 3 blocks, >= 80% kept, (a) and (b) refused
+  pnpm cli drill-guardian init                create (once) and top up the fire drill's own guardian account in
+                                              ~/.config/qday/drill-guardian.env, funded by FUNDER_MNEMONIC; run it
+                                              again to top it up
 
   <token> is a 0x address, fUSD, fETH, fBTC or QOR. <amt> is a decimal amount (18 decimals).`;
 
@@ -68,6 +72,9 @@ async function main(): Promise<number> {
       return 0;
     case "attack":
       await runAttack();
+      return 0;
+    case "drill-guardian":
+      await runDrillGuardian(args);
       return 0;
     case "demo-check":
       return runDemoCheck(args);

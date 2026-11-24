@@ -139,7 +139,7 @@ function readAddress(env: Env, name: string): Hex {
   return v as Hex;
 }
 
-async function deriveSecret(mnemonic: string, name: string): Promise<UnifiedAccount> {
+export async function deriveSecret(mnemonic: string, name: string): Promise<UnifiedAccount> {
   try {
     return await deriveUnifiedAccount(mnemonic);
   } catch (e) {
@@ -147,7 +147,7 @@ async function deriveSecret(mnemonic: string, name: string): Promise<UnifiedAcco
   }
 }
 
-async function waitFor<T>(deps: FreshDeps, read: () => Promise<T>, ok: (v: T) => boolean, what: string): Promise<T> {
+export async function waitFor<T>(deps: { sleep(ms: number): Promise<void> }, read: () => Promise<T>, ok: (v: T) => boolean, what: string): Promise<T> {
   let v = await read();
   for (let i = 1; i < POLL_TRIES && !ok(v); i++) {
     await deps.sleep(POLL_DELAY_MS);
