@@ -1,3 +1,5 @@
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { checkVaultGuardian, loadAgentConfig, publicConfig } from "../src/config";
 
@@ -122,6 +124,27 @@ describe("loadAgentConfig: alerts, gas threshold and dashboard origins (Task 6C)
     expect(c.dashboardOrigins).toEqual(["https://guardian.example", "http://localhost:4173"]);
     await expect(loadAgentConfig({ ...base, DASHBOARD_ORIGINS: "http://localhost:5173/" })).rejects.toThrow(/DASHBOARD_ORIGINS/);
     await expect(loadAgentConfig({ ...base, DASHBOARD_ORIGINS: "*" })).rejects.toThrow(/DASHBOARD_ORIGINS/);
+  });
+});
+
+describe("loadAgentConfig: incidents file (Task 6G)", () => {
+  // The repo root, from this test file (apps/agent/test/config.test.ts).
+  const repoRoot = resolve(fileURLToPath(import.meta.url), "../../../..");
+
+  it("test_incidentsFileDefaultsToRepoData: <repo>/data/incidents.jsonl, also when INCIDENTS_FILE is empty", async () => {
+    const want = join(repoRoot, "data", "incidents.jsonl");
+    expect((await loadAgentConfig(base)).incidentsFile).toBe(want);
+    expect((await loadAgentConfig({ ...base, INCIDENTS_FILE: "  " })).incidentsFile).toBe(want);
+  });
+
+  it("test_incidentsFileFromEnv: an absolute INCIDENTS_FILE (a drill's <run dir>/incidents.jsonl)", async () => {
+    const file = "/home/u/.config/qday/runs/20261124T101010Z/incidents.jsonl";
+    expect((await loadAgentConfig({ ...base, INCIDENTS_FILE: ` ${file} ` })).incidentsFile).toBe(file);
+  });
+
+  it("test_incidentsFileMustBeAbsolute: a relative path is refused", async () => {
+    await expect(loadAgentConfig({ ...base, INCIDENTS_FILE: "data/incidents.jsonl" })).rejects.toThrow(/INCIDENTS_FILE.*absolute/);
+    await expect(loadAgentConfig({ ...base, INCIDENTS_FILE: "./x.jsonl" })).rejects.toThrow(/INCIDENTS_FILE.*absolute/);
   });
 });
 

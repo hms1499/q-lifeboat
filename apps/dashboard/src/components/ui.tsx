@@ -43,6 +43,19 @@ export function Command({ cmd, children }: { cmd: string; children?: ReactNode }
   );
 }
 
+/** Selectable text with a Copy button (run ids, EVM tx hashes: never an explorer link). */
+export function CopyText({ text, label }: { text: string; label?: string }) {
+  const { copied, copy } = useCopy(text);
+  return (
+    <span>
+      <span className="mono wrap-any">{text}</span>
+      <button type="button" className="copy-mini" onClick={() => void copy()} aria-label={`Copy ${label ?? text}`}>
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </span>
+  );
+}
+
 const MARK: Record<CheckStatus | "pending", string> = { pass: "✓", fail: "✗", "n/a": "–", pending: "…" };
 
 export function CheckRow({ status, title, detail }: { status: CheckStatus | "pending"; title: string; detail?: string }) {

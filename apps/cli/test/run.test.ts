@@ -81,3 +81,11 @@ describe("writeRunFile", () => {
     expect(readFileSync(join(dir, "run.env"), "utf8")).toBe('A="done"\n');
   });
 });
+
+describe("assertOutsideRepo", () => {
+  it("refuses a path inside the repo and accepts one outside", async () => {
+    const { assertOutsideRepo } = await import("../src/run");
+    expect(() => assertOutsideRepo(join(__dirname, "x.env"))).toThrow(/inside the repo/);
+    expect(() => assertOutsideRepo("/tmp/x.env")).not.toThrow();
+  });
+});

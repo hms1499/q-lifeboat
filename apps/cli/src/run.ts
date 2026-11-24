@@ -15,11 +15,16 @@ export function newRunId(now: Date = new Date()): string {
   return now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
 }
 
+/** Refuse a path inside the repo: files that hold a mnemonic must never be committable. */
+export function assertOutsideRepo(path: string): void {
+  if (!relative(REPO_ROOT, resolve(path)).startsWith("..")) throw new Error(`${path} is inside the repo; refusing`);
+}
+
 /** `~/.config/qday/runs/<runId>`: outside the repo, so nothing a run writes can be committed. */
 export function runDir(runId: string, home: string = homedir()): string {
   if (!RUN_ID_RE.test(runId)) throw new Error(`invalid run id "${runId}"`);
   const dir = join(resolve(home), ".config", "qday", "runs", runId);
-  if (!relative(REPO_ROOT, dir).startsWith("..")) throw new Error(`run directory ${dir} is inside the repo; refusing`);
+  assertOutsideRepo(dir);
   return dir;
 }
 

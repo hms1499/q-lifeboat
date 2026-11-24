@@ -205,3 +205,24 @@ MetaMask and clicked the txs.
 | Trusted list step closed with "Continue without" (`GET /policy`: 0 trusted), recovery address saved locally; all 6 steps ✓, Overview "No exposure right now" | builder screenshot 10:15 local | `GET /policy` 03:2xZ |
 | Attack on the onboarded owner: scoped `window open` `A9EC2216…`, `pnpm cli attack`, `demo-check --wait 60` | drain 1 `0x695756c8…` (block 10591084) landed, drains 2-3 reverted; rescue 2 blocks later; (a) forged withdraw `BadSignature` `0x780c98bf…` reverted; (b) agent-key `transfer` refused `F67DF2EA…` | rescue `0x3c1a274902ff3fd9e207127f79f4020ae955ac8935630a7da35dc42d2303df3a`, incident `2e32c49c-2817-4eb2-95fc-0cc44a78f548` |
 | Recovery: `sign-withdraw` 1 fUSD to the safe address + `withdraw` from the owner's window; final `demo-check` | withdraw success (to 0 → 1), **RESULT PASS**: 2 blocks (max 3), 90.00% kept, (a) PASS, (b) PASS | `0x73c1f69465ebfb68b30828a379df1beaffde6ec0e9fc3dedf213fccf02b29f25` |
+
+## Task 6G: Fire drill on diana (2026-11-24)
+
+Drill guardian `0x77e6311b681Ac3D4b6E0C3b13e53CF381692C115` (`qor1wlnrzxmgrtpafdhqcwcnu5708qtf9sg46d5xga`), a separate account from the
+real guardian `0xFf82cAD6638a38d7009D0d5DfB757136B0C03850`. Branch `task-6g-drill` at `dcf7350`. The main agent ran with the root `.env`
+(watching `0xE871748C0922745Ad94d065a388e95eC420A67EB`, vault `0x776913Abe058941d4c8ac097EE47E29F528f71e6`) and the drill was started from
+the dashboard's Fire drill screen (`127.0.0.1:5173/#/drill`, "Run drill").
+
+| Claim | Result | Evidence |
+|---|---|---|
+| `pnpm cli drill-guardian init`: new account, file `~/.config/qday/drill-guardian.env` (0600) written before any QOR moves, top-up to 2 QOR, ML-DSA-87 key registered classically | fund 2 QOR from the funder, then register | fund `9C41AE85BDA4467B5BE3DBC3EB80903C505CF1137778B0A36BF07AEC21DEF20A`, register `F5F9ECFDDED8B0946B4AD46B57564717A739425F64429B67A321B4CE6F4697FD` |
+| `init` again: reuses the file; the register fee had left 1.775 QOR, so it tops up to the target | 0.225 QOR top-up, "already registered" | `E13BB05E8A4F411E6C0F6E8C3C6D86C22740400CDAC6361EAEEB8C0750D42AD6` |
+| `init` a third time sends nothing | "balance 2 QOR is at or above the target 2 QOR: no top-up", "ML-DSA-87 key already registered" | CLI output 08:1xZ |
+| **Run drill** from the dashboard: the agent spawned `demo.sh --drill`; stages streamed live over `/drill/events` | 7 stages ✓, 86 s from start to verdict | run `20261124T081242Z` |
+| Throwaway owner `0x7DD65Fc8c7BF7999515F17F205fe5469c08BC061`: fund 1.5 QOR, register, deploy `GuardianVault(owner, drill guardian)` | vault `0x43e260d5209acaea491f8c8c8a50995d4f7b6966` | fund `E2A9ED79…`, register `E1A6B72E…`, deploy `0x2753fbde8085d769a7f3b1a5824d22a8d451256ac2b72acf56dfd116053cfd52` |
+| The drill agent ran on `:8788` with the drill guardian, no alerts | log "guardian 0x77e6…C115 watching 0x7DD6…C061 … API on :8788; alerts: none" | `drill.log` in the run dir |
+| Attack: drains 1-2 landed (blocks 10656479, 10656480), drain 3 reverted; rescue in block 10656481 | **RESULT PASS**: 2 blocks (max 3), 80.00% kept (vault 79 + recovered 1 of 100 fUSD), (a) forged withdraw `BadSignature` reverted, (b) agent-key `transfer` refused | rescue `0x12f053a8f9da582e8f008be690380fe21d1ee84787a8687cf1554de33d049f66`, incident `bc9d0837-0373-4cf5-a239-b5fec7a7d3bc` |
+| Recovery withdraw of 1 fUSD to the safe address | success, gasUsed 500000 | `0xfa095ea53496d4444f1ba3ca0145180e73c985b287ec7dd411dc04733c4b8331` |
+| `verdict.json` (mode `drill`) listed by `GET /drill/runs` and the Past runs table | PASS, blocks 2, kept 80.00% | `GET /drill/runs` 08:14Z |
+| The real owner was not touched: the drill incident is not in `data/incidents.jsonl` (0 matches; `/incidents` still ends 2026-11-23), and the main agent opened no guardian window after its startup open (its window stayed scoped to the real vault) | main agent log: one `guardian window opened` at 08:12:30Z, none during the drill | startup open `AA49D05C3B5F984ABE148692FF7D7937C19A907C9E94C9587AD57E46B5024FE2` |
+| Second drill from the screen after the final-review fixes (`bc2203d`: separate funder required, drill port and lock checks, `drill-guardian check` before fresh-owner) | `drill-guardian check` passed (1.5332 QOR); drain 1 landed (block 10657407), drains 2-3 reverted; **RESULT PASS**: 1 block, 90.00% kept, (a) and (b) PASS; no `drill.lock` left; still nothing in `data/incidents.jsonl` | run `20261124T083451Z`, vault `0xa42e899a88bae2b51f447f4d0022e1f96ea942c6`, rescue `0x97ccf223eebafc2d02615a7b6f6e799973f0be1634606a45847d90357aa1af46`, withdraw `0xeff9257393e17cb023edf26cb5e250e329a74f46d54502e7502f3d2391f230d1` |

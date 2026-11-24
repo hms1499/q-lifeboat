@@ -3,6 +3,7 @@ import { ScreenBoundary, ShieldIcon } from "./components/ui";
 import { explorerAddress } from "./lib/chain";
 import { shortAddr } from "./lib/format";
 import { useHashRoute } from "./lib/hooks";
+import { Drill } from "./screens/Drill";
 import { Incidents } from "./screens/Incidents";
 import { Overview } from "./screens/Overview";
 import { Protect } from "./screens/Protect";
@@ -16,9 +17,8 @@ const NAV = [
   { id: "recover", label: "Recover", href: "#/recover" },
   { id: "protect", label: "Protect", href: "#/protect" },
   { id: "rules", label: "Rules", href: "#/rules" },
+  { id: "drill", label: "Fire drill", href: "#/drill" },
 ] as const;
-/** Later-task screens: shown, not yet linked. */
-const SOON = ["Fire drill"];
 
 function TopBar({ active }: { active: string }) {
   const { config, wallet } = useApp();
@@ -36,11 +36,6 @@ function TopBar({ active }: { active: string }) {
           <a key={n.id} href={n.href} aria-current={n.id === active ? "page" : undefined}>
             {n.label}
           </a>
-        ))}
-        {SOON.map((label) => (
-          <span key={label} aria-disabled="true" title="Coming in a later task">
-            {label} <span className="soon">soon</span>
-          </span>
         ))}
       </nav>
       <div className="pills">
@@ -89,14 +84,14 @@ function Banners() {
 
 export function App() {
   const [screen = "", id] = useHashRoute();
-  const active = screen === "incidents" || screen === "recover" || screen === "rules" || screen === "protect" ? screen : "overview";
+  const active = screen === "incidents" || screen === "recover" || screen === "rules" || screen === "protect" || screen === "drill" ? screen : "overview";
   return (
     <>
       <TopBar active={active} />
       <main>
         <Banners />
         <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
-          {active === "incidents" ? <Incidents selected={id} /> : active === "recover" ? <Recover /> : active === "rules" ? <Rules /> : active === "protect" ? <Protect /> : <Overview />}
+          {active === "incidents" ? <Incidents selected={id} /> : active === "recover" ? <Recover /> : active === "rules" ? <Rules /> : active === "protect" ? <Protect /> : active === "drill" ? <Drill /> : <Overview />}
         </ScreenBoundary>
       </main>
     </>
