@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { loadTokens, loadVault } from "@qday/core";
 import { erc20Abi, formatUnits, isAddress, type Hex } from "viem";
 import type { DrainRecord, ForgedRecord, MisuseRecord } from "./attacker";
@@ -135,6 +135,49 @@ export function evaluateRun(i: {
   return { pass: failures.length === 0, failures, lines, firstDrainBlock, blocks, keptPct };
 }
 
+/** `demo-check --out <file>`: the verdict as JSON, read by the agent's fire drill. Addresses and numbers only. */
+export type VerdictFile = {
+  runId: string;
+  /** "drill" when the run was `demo.sh --drill` (env DRILL=1). */
+  mode: "drill" | "demo";
+  pass: boolean;
+  failures: string[];
+  firstDrainBlock: string | null;
+  blocks: string | null;
+  keptPct: string;
+  incident: string | null;
+  owner: string;
+  vault: string;
+  checkedAt: string;
+};
+
+/** Build verdict.json from `evaluateRun`'s result. Fields are picked by name, so nothing else in `env` can leak in. */
+export function buildVerdictFile(
+  r: Pick<ReturnType<typeof evaluateRun>, "pass" | "failures" | "firstDrainBlock" | "blocks" | "keptPct">,
+  ctx: { runId: string; incident?: string; owner: string; vault: string; env: Env; now: Date },
+): VerdictFile {
+  return {
+    runId: ctx.runId,
+    mode: ctx.env.DRILL?.trim() === "1" ? "drill" : "demo",
+    pass: r.pass,
+    failures: [...r.failures],
+    firstDrainBlock: r.firstDrainBlock?.toString() ?? null,
+    blocks: r.blocks?.toString() ?? null,
+    keptPct: r.keptPct,
+    incident: ctx.incident ?? null,
+    owner: ctx.owner,
+    vault: ctx.vault,
+    checkedAt: ctx.now.toISOString(),
+  };
+}
+
+/** Write verdict.json with mode 0600 (an existing file keeps its old mode otherwise). The caller picks the path. */
+function writeVerdictFile(path: string, v: VerdictFile): void {
+  const file = resolve(path);
+  writeFileSync(file, JSON.stringify(v, null, 2) + "\n", { mode: 0o600 });
+  chmodSync(file, 0o600);
+}
+
 /** Poll GET /incidents until one is for these drains, or `timeoutMs` passes. Fetch errors count as "not yet". */
 export async function waitForIncident(o: {
   fetchIncidents: () => Promise<IncidentView[]>;
@@ -164,14 +207,21 @@ async function fetchIncidents(env: Env): Promise<IncidentView[]> {
 const balanceOf = (token: Hex, who: Hex) => publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [who] });
 
 /**
- * `pnpm cli demo-check [--wait <seconds>]`. With --wait: exit 0 once the agent has an incident for this run's
- * drains, 1 on timeout. Without: print the run's verdict and exit 0 only if it passes.
+ * `pnpm cli demo-check [--wait <seconds> | --out <file>]`. With --wait: exit 0 once the agent has an incident for
+ * this run's drains, 1 on timeout. Without: print the run's verdict and exit 0 only if it passes; --out also writes
+ * it as JSON (`VerdictFile`, mode 0600) for a PASS and a FAIL alike.
  */
 export async function runDemoCheck(args: string[], env: Env = process.env): Promise<number> {
+  const waitIdx = args.indexOf("--wait");
+  const outIdx = args.indexOf("--out");
+  if (waitIdx >= 0 && outIdx >= 0) throw new Error("usage: demo-check --out <file> writes the verdict; it does not combine with --wait");
+  const out = outIdx >= 0 ? args[outIdx + 1] : undefined;
+  if (outIdx >= 0 && (!out || out.startsWith("--"))) throw new Error("usage: demo-check --out <file>");
+
+  const runId = env.RUN_ID?.trim() ?? "";
   const attack = parseAttackFile(readFileSync(join(runDirFromEnv(env), "attack.json"), "utf8"));
   const hashes = drainHashes(attack);
 
-  const waitIdx = args.indexOf("--wait");
   if (waitIdx >= 0) {
     const seconds = Number(args[waitIdx + 1]);
     if (!Number.isFinite(seconds) || seconds <= 0) throw new Error("usage: demo-check --wait <seconds>");
@@ -218,5 +268,9 @@ export async function runDemoCheck(args: string[], env: Env = process.env): Prom
   });
   for (const line of r.lines) console.log(line);
   console.log(r.pass ? "RESULT PASS" : `RESULT FAIL: ${r.failures.join("; ")}`);
+  if (out) {
+    const owner = env.OWNER_EVM_ADDRESS?.trim() ?? "";
+    writeVerdictFile(out, buildVerdictFile(r, { runId, incident: incident?.id, owner, vault, env, now: new Date() }));
+  }
   return r.pass ? 0 : 1;
 }

@@ -1,9 +1,7 @@
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { vaultAbi } from "@qday/core";
 import { publicClient } from "@qday/core/chain";
 import type { Hex } from "viem";
-import { checkVaultGuardian, loadAgentConfig, publicConfig } from "./config";
+import { checkVaultGuardian, DATA_DIR, loadAgentConfig, publicConfig } from "./config";
 import { createGuardian } from "./guardian";
 import { createHealth } from "./health";
 import { createNotifier } from "./notify";
@@ -34,14 +32,13 @@ async function main() {
   const windowTick = skipWhileBusy(async () => void (await serial(() => windowKeeper.ensure())));
   setInterval(() => void windowTick().catch((e) => log(`window error: ${errorText(e)}`)), WINDOW_CHECK_MS);
 
-  // data/ lives at the repo root (gitignored), whatever the working directory is.
-  const dataDir = resolve(fileURLToPath(import.meta.url), "../../../../data");
-  const file = resolve(dataDir, "incidents.jsonl");
+  // Incidents: <repo>/data/incidents.jsonl, or INCIDENTS_FILE (a fire drill's own <run dir>/incidents.jsonl).
+  const file = cfg.incidentsFile;
   const llm = cfg.anthropicApiKey ? anthropicLlm(cfg.anthropicApiKey) : undefined;
 
   // The owner's trusted list, one file per owner. ALLOWLIST / MAX_OUTBOUND only seed a missing file; an invalid
   // file stops the agent here. Edits (by hand or PUT /policy) apply to the next trigger, no restart.
-  const policyFile = policyFilePath(dataDir, cfg.owner);
+  const policyFile = policyFilePath(DATA_DIR, cfg.owner);
   const policyStore = createPolicyStore({ file: policyFile, seed: seedPolicy(cfg.allowlist, cfg.maxOutbound), log });
 
   // Alerts and health are off the rescue path: nothing below is awaited by the guardian's single-flight loop.
@@ -100,6 +97,7 @@ async function main() {
   const policy = policyStore.get();
   const channels = Object.entries(notifier.channels).filter(([, on]) => on).map(([name]) => name);
   log(`policy ${policyFile}: ${policy.trusted.length} trusted, maxOutbound ${policy.maxOutbound}`);
+  log(`incidents ${file}`);
   log(
     `guardian ${cfg.gas.evm} watching ${cfg.owner} -> vault ${cfg.vault} every ${cfg.pollMs} ms; API on :${server.port}; ` +
       `summaries: ${llm ? "claude" : "template"}; alerts: ${channels.length ? channels.join(", ") : "none"}`,

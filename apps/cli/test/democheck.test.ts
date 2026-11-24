@@ -1,12 +1,14 @@
 import type { Hex } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildVerdictFile,
   drainsWithoutBlock,
   earliestRescueBlock,
   evaluateRun,
   parseAttackFile,
   pickIncident,
   rescueHashes,
+  runDemoCheck,
   waitForIncident,
   type AttackFile,
   type IncidentView,
@@ -201,5 +203,66 @@ describe("earliestRescueBlock", () => {
   it("(b) is undefined when every rescue failed", async () => {
     const list = [incident(D1, "t1", [failed]), incident(D2, "t2", [failed])];
     expect(await earliestRescueBlock({ incidents: list, hashes: [D1, D2], fusd: FUSD, blockOf })).toBeUndefined();
+  });
+});
+
+describe("buildVerdictFile (demo-check --out, Task 6G)", () => {
+  const OWNER = "0x7777777777777777777777777777777777777777";
+  const VAULT = "0x17d867860a0A0Ff528dF655439ff59176b061B3C";
+  const NOW = new Date("2026-11-24T10:00:00.000Z");
+  const passing = () =>
+    evaluateRun({ attack: attackFile(), incident: incident(D1, "inc-1"), rescueBlock: 1002n, vaultFusd: 89n * E18, recoveredFusd: 1n * E18, attackerFusd: 10n * E18 });
+  const ctx = (env: Record<string, string | undefined> = {}) => ({ runId: "20261124T095900Z", incident: "inc-1", owner: OWNER, vault: VAULT, env, now: NOW });
+
+  it("test_buildVerdictFileFromPassingRun: bigints as decimal strings, mode demo", () => {
+    expect(buildVerdictFile(passing(), ctx())).toEqual({
+      runId: "20261124T095900Z",
+      mode: "demo",
+      pass: true,
+      failures: [],
+      firstDrainBlock: "1000",
+      blocks: "2",
+      keptPct: "90.00",
+      incident: "inc-1",
+      owner: OWNER,
+      vault: VAULT,
+      checkedAt: "2026-11-24T10:00:00.000Z",
+    });
+  });
+
+  it("a failing run keeps its failures, with null blocks and incident when there were none", () => {
+    const r = evaluateRun({ attack: attackFile({ drains: [] }), vaultFusd: 0n, recoveredFusd: 0n, attackerFusd: 100n * E18 });
+    const v = buildVerdictFile(r, { ...ctx(), incident: undefined });
+    expect(v.pass).toBe(false);
+    expect(v.failures).toEqual(r.failures);
+    expect(v.firstDrainBlock).toBeNull();
+    expect(v.blocks).toBeNull();
+    expect(v.incident).toBeNull();
+    expect(v.keptPct).toBe("0.00");
+  });
+
+  it("test_verdictModeDrillWhenDrillEnv: mode drill only when DRILL=1", () => {
+    expect(buildVerdictFile(passing(), ctx({ DRILL: "1" })).mode).toBe("drill");
+    expect(buildVerdictFile(passing(), ctx({ DRILL: "" })).mode).toBe("demo");
+    expect(buildVerdictFile(passing(), ctx({ DRILL: "0" })).mode).toBe("demo");
+  });
+
+  it("test_verdictFileHasNoSecretKeys: exactly the VerdictFile keys, whatever the env holds", () => {
+    const env = { DRILL: "1", OWNER_MNEMONIC: "fresh owner words", GAS_MNEMONIC: "guardian words", AGENT_ED25519_SK: "aa".repeat(32) };
+    const v = buildVerdictFile(passing(), ctx(env));
+    expect(Object.keys(v).sort()).toEqual(
+      ["runId", "mode", "pass", "failures", "firstDrainBlock", "blocks", "keptPct", "incident", "owner", "vault", "checkedAt"].sort(),
+    );
+    const text = JSON.stringify(v);
+    expect(text).not.toContain("words");
+    expect(text).not.toContain("aa".repeat(32));
+  });
+});
+
+describe("runDemoCheck --out usage (Task 6G)", () => {
+  it("refuses --out with --wait, and --out without a file, before reading anything", async () => {
+    await expect(runDemoCheck(["--wait", "60", "--out", "/tmp/v.json"], {})).rejects.toThrow(/--out.*--wait/);
+    await expect(runDemoCheck(["--out"], {})).rejects.toThrow(/usage: demo-check --out <file>/);
+    await expect(runDemoCheck(["--out", "--wait"], {})).rejects.toThrow(/usage/);
   });
 });

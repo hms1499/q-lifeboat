@@ -37,7 +37,9 @@ Demo (Task 5, run by ./demo.sh):
                                               --no-vault: skip the vault (onboard it from the dashboard's Protect screen)
   pnpm cli attack                             leaked owner ECDSA key drains 3 x 10 fUSD, then (a) forged withdraw,
                                               (b) agent key misuse; writes attack.json in the run dir
-  pnpm cli demo-check [--wait <s>]            verdict: rescue <= 3 blocks, >= 80% kept, (a) and (b) refused
+  pnpm cli demo-check [--wait <s> | --out <file>]
+                                              verdict: rescue <= 3 blocks, >= 80% kept, (a) and (b) refused;
+                                              --out: also write it as JSON (mode 0600), PASS or FAIL
   pnpm cli drill-guardian init                create (once) and top up the fire drill's own guardian account in
                                               ~/.config/qday/drill-guardian.env, funded by FUNDER_MNEMONIC; run it
                                               again to top it up

@@ -1,3 +1,5 @@
+import { isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Hex } from "viem";
 import type { UnifiedAccount } from "@qorechain/sdk";
 import { loadAgentKey, loadGasAccount, loadOwnerAddress, loadTokens, loadVault, NETWORK, type TokenSymbol } from "@qday/core";
@@ -28,9 +30,13 @@ export type AgentConfig = {
   gasLowWei: bigint;
   /** Browser origins allowed to read and write /policy (DASHBOARD_ORIGINS). */
   dashboardOrigins: string[];
+  /** Where incidents are appended and served from (INCIDENTS_FILE, absolute; default <repo>/data/incidents.jsonl). */
+  incidentsFile: string;
 };
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+/** data/ lives at the repo root (gitignored), whatever the working directory is. */
+export const DATA_DIR = resolve(fileURLToPath(import.meta.url), "../../../../data");
 const DEFAULT_MAX_OUTBOUND = 1000n * 10n ** 18n;
 const DEFAULT_DASHBOARD_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
 const ORIGIN_RE = /^https?:\/\/[^/\s]+$/;
@@ -105,6 +111,8 @@ export async function loadAgentConfig(env: Env = process.env): Promise<AgentConf
   if (maxRaw && !/^\d+$/.test(maxRaw)) throw new Error("MAX_OUTBOUND must be a decimal integer (wei)");
   const portRaw = env.AGENT_PORT?.trim();
   if (portRaw && !/^\d+$/.test(portRaw)) throw new Error("AGENT_PORT must be a number");
+  const incidentsRaw = env.INCIDENTS_FILE?.trim();
+  if (incidentsRaw && !isAbsolute(incidentsRaw)) throw new Error("INCIDENTS_FILE must be an absolute path");
   const pollRaw = env.POLL_MS?.trim();
   if (pollRaw && (!/^\d+$/.test(pollRaw) || Number(pollRaw) <= 0)) throw new Error("POLL_MS must be a positive number of milliseconds");
 
@@ -120,6 +128,7 @@ export async function loadAgentConfig(env: Env = process.env): Promise<AgentConf
     pollMs: pollRaw ? Number(pollRaw) : DEFAULT_POLL_MS,
     anthropicApiKey: env.ANTHROPIC_API_KEY?.trim() || undefined,
     ...loadAlertConfig(env),
+    incidentsFile: incidentsRaw || resolve(DATA_DIR, "incidents.jsonl"),
   };
 }
 

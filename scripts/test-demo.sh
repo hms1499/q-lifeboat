@@ -2,8 +2,10 @@
 # Offline test of demo.sh's orchestration: a stub `pnpm` on PATH stands in for every CLI and agent step, so
 # nothing touches the chain, the network or ~/.config. Covers the pass path (--runs 2), a step failure that
 # stops --runs, the agent dying before "watching", no incident, a fresh-owner failure (temp file cleanup), the
-# FUNDER_MNEMONIC export, the agent process-group kill, and --resume (skips fresh-owner; refuses an incomplete
-# run.env, a run.env without the per-run AGENT_ED25519_SK, a missing file and --runs > 1).
+# FUNDER_MNEMONIC export, the agent process-group kill, --resume (skips fresh-owner; refuses an incomplete
+# run.env, a run.env without the per-run AGENT_ED25519_SK, a missing file and --runs > 1), the final
+# `demo-check --out <run dir>/verdict.json`, and --drill (the drill guardian, its own agent port and incidents
+# file, no alerts; refuses a missing or bad drill guardian file and a port clash with the main agent).
 #
 #   bash scripts/test-demo.sh
 set -euo pipefail
@@ -27,7 +29,12 @@ what="$1"
 shift
 [[ "$what" == cli ]] && { what="cli:$1"; shift; }
 [[ "$what" == cli:demo-check && "${1:-}" == --wait ]] && what="cli:demo-check:wait"
-echo "[stub] $what FUNDER=[${FUNDER_MNEMONIC-unset}] OWNER=[${OWNER_MNEMONIC-unset}] RELAYER=[${RELAYER_MNEMONIC-unset}] AGENT_SK=[${AGENT_ED25519_SK:+set}]" >&2
+line="[stub] $what FUNDER=[${FUNDER_MNEMONIC-unset}] OWNER=[${OWNER_MNEMONIC-unset}] RELAYER=[${RELAYER_MNEMONIC-unset}] AGENT_SK=[${AGENT_ED25519_SK:+set}]"
+line+=" GAS=[${GAS_MNEMONIC-unset}] GUARDIAN=[${GUARDIAN_ADDRESS-unset}] PORT=[${AGENT_PORT-unset}] INCIDENTS=[${INCIDENTS_FILE-unset}]"
+line+=" DRILL=[${DRILL-unset}] DRILL_GAS=[${DRILL_GAS_MNEMONIC-unset}] TG=[${TELEGRAM_BOT_TOKEN-unset}|${TELEGRAM_CHAT_ID-unset}|${ALERT_WEBHOOK_URL-unset}] ARGS=[$*]"
+echo "$line" >&2
+# The agent's output goes to its log in the run dir: keep a copy of what it was started with.
+[[ "$what" == agent ]] && echo "$line" >"$W/agent-env.txt"
 # demo.sh's fresh-owner temp file must exist under TMPDIR while fresh-owner runs.
 [[ "$what" == cli:fresh-owner ]] && ls "${TMPDIR:-/nonexistent}" >>"$W/tmp.log" 2>/dev/null
 if [[ "${FAKE_FAIL:-}" == "$what" ]]; then
@@ -70,7 +77,7 @@ run_demo() {
   local envs=()
   while [[ "$1" != "--" ]]; do envs+=("$1"); shift; done
   shift
-  rm -f "$WORK/agent-child.pid"
+  rm -f "$WORK/agent-child.pid" "$WORK/agent-env.txt"
   set +e
   (cd "$WORK" && env PATH="$WORK/bin:$PATH" TMPDIR="$WORK/tmp" ${envs[@]+"${envs[@]}"} bash ./demo.sh "$@") >"$WORK/$name.out" 2>&1
   RC=$?
@@ -97,6 +104,8 @@ expect "recovery withdraw has RELAYER_MNEMONIC set but empty" has pass '\[stub\]
 expect "agent process group killed" agent_killed
 expect "fresh-owner temp file was created under TMPDIR" tmp_used
 expect "fresh-owner temp file removed" tmp_clean
+expect "the final demo-check writes <run dir>/verdict.json" has pass '\[stub\] cli:demo-check .*ARGS=\[--out .*/runs/r[0-9]*/verdict\.json\]$'
+expect "demo-check --wait gets no --out" bash -c "! grep -q 'cli:demo-check:wait .*--out' '$WORK/pass.out'"
 
 echo "step failure stops --runs (attack fails in run 1 of 3)"
 run_demo stepfail FAKE_FAIL=cli:attack -- --runs 3
@@ -176,6 +185,75 @@ run_demo runsresume -- --runs 3 --resume "$WORK/re sumed/run.env"
 expect "--runs 3 before --resume: exit 2" test "$RC" -eq 2
 run_demo missing -- --resume "$WORK/nope/run.env"
 expect "missing run.env: exit 2, nothing ran" bash -c "[ $RC -eq 2 ] && ! grep -q 'stub\]' '$WORK/missing.out'"
+
+agent_env_has() { grep -q -- "$1" "$WORK/agent-env.txt"; }
+stage_lines() { # stage_lines <name> <runs>: the stage lines Task 3's drill runner parses, in order and unchanged
+  local got want="" i
+  got="$(grep '^--- ' "$WORK/$1.out" | sed 's/^--- verdict (run r[0-9]*, agent log .*)$/--- verdict (run <id>, agent log <log>)/')"
+  for ((i = 0; i < $2; i++)); do
+    want+=$'--- fresh owner\n--- setup\n--- agent\n--- attack\n--- incident\n--- recovery\n--- verdict (run <id>, agent log <log>)\n'
+  done
+  [[ "$got" == "${want%$'\n'}" ]]
+}
+printf 'OWNER_MNEMONIC="root owner words"\nGAS_MNEMONIC="root guardian words"\nGUARDIAN_ADDRESS="0x1"\nAGENT_PORT=\nTELEGRAM_BOT_TOKEN="1:fake"\nTELEGRAM_CHAT_ID="42"\nALERT_WEBHOOK_URL="http://127.0.0.1:9/hook"\n' >"$WORK/.env"
+DRILL_ADDR="0x$(printf 'd%.0s' $(seq 40))" # a fake drill guardian address
+printf 'DRILL_GAS_MNEMONIC="drill guardian words"\nDRILL_GUARDIAN_ADDRESS="%s"\n' "$DRILL_ADDR" >"$WORK/drill-guardian.env"
+DG="QDAY_DRILL_GUARDIAN_FILE=$WORK/drill-guardian.env"
+
+echo "without --drill (root guardian, port and alerts unchanged)"
+run_demo nodrill "$DG" --
+expect "exit 0" test "$RC" -eq 0
+expect "agent sees the root GAS_MNEMONIC and GUARDIAN_ADDRESS" agent_env_has 'GAS=\[root guardian words\] GUARDIAN=\[0x1\]'
+expect "agent sees the root (empty) AGENT_PORT, no INCIDENTS_FILE, no DRILL" agent_env_has 'PORT=\[\] INCIDENTS=\[unset\] DRILL=\[unset\]'
+expect "alerts left as the root .env has them" agent_env_has 'TG=\[1:fake|42|http://127.0.0.1:9/hook\]'
+
+echo "--drill --runs 2 (DRILL_AGENT_PORT set but empty)"
+run_demo drill "$DG" DRILL_AGENT_PORT= -- --drill --runs 2
+expect "exit 0" test "$RC" -eq 0
+expect "two runs, each PASS" test "$(count drill '^PASS: run ')" -eq 2
+expect "final PASS: 2/2 runs" has drill '^PASS: 2/2 runs'
+expect "every run is a drill: setup sees the drill guardian" test "$(count drill '\[stub\] cli:setup .*GAS=\[drill guardian words\] GUARDIAN=\['"$DRILL_ADDR"'\]')" -eq 2
+expect "fresh-owner deploys the vault for the drill guardian" has drill '\[stub\] cli:fresh-owner .*GUARDIAN=\['"$DRILL_ADDR"'\]'
+expect "agent sees the drill guardian as GAS_MNEMONIC / GUARDIAN_ADDRESS" agent_env_has 'GAS=\[drill guardian words\] GUARDIAN=\['"$DRILL_ADDR"'\]'
+expect "agent on port 8788 with DRILL=1" agent_env_has 'PORT=\[8788\] .*DRILL=\[1\]'
+expect "agent writes incidents to <run dir>/incidents.jsonl" agent_env_has "INCIDENTS=\[$WORK/runs/r[0-9]*/incidents\.jsonl\]"
+expect "Telegram and webhook reach the agent set but empty" agent_env_has 'TG=\[||\]'
+expect "demo-check reads the drill agent's port" has drill '\[stub\] cli:demo-check:wait .*PORT=\[8788\]'
+expect "the final demo-check writes <run dir>/verdict.json, with DRILL=1" has drill '\[stub\] cli:demo-check .*DRILL=\[1\] .*ARGS=\[--out .*/runs/r[0-9]*/verdict\.json\]$'
+expect "the drill guardian file's DRILL_GAS_MNEMONIC is not exported as such" agent_env_has 'DRILL_GAS=\[unset\]'
+expect "stage lines unchanged, once per run" stage_lines drill 2
+expect "agent process group killed" agent_killed
+
+echo "--drill with DRILL_AGENT_PORT=9001"
+run_demo drillport "$DG" DRILL_AGENT_PORT=9001 -- --drill
+expect "exit 0, agent on :9001" bash -c "[ $RC -eq 0 ] && grep -q 'PORT=\[9001\]' '$WORK/agent-env.txt'"
+
+echo "--drill refusals"
+run_demo drillnofile QDAY_DRILL_GUARDIAN_FILE="$WORK/nope/drill-guardian.env" -- --drill
+expect "no drill guardian file: exit 2" test "$RC" -eq 2
+expect "says to run drill-guardian init" has drillnofile 'refusing --drill: .*pnpm cli drill-guardian init'
+expect "nothing ran (no fresh-owner)" no_stub_calls drillnofile
+run_demo drillclash "$DG" DRILL_AGENT_PORT=8787 -- --drill
+expect "DRILL_AGENT_PORT=8787 (the main agent's default port): exit 2" test "$RC" -eq 2
+expect "says the port is the main agent's" has drillclash "refusing --drill: DRILL_AGENT_PORT 8787 is the main agent's port"
+expect "nothing ran" no_stub_calls drillclash
+run_demo drillbadport "$DG" DRILL_AGENT_PORT=88x -- --drill
+expect "a non-numeric DRILL_AGENT_PORT: exit 2, nothing ran" bash -c "[ $RC -eq 2 ] && ! grep -q 'stub\]' '$WORK/drillbadport.out'"
+expect "says DRILL_AGENT_PORT must be a port" has drillbadport 'refusing --drill: DRILL_AGENT_PORT must be a port number'
+printf 'DRILL_GAS_MNEMONIC="drill guardian words"\n' >"$WORK/drill-noaddr.env"
+run_demo drillnoaddr QDAY_DRILL_GUARDIAN_FILE="$WORK/drill-noaddr.env" -- --drill
+expect "drill guardian file without DRILL_GUARDIAN_ADDRESS: exit 2, nothing ran" bash -c "[ $RC -eq 2 ] && ! grep -q 'stub\]' '$WORK/drillnoaddr.out'"
+expect "says the file lacks the drill guardian" has drillnoaddr 'refusing --drill: .*drill-noaddr.env has no DRILL_GAS_MNEMONIC or DRILL_GUARDIAN_ADDRESS'
+expect "prints no secret" bash -c "! grep -q 'drill guardian words' '$WORK/drillnoaddr.out'"
+printf 'OWNER_MNEMONIC="root owner words"\nGUARDIAN_ADDRESS="0x%s"\n' "$(printf 'D%.0s' $(seq 40))" >"$WORK/.env"
+run_demo drillsame "$DG" -- --drill
+expect "drill guardian = the root GUARDIAN_ADDRESS (any case): exit 2, nothing ran" bash -c "[ $RC -eq 2 ] && ! grep -q 'stub\]' '$WORK/drillsame.out'"
+expect "says it is the main guardian" has drillsame "refusing --drill: the drill guardian $DRILL_ADDR is the main guardian"
+expect "prints no secret" bash -c "! grep -q 'drill guardian words' '$WORK/drillsame.out'"
+printf 'OWNER_MNEMONIC="root owner words"\nGUARDIAN_ADDRESS="0x1"\nAGENT_PORT="9000"\nDRILL_AGENT_PORT="9000"\n' >"$WORK/.env"
+run_demo drillclash2 "$DG" -- --drill
+expect "DRILL_AGENT_PORT = the root .env's AGENT_PORT: exit 2, nothing ran" bash -c "[ $RC -eq 2 ] && ! grep -q 'stub\]' '$WORK/drillclash2.out'"
+expect "says 9000 is the main agent's port" has drillclash2 "refusing --drill: DRILL_AGENT_PORT 9000 is the main agent's port"
 
 echo "FUNDER_MNEMONIC from .env wins over OWNER_MNEMONIC"
 printf 'OWNER_MNEMONIC="root owner words"\nFUNDER_MNEMONIC="funder words"\nGUARDIAN_ADDRESS="0x1"\n' >"$WORK/.env"

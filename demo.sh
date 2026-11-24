@@ -6,11 +6,18 @@
 #   ./demo.sh --resume ~/.config/qday/runs/<run id>/run.env
 #                        one run that reuses that COMPLETE run (RUN_COMPLETE=1, with its per-run
 #                        AGENT_ED25519_SK) instead of a fresh owner, e.g. after a later step failed
+#   ./demo.sh --drill    fire drill (Task 6G, combinable with --runs): the drill's own guardian
+#                        (~/.config/qday/drill-guardian.env from `pnpm cli drill-guardian init`, or
+#                        QDAY_DRILL_GUARDIAN_FILE) deploys and rescues instead of GAS_MNEMONIC; its agent
+#                        listens on DRILL_AGENT_PORT (default 8788, never the main AGENT_PORT), writes its
+#                        incidents to <run dir>/incidents.jsonl and sends no Telegram or webhook alert. The
+#                        main agent and the real owner's protection are untouched.
 #
 # One run: fresh owner (funded by FUNDER_MNEMONIC, default OWNER_MNEMONIC; own ML-DSA key, own vault,
 # 100 fUSD) -> setup (scoped window + agent link + approvals) -> start the agent -> attack with the
 # leaked ECDSA key -> wait for the agent's incident -> recovery (Guardian Signer + withdraw 1 fUSD to a
-# fresh safe address) -> verdict (rescue <= 3 blocks after the first drain, >= 80% kept, (a), (b)).
+# fresh safe address) -> verdict (rescue <= 3 blocks after the first drain, >= 80% kept, (a), (b)), also
+# written to <run dir>/verdict.json (demo-check --out; addresses and numbers only).
 #
 # Needs the root .env (see .env.example). Test the orchestration offline with scripts/test-demo.sh.
 # The funder spends ~1.5 QOR + fees per run, the guardian (GAS_MNEMONIC) one window open (~0.225 QOR) + rescue gas. Secrets stay in .env and in
@@ -22,12 +29,44 @@ AGENT_READY_TIMEOUT=120
 INCIDENT_TIMEOUT=60
 
 usage() {
-  echo "usage: $0 [--runs N | --resume <run.env>]" >&2
+  echo "usage: $0 [--drill] [--runs N | --resume <run.env>]" >&2
   exit 2
+}
+
+# Fire drill: check the drill guardian file and the drill port, then export the drill's guardian, agent port and
+# DRILL=1, with every alert channel set but empty (so `tsx --env-file` does not refill them from .env). Call it
+# with the root .env loaded. Returns 2 on a refusal; prints addresses and ports only, never the mnemonic.
+drill_env() {
+  local file="${QDAY_DRILL_GUARDIAN_FILE:-$HOME/.config/qday/drill-guardian.env}"
+  local main_port="${AGENT_PORT:-8787}" port="${DRILL_AGENT_PORT:-8788}"
+  if [[ ! -f "$file" ]]; then
+    echo "refusing --drill: no drill guardian file $file (create and fund it: pnpm cli drill-guardian init)" >&2
+    return 2
+  fi
+  [[ "$port" =~ ^[0-9]+$ ]] || { echo "refusing --drill: DRILL_AGENT_PORT must be a port number" >&2; return 2; }
+  if [[ "$port" == "$main_port" ]]; then
+    echo "refusing --drill: DRILL_AGENT_PORT $port is the main agent's port (AGENT_PORT, default 8787)" >&2
+    return 2
+  fi
+  local DRILL_GAS_MNEMONIC="" DRILL_GUARDIAN_ADDRESS="" # local: the file's values never reach the environment as such
+  # shellcheck disable=SC1090
+  . "$file"
+  if [[ -z "$DRILL_GAS_MNEMONIC" || ! "$DRILL_GUARDIAN_ADDRESS" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
+    echo "refusing --drill: $file has no DRILL_GAS_MNEMONIC or DRILL_GUARDIAN_ADDRESS (run: pnpm cli drill-guardian init)" >&2
+    return 2
+  fi
+  local root_guardian="${GUARDIAN_ADDRESS:-}"
+  if [[ "$(tr 'A-F' 'a-f' <<<"$DRILL_GUARDIAN_ADDRESS")" == "$(tr 'A-F' 'a-f' <<<"$root_guardian")" ]]; then
+    echo "refusing --drill: the drill guardian $DRILL_GUARDIAN_ADDRESS is the main guardian (GUARDIAN_ADDRESS)" >&2
+    return 2
+  fi
+  export GAS_MNEMONIC="$DRILL_GAS_MNEMONIC" GUARDIAN_ADDRESS="$DRILL_GUARDIAN_ADDRESS" AGENT_PORT="$port" DRILL=1
+  export TELEGRAM_BOT_TOKEN="" TELEGRAM_CHAT_ID="" ALERT_WEBHOOK_URL=""
 }
 
 RUNS=1
 ONCE=0
+DRILL_MODE=0
 RESUME=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,6 +79,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 && -n "$2" ]] || usage
       RESUME="$2"
       shift 2
+      ;;
+    --drill)
+      DRILL_MODE=1
+      shift
       ;;
     --once) # internal: exactly one run in this process
       ONCE=1
@@ -69,7 +112,19 @@ if [[ -n "$RESUME" ]]; then
 fi
 
 if [[ "$ONCE" -eq 0 ]]; then
+  if ((DRILL_MODE)); then
+    # Refuse before the first run starts (each run checks again once it has loaded .env).
+    (
+      cd "$ROOT"
+      set -a
+      # shellcheck disable=SC1091
+      [[ -f .env ]] && . ./.env
+      set +a
+      drill_env
+    ) || exit 2
+  fi
   CHILD=(--once)
+  ((DRILL_MODE)) && CHILD+=(--drill)
   [[ -n "$RESUME" ]] && CHILD+=(--resume "$RESUME")
   for ((i = 1; i <= RUNS; i++)); do
     echo "=== demo run $i/$RUNS ==="
@@ -92,6 +147,10 @@ set +a
 # The funder (default: the root .env owner) also relays attack step (b), keeping the guardian's nonce free for
 # rescues. Fixed here, before run.env replaces OWNER_MNEMONIC with the fresh owner's.
 export FUNDER_MNEMONIC="${FUNDER_MNEMONIC:-${OWNER_MNEMONIC:-}}"
+if ((DRILL_MODE)); then
+  drill_env || exit 2
+  echo "fire drill: guardian $GUARDIAN_ADDRESS, agent on :$AGENT_PORT, incidents and verdict in the run dir, no alerts"
+fi
 
 AGENT_PID=""
 AGENT_LOG=""
@@ -138,6 +197,8 @@ RUN_DIR="$(dirname "$RUN_ENV")"
 # The recovery withdraw is sent by the owner from its scoped window (8 of its 10 txs), never by a
 # RELAYER_MNEMONIC from .env. Set but empty, so `tsx --env-file` does not fill it back in.
 export RELAYER_MNEMONIC=""
+# The drill agent's incidents stay in the run dir, off the real owner's Incidents screen.
+((DRILL_MODE)) && export INCIDENTS_FILE="$RUN_DIR/incidents.jsonl"
 
 step "setup"
 pnpm -s cli setup
@@ -168,7 +229,7 @@ pnpm -s cli withdraw "$RUN_DIR/withdrawal.json"
 
 step "verdict (run $RUN_ID, agent log $AGENT_LOG)"
 grep "timing:" "$AGENT_LOG" || true
-if pnpm -s cli demo-check; then
+if pnpm -s cli demo-check --out "$RUN_DIR/verdict.json"; then
   VERDICT=pass
   echo "PASS: run $RUN_ID"
 else
