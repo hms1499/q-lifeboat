@@ -32,7 +32,7 @@ The agent itself is boxed in. Its own account is the vault's immutable `guardian
 |---|---|
 | `contracts/` | `GuardianVault.sol`: `rescue(token)` (owner or immutable guardian only, owner → vault only), `withdraw(...)` gated by `pqcKeyStatus` + `pqcVerify`, nonce bound in the signed message |
 | `packages/core/` | Shared config, accounts and the withdrawal message (byte-identical to Solidity, shared test vector) |
-| `apps/agent/` | Watches the owner, decides with fixed rules, rescues, publishes an ed25519-signed incident report (LLM summary, template fallback), Telegram/webhook alerts, local API for the dashboard |
+| `apps/agent/` | Watches the owner, decides with fixed rules, rescues, publishes an incident report (LLM summary, template fallback) signed by the agent's ed25519 key and co-signed by the guardian with QoreSign (ML-DSA-87), Telegram/webhook alerts, local API for the dashboard |
 | `apps/cli/` | `setup`, `link`/`unlink`, `window open/close`, `sign-withdraw` (local Guardian Signer, ML-DSA-87), `withdraw`, and the demo: `fresh-owner`, `attack`, `phish`, `demo-check` |
 | `apps/dashboard/` | Overview (exposure, the waterline of account vs vault), Incidents (each report verified in the browser against the chain), Recover, Protect (onboarding), Rules (trusted list, threshold, turn off protection), Fire drill |
 
@@ -58,8 +58,10 @@ Details in the [threat model](docs/THREAT_MODEL.md#honest-limits).
 
 Hybrid secp256k1 + ML-DSA-87 transactions · scoped EVM windows (`allowedTargets`, `maxTxs`, `maxValue`) · authenticator lane
 with spending rules (`allowedEvmCalls`, `allowedDenoms`, per-tx/daily limits, expiry) and `MsgRevokeAuthenticator` ·
-`pqcVerify` / `pqcKeyStatus` precompiles · classical bootstrap of an ML-DSA-87 key (`MsgRegisterPQCKeyV2`) · two-stage QCAI
-audit. Every claim about the chain is backed by a diana tx in [`docs/EVIDENCE.md`](docs/EVIDENCE.md).
+`pqcVerify` / `pqcKeyStatus` precompiles · classical bootstrap of an ML-DSA-87 key (`MsgRegisterPQCKeyV2`) · post-quantum
+authenticated messaging: incident reports (from 2026-11-24) are co-signed by the vault's guardian with QoreSign (secp256k1 +
+ML-DSA-87) and checked in the browser against its key registered on chain (`verifyMessageWithChain`); a report without the
+co-signature is marked as resting on the classical key alone · two-stage QCAI audit. Every claim about the chain is backed by a diana tx in [`docs/EVIDENCE.md`](docs/EVIDENCE.md).
 
 ## Run it
 
@@ -131,7 +133,8 @@ The diana explorer shows Cosmos-lane txs only; EVM tx hashes in the docs are che
 
 - [`qorechain/build-before-qday`](https://github.com/qorechain/build-before-qday), workshop-2: the `QDayVault` ML-DSA withdrawal
   pattern and the `pq-agent` authenticator flow (see upstream for its license).
-- QoreChain kits: `@qorechain/sdk`, `@qorechain/evm` (`@qorechain/react` was evaluated in Task 6A: it has no hybrid signing path).
+- QoreChain kits: `@qorechain/sdk`, `@qorechain/evm`, `@qorechain/qoresign` (Apache-2.0; hybrid message signatures for the incident
+  reports). `@qorechain/react` was evaluated in Task 6A: it has no hybrid signing path.
 - viem, Foundry, React, Vite, `@noble/curves`. Fonts: Archivo, IBM Plex Mono (Google Fonts, SIL OFL).
 
 ## License

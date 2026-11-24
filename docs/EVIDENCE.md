@@ -277,3 +277,18 @@ the way chain fact 21 proved.
 | `pnpm cli link --expect 0xE871…` with a 30-day expiry: diana accepts it | same key `revoked: false`, `createdAtUnix` 2026-11-24T13:51:34Z, `expiryUnix` **2026-12-24T13:51:33Z**; rule `0x7769…71e6/0x839006f2 (denoms uqor)` | `1D5FEE885111FA58FB57300637A35CED7265275F4CE6E48F33539E2B8B2B2934` |
 | Dashboard Incidents for the root owner | 5 of 5 reports ✓; "The key is not revoked or expired: active until 2026-12-24T13:51:33.000Z" | browser check 13:52Z |
 
+## Submission gap 3: post-quantum co-signed incident reports (2026-11-24)
+
+Spike first (`spike/qoresign/`, results in `docs/specs/2026-11-24-submission-gaps.md`): QoreSign maps the guardian's SDK-derived key to
+`eth_secp256k1` and `qor1l7pv44nr3gudwqyap4wlkat3x6cvqwzsvtm0pt`; its SDK-derived ML-DSA-87 key equals the one registered on diana
+(`keyType: hybrid`, `possessionProven: true`); `verifyMessageWithChain` rejects a changed body, another signer, a missing ML-DSA part and a
+spliced ML-DSA part. Then the agent co-signs every report (branch `task-8-submission-gaps`).
+
+| Claim | Result | Evidence |
+|---|---|---|
+| `./demo.sh --phish --drainer-delay 2` with the co-signing agent | PASS: rescue 2 blocks after the approval, 100% kept, drainer 0 | run `20261124T135836Z`, rescue `0xa7cf6340ea…` |
+| The report carries `guardian` + `guardianSig` | `guardian` = `qor1l7pv44…m0pt`, `signatureType` `ml-dsa-87-hybrid`, `keyType` `eth_secp256k1`, `pq.algorithmId` 1 (ML-DSA-87) | incident `43f6f1b1-db0b-4a87-887c-ca2446735275` |
+| Dashboard (agent for that run on :8787), "Co-signed by the vault's guardian with its post-quantum key" | ✓ "ML-DSA-87 + secp256k1 by qor1l7pv44…m0pt, against its key registered on chain (possession proven)"; every other check ✓ | browser check right after the run (2026-11-24, ~14:00Z), verified through the `/qore-rest` proxy |
+| The same report with one word added to `summary` (the `/incidents` response changed in the browser) | ✗ ed25519 "does not match the report body" and ✗ co-signature `CLASSICAL_SIGNATURE_INVALID` | same browser session |
+| Older reports (no `guardianSig`) | co-signature check n/a, report still ✓ on the ed25519 checks | root owner's 5 reports |
+

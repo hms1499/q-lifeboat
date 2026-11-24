@@ -316,6 +316,20 @@ only: no data, verification, signing or test logic changes.
 - [x] **Step 3:** Browser check (Playwright, 1280 and 375 px): every screen renders, no horizontal scroll at 375 px, sidebar stays
   pinned while scrolling. Drill running/passed states checked with a mocked `/drill` (no QOR spent).
 
+#### Task 6J: submission gaps (added 2026-11-24)
+
+Spec `docs/specs/2026-11-24-submission-gaps.md`, from checking the event's published requirements against the product.
+
+- [x] **Gap 1:** agent link TTL 30 days; root owner renewed to 2026-12-24 (unlink `9D90D512…`, link `1D5FEE88…`).
+- [ ] **Gap 2:** both QCAI reports as dated PDFs in `docs/audit/` (builder exports them).
+- [x] **Gap 3:** reports co-signed by the vault's guardian with QoreSign (secp256k1 + ML-DSA-87), verified in the browser with
+  `verifyMessageWithChain`. Spike passed; diana run `20261124T135836Z`, incident `43f6f1b1…` ✓, a changed copy ✗.
+  Review (fresh context): no blocker. Fixed: verdicts keyed on the whole report (the sig alone did not cover the co-signature;
+  also closes an older cache gap), the guardian row fails under a failed config check and never throws, "could not check" on a
+  REST outage, co-signer setup can not stop the agent, and the docs now say the co-signature can be dropped (n/a rests on the
+  classical key). Review Focus 8 is covered by the existing `record` tests: co-signing runs inside `record`.
+- [ ] **Gap 4:** README section for judges.
+
 ### Task 7: Audit Stage 2 + submission (Nov 30 → Dec 2)
 
 **Files:**

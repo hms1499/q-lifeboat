@@ -115,3 +115,13 @@ export async function readTxSender(hash: Hex): Promise<string | null> {
     throw e;
   }
 }
+
+/**
+ * QoreSign `verifyMessageWithChain` through the same-origin REST proxy (diana's REST sends no CORS headers, chain fact 18):
+ * throws unless the co-signature verifies under the signer's ML-DSA-87 key registered on chain. Loaded on first use.
+ */
+export async function verifyGuardianSig(a: { chainId: string; signer: string; data: Uint8Array; signature: unknown }): Promise<{ possessionProven: boolean }> {
+  const { verifyMessageWithChain } = await import("@qorechain/qoresign/network");
+  return verifyMessageWithChain({ rest: restBase(), chainId: a.chainId, signer: a.signer, data: a.data, signature: a.signature as never, requirePq: true });
+}
+

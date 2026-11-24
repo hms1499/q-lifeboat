@@ -86,3 +86,54 @@ describe("incident signing", () => {
     expect(verifyIncident({ ...signed, sig: "" })).toBe(false);
   });
 });
+
+describe("guardian co-signature (submission gap 3)", () => {
+  const G = "qor1l7pv44nr3gudwqyap4wlkat3x6cvqwzsvtm0pt";
+  const fakeSig = (bytes: Uint8Array) => ({
+    signatureType: "ml-dsa-87-hybrid" as const,
+    classical: { keyType: "eth_secp256k1", publicKey: "PK", signature: Buffer.from(bytes).toString("base64").slice(0, 16) },
+    pq: { algorithmId: 1, signature: "PQ" },
+  });
+
+  it("co-signs the same bytes the ed25519 key signs, with `guardian` inside them and both signatures outside", () => {
+    let seen: Uint8Array | undefined;
+    const signed = signIncident(body, sk, { guardian: G, sign: (b) => ((seen = b), fakeSig(b)) });
+    expect(signed.guardian).toBe(G);
+    expect(signed.guardianSig?.signatureType).toBe("ml-dsa-87-hybrid");
+    expect(verifyIncident(signed)).toBe(true);
+    expect(Buffer.from(seen!).equals(Buffer.from(incidentSigningBytes(signed)))).toBe(true);
+    const text = new TextDecoder().decode(incidentSigningBytes(signed));
+    expect(text).toContain(`"guardian":"${G}"`);
+    expect(text).not.toContain("guardianSig");
+    expect(text).not.toContain(signed.sig);
+  });
+
+  it("adding or changing guardianSig does not touch the ed25519 bytes", () => {
+    const signed = signIncident(body, sk, { guardian: G, sign: fakeSig });
+    const swapped = { ...signed, guardianSig: { ...signed.guardianSig!, pq: { algorithmId: 1, signature: "OTHER" } } };
+    expect(verifyIncident(swapped)).toBe(true);
+    const { guardianSig: _g, ...without } = signed;
+    expect(verifyIncident(without)).toBe(true);
+  });
+
+  it("the ed25519 signature covers `guardian`: changing it fails", () => {
+    const signed = signIncident(body, sk, { guardian: G, sign: fakeSig });
+    expect(verifyIncident({ ...signed, guardian: "qor1other" })).toBe(false);
+  });
+
+  it("a co-signer that throws leaves a plain ed25519 report (no guardian field) and reports the error", () => {
+    const errors: unknown[] = [];
+    const signed = signIncident(body, sk, {
+      guardian: G,
+      sign: () => {
+        throw new Error("pq key unavailable");
+      },
+      onError: (e) => void errors.push(e),
+    });
+    expect(signed.guardian).toBeUndefined();
+    expect(signed.guardianSig).toBeUndefined();
+    expect(verifyIncident(signed)).toBe(true);
+    expect(String(errors[0])).toMatch(/pq key unavailable/);
+    expect(new TextDecoder().decode(incidentSigningBytes(signed))).toBe(new TextDecoder().decode(incidentSigningBytes(signIncident(body, sk))));
+  });
+});

@@ -1,4 +1,5 @@
-import { vaultAbi, verifyIncident, type Incident } from "@qday/core";
+import { incidentSigningBytes, NETWORK, vaultAbi, verifyIncident, type Incident } from "@qday/core";
+import { toQorAddress } from "@qorechain/evm/window";
 import { decodeEventLog, type Hex } from "viem";
 
 /**
@@ -8,7 +9,7 @@ import { decodeEventLog, type Hex } from "viem";
  */
 
 export type CheckStatus = "pass" | "fail" | "n/a";
-export type CheckId = "config" | "signature" | "linked" | "active" | "rescues";
+export type CheckId = "config" | "signature" | "linked" | "active" | "guardian" | "rescues";
 export type Check = { id: CheckId; title: string; status: CheckStatus; detail: string };
 
 /** The fields of the SDK's `AuthenticatorView` this check reads. */
@@ -31,7 +32,13 @@ export type VerifyContext = {
   readReceipt: (hash: Hex) => Promise<ReceiptLike | null>;
   /** The config-vs-chain check (`checkConfigOnChain`). When given, it is the first check and can fail the report. */
   config?: { ok: boolean; detail: string };
+  /** The vault's guardian (`config.guardian`, which `checkConfigOnChain` holds against `vault.guardian()`). */
+  guardian?: Hex;
+  /** QoreSign `verifyMessageWithChain` (bound to diana's REST): throws unless the signature verifies under the signer's registered ML-DSA-87 key. */
+  verifyGuardianSig?: GuardianVerifier;
 };
+
+export type GuardianVerifier = (a: { chainId: string; signer: string; data: Uint8Array; signature: unknown }) => Promise<{ possessionProven: boolean }>;
 
 export type VerifyResult = { ok: boolean; checks: Check[] };
 
@@ -140,6 +147,46 @@ async function rescueCheck(incident: Incident, ctx: VerifyContext): Promise<Chec
   return { id: "rescues", title, status: "pass", detail: `${done.length} Rescued event(s) from vault ${short(ctx.vault)} match the report` };
 }
 
+const GUARDIAN_TITLE = "Co-signed by the vault's guardian with its post-quantum key";
+
+/**
+ * Submission gap 3: the report's QoreSign co-signature (eth_secp256k1 + ML-DSA-87) by the vault's guardian, checked against
+ * the ML-DSA-87 key the guardian registered on chain. A report without one predates co-signing: n/a, never a failure, since
+ * the ed25519 checks still apply in full (dropping the co-signature from a forged report gains nothing).
+ */
+async function guardianCheck(incident: Incident, ctx: VerifyContext): Promise<Check> {
+  const sig = incident.guardianSig;
+  const fail = (detail: string): Check => ({ id: "guardian", title: GUARDIAN_TITLE, status: "fail", detail });
+  if (!sig) {
+    return {
+      id: "guardian",
+      title: GUARDIAN_TITLE,
+      status: "n/a",
+      detail: "not co-signed (an older report, or co-signing failed): it rests on the agent's classical ed25519 key alone",
+    };
+  }
+  if (ctx.config && !ctx.config.ok) return fail("the agent config does not match the vault on chain, so its guardian is not trusted");
+  if (!ctx.guardian || !ctx.verifyGuardianSig) return fail("the vault's guardian is unknown, so the co-signature can not be checked");
+  const expected = toQorAddress(ctx.guardian);
+  if (typeof incident.guardian !== "string" || incident.guardian !== expected) {
+    return fail(`co-signed by ${String(incident.guardian)}, which is not the vault's guardian ${expected}`);
+  }
+  if (!sig.pq) return fail("the co-signature has no ML-DSA-87 part");
+  try {
+    const r = await ctx.verifyGuardianSig({ chainId: NETWORK.chainId, signer: expected, data: incidentSigningBytes(incident), signature: sig });
+    return {
+      id: "guardian",
+      title: GUARDIAN_TITLE,
+      status: "pass",
+      detail: `ML-DSA-87 + secp256k1 by ${short(expected)}, against its key registered on chain${r.possessionProven ? " (possession proven)" : ""}`,
+    };
+  } catch (e) {
+    const code = (e as { code?: unknown }).code;
+    if (code === "NETWORK_UNAVAILABLE") return fail(`could not check: diana's REST did not answer (${errorText(e)})`);
+    return fail(`${typeof code === "string" ? `${code}: ` : ""}${errorText(e)}`);
+  }
+}
+
 /** Run every check against the chain data in `ctx`. Never throws; `ok` only when no check fails. */
 export async function verifyReport(incident: Incident, ctx: VerifyContext): Promise<VerifyResult> {
   const checks: Check[] = [];
@@ -156,6 +203,11 @@ export async function verifyReport(incident: Incident, ctx: VerifyContext): Prom
     checks.push(...keyChecks(incident, ctx));
   } catch (e) {
     checks.push({ id: "linked", title: "The key is linked to your account", status: "fail", detail: errorText(e) });
+  }
+  try {
+    checks.push(await guardianCheck(incident, ctx));
+  } catch (e) {
+    checks.push({ id: "guardian", title: GUARDIAN_TITLE, status: "fail", detail: errorText(e) });
   }
   try {
     checks.push(await rescueCheck(incident, ctx));

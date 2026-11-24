@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { configKey, needsVerification, shownVerification, type StoredVerification } from "./verifyPolicy";
+import { bodyKey, configKey, needsVerification, shownVerification, type StoredVerification } from "./verifyPolicy";
 import type { VerifyResult } from "./verify";
 
 const OK: VerifyResult = { ok: true, checks: [] };
@@ -28,7 +28,7 @@ describe("configKey", () => {
 
 describe("shownVerification: what may be shown as a verdict", () => {
   const key = configKey(cfg, { ok: true });
-  const stored: StoredVerification = { sig: "aa", configKey: key!, round: 0, result: OK };
+  const stored: StoredVerification = { body: bodyKey(inc("aa")), configKey: key!, round: 0, result: OK };
 
   it("shows the stored result for the same body (sig) under the same config", () => {
     expect(shownVerification(inc("aa"), stored, key)).toBe(OK);
@@ -36,6 +36,16 @@ describe("shownVerification: what may be shown as a verdict", () => {
 
   it("test_sameIdNewSigIsPending: a body with the same id but another sig never inherits the ✓", () => {
     expect(shownVerification(inc("bb"), stored, key)).toBeUndefined();
+  });
+
+  it("a report with the same sig but another body or co-signature is pending, never the stored ✓ (gap 3 review)", () => {
+    const withCo = (g: string) => ({ id: "inc-1", sig: "aa", guardianSig: { pq: { signature: g } } }) as never;
+    const st: StoredVerification = { body: bodyKey(withCo("x")), configKey: key!, round: 0, result: OK };
+    expect(shownVerification(withCo("x"), st, key)).toBe(OK);
+    expect(shownVerification(withCo("y"), st, key)).toBeUndefined();
+    expect(shownVerification(inc("aa"), st, key)).toBeUndefined(); // co-signature stripped
+    expect(shownVerification({ id: "inc-1", sig: "aa", summary: "edited" } as never, stored, key)).toBeUndefined();
+    expect(needsVerification(withCo("y"), { ...st, round: 0 }, key!, 0)).toBe(true);
   });
 
   it("test_configChangeIsPending: a result from another owner/vault/verdict is never shown", () => {
@@ -55,7 +65,7 @@ describe("shownVerification: what may be shown as a verdict", () => {
 
 describe("needsVerification: what must be (re)verified", () => {
   const key = configKey(cfg, { ok: true })!;
-  const stored: StoredVerification = { sig: "aa", configKey: key, round: 3, result: OK };
+  const stored: StoredVerification = { body: bodyKey(inc("aa")), configKey: key, round: 3, result: OK };
 
   it("verifies a new report, a new body under an old id, a new config and a new round", () => {
     expect(needsVerification(inc("aa"), undefined, key, 3)).toBe(true);

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { bigintReplacer } from "@qday/core/chain";
-import { canonicalJson, signIncident, type Incident, type IncidentBody, type OutboundTx, type RescueRecord } from "@qday/core";
+import { canonicalJson, signIncident, type GuardianCoSigner, type Incident, type IncidentBody, type OutboundTx, type RescueRecord } from "@qday/core";
 
 /**
  * What happened, before the summary is written. `alert`: decide() raised an alert-only incident, so no rescue was
@@ -130,12 +130,14 @@ export function readIncidents(file: string, log: (line: string) => void = () => 
 
 /** Summarize, build, sign and persist an incident. */
 export async function signAndRecord(
-  input: Facts & { sk: Uint8Array; llm?: Llm; log?: (line: string) => void },
+  input: Facts & { sk: Uint8Array; llm?: Llm; log?: (line: string) => void; coSigner?: GuardianCoSigner },
   file: string,
 ): Promise<Incident> {
-  const { sk, llm, log, ...facts } = input; // secrets and helpers never travel with the facts
+  const { sk, llm, log, coSigner, ...facts } = input; // secrets and helpers never travel with the facts
   const { text, source } = await summarize(facts, llm, log);
-  const signed = signIncident(buildIncident({ ...facts, summary: text, summarySource: source }), sk);
+  // A co-signer failure is logged and the report still goes out (it runs after the rescue, Review Focus 8).
+  const cs = coSigner && log && !coSigner.onError ? { ...coSigner, onError: (e: unknown) => log(`report co-sign failed: ${e instanceof Error ? e.message : String(e)}`) } : coSigner;
+  const signed = signIncident(buildIncident({ ...facts, summary: text, summarySource: source }), sk, cs);
   appendIncident(file, signed);
   return signed;
 }

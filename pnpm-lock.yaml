@@ -19,6 +19,9 @@ importers:
       '@qorechain/evm':
         specifier: 0.14.0
         version: 0.14.0(viem@2.58.2(typescript@5.9.3))
+      '@qorechain/qoresign':
+        specifier: 0.2.0
+        version: 0.2.0
       '@qorechain/sdk':
         specifier: 0.14.0
         version: 0.14.0(viem@2.58.2(typescript@5.9.3))
@@ -75,6 +78,9 @@ importers:
       '@qorechain/evm':
         specifier: 0.14.0
         version: 0.14.0(viem@2.58.2(typescript@5.9.3))
+      '@qorechain/qoresign':
+        specifier: 0.2.0
+        version: 0.2.0
       '@qorechain/sdk':
         specifier: 0.14.0
         version: 0.14.0(viem@2.58.2(typescript@5.9.3))
@@ -669,6 +675,10 @@ packages:
     resolution: {integrity: sha512-YLzcfwkeq9mCyTcFf/BQFB7dsNIkyFcUluByp1zrJ7SRAkPj8cwPmv7jtw5Xeh7K80FgwzlvtBeZb/dzzknWZA==}
     engines: {node: '>=18'}
 
+  '@qorechain/qoresign@0.2.0':
+    resolution: {integrity: sha512-bOhFn/Xb5SQbDrOccYa0sKsh7Ds07qyeUd3JrqjqqRyx8sUOgu8HeOYV2tWR+7hVeHKhWaTY6oGEnEax+JeVcQ==}
+    engines: {node: '>=20'}
+
   '@qorechain/sdk@0.14.0':
     resolution: {integrity: sha512-EwoH2WX5hRUK685a3NDDd0dZcn7QL/6M11huVh7Kx37nFDMryF8QAHrJe0to8EcRmRnLbMH5UNnZbjoI48wo9Q==}
     peerDependencies:
@@ -821,6 +831,9 @@ packages:
 
   '@scure/bip32@1.7.0':
     resolution: {integrity: sha512-E4FFX/N3f4B80AKWp5dP6ow+flD1LQZo/w8UnLGYZO674jS6YnYeepycOOksv+vLPSpgN35wgKgy+ybfTb2SMw==}
+
+  '@scure/bip32@2.4.0':
+    resolution: {integrity: sha512-i3DS0CptAocyvqE4n3SUkpzeQK4vJMFwWLofTwRiiKo2aWojBOfyMCgfKw9HVpO6fSY5AK86sHS/Uzn8kK9Few==}
 
   '@scure/bip39@1.6.0':
     resolution: {integrity: sha512-+lF0BbLiJNwVlev4eKelw1WWLaiKXw7sSl8T6FvBlWkdX+94aGJ4o8XjUdlyhTCjd8c+B3KT3JfS8P0bLRNU6A==}
@@ -1837,6 +1850,15 @@ snapshots:
       '@noble/hashes': 2.4.0
       '@noble/post-quantum': 0.7.1
 
+  '@qorechain/qoresign@0.2.0':
+    dependencies:
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@qorechain/pqc': 0.2.3
+      '@scure/base': 2.4.0
+      '@scure/bip32': 2.4.0
+      '@scure/bip39': 2.4.0
+
   '@qorechain/sdk@0.14.0(viem@2.58.2(typescript@5.9.3))':
     dependencies:
       '@bufbuild/protobuf': 2.17.0
@@ -1952,6 +1974,12 @@ snapshots:
       '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@scure/base': 1.2.6
+
+  '@scure/bip32@2.4.0':
+    dependencies:
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@scure/base': 2.4.0
 
   '@scure/bip39@1.6.0':
     dependencies:

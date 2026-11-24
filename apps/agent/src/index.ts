@@ -12,6 +12,7 @@ import { createGuardian } from "./guardian";
 import { createHealth } from "./health";
 import { createNotifier } from "./notify";
 import { createPolicyStore, policyFilePath, seedPolicy, toRulesPolicy } from "./policy";
+import { guardianCoSigner } from "./cosign";
 import { anthropicLlm, signAndRecord } from "./report";
 import { productionDeps, rescueAll } from "./rescue";
 import { createWatchClient } from "./rpc";
@@ -60,6 +61,14 @@ async function main() {
   // Incidents: <repo>/data/incidents.jsonl, or INCIDENTS_FILE (a fire drill's own <run dir>/incidents.jsonl).
   const file = cfg.incidentsFile;
   const llm = cfg.anthropicApiKey ? anthropicLlm(cfg.anthropicApiKey) : undefined;
+  // Reports are co-signed by the guardian account (QoreSign: eth_secp256k1 + ML-DSA-87), the vault's immutable guardian.
+  // A failure here must not stop the agent (Review Focus 8): reports then go out with the ed25519 signature only.
+  let coSigner: ReturnType<typeof guardianCoSigner> | undefined;
+  try {
+    coSigner = guardianCoSigner(cfg.gas, log);
+  } catch (e) {
+    log(`report co-signing off: ${errorText(e)}`);
+  }
 
   // The owner's trusted list, one file per owner. ALLOWLIST / MAX_OUTBOUND only seed a missing file; an invalid
   // file stops the agent here. Edits (by hand or PUT /policy) apply to the next trigger, no restart.
@@ -112,7 +121,7 @@ async function main() {
     // cfg.gas.evm is the vault's guardian: checkVaultGuardian above refuses to start when vault.guardian() differs.
     policy: () => toRulesPolicy(cfg.vault, cfg.gas.evm as Hex, policyStore.get()),
     rescue: (trigger) => serial(() => rescueAll(deps, trigger.token)),
-    record: (facts) => signAndRecord({ ...facts, sk: cfg.agentKey.sk, llm, log }, file),
+    record: (facts) => signAndRecord({ ...facts, sk: cfg.agentKey.sk, llm, log, coSigner }, file),
     publish: server.publish,
     notify: notifier.notify,
     log,

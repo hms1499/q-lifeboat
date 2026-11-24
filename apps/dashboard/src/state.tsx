@@ -2,13 +2,13 @@ import { vaultAbi, type Incident } from "@qday/core";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { EIP1193Provider, Hex } from "viem";
 import { fetchConfig, fetchIncidents, subscribeIncidents } from "./lib/agent";
-import { publicClient, readAuthenticators, readReceipt } from "./lib/chain";
+import { publicClient, readAuthenticators, readReceipt, verifyGuardianSig } from "./lib/chain";
 import { checkConfigOnChain, loadCachedConfig, saveCachedConfig, type AgentConfig } from "./lib/config";
 import { errorText } from "./lib/format";
 import { usePoll } from "./lib/hooks";
 import { mergeIncident, sortIncidents } from "./lib/incidents";
 import { verifyReport, type VerifyResult } from "./lib/verify";
-import { configKey, needsVerification, shownVerification, type StoredVerification } from "./lib/verifyPolicy";
+import { bodyKey, configKey, needsVerification, shownVerification, type StoredVerification } from "./lib/verifyPolicy";
 
 const CONFIG_POLL_MS = 10_000;
 const REVERIFY_MS = 60_000;
@@ -137,12 +137,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => {
     if (!cfg || !check || key === null) return;
-    const todo = incidents.filter((i) => needsVerification(i, store[i.id], key, round) && !inFlight.current.has(`${i.id}/${i.sig}/${key}/${round}`));
+    const todo = incidents.filter((i) => needsVerification(i, store[i.id], key, round) && !inFlight.current.has(`${i.id}/${bodyKey(i)}/${key}/${round}`));
     if (!todo.length) return;
-    const tags = todo.map((i) => `${i.id}/${i.sig}/${key}/${round}`);
+    const tags = todo.map((i) => `${i.id}/${bodyKey(i)}/${key}/${round}`);
     tags.forEach((t) => inFlight.current.add(t));
     const vault = cfg.vault;
     const owner = cfg.owner;
+    const guardian = cfg.guardian;
     const cfgCheck = check;
     void (async () => {
       let authenticators: Awaited<ReturnType<typeof readAuthenticators>>;
@@ -153,9 +154,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         authenticators = [];
         console.warn(`authenticators read failed: ${errorText(e)}`);
       }
-      const ctx = { authenticators, nowUnix: Math.floor(Date.now() / 1000), vault, readReceipt, config: cfgCheck };
+      const ctx = { authenticators, nowUnix: Math.floor(Date.now() / 1000), vault, readReceipt, config: cfgCheck, guardian, verifyGuardianSig };
       const results = await Promise.all(
-        todo.map(async (i) => [i.id, { sig: i.sig, configKey: key, round, result: await verifyReport(i, ctx) }] as const),
+        todo.map(async (i) => [i.id, { body: bodyKey(i), configKey: key, round, result: await verifyReport(i, ctx) }] as const),
       );
       tags.forEach((t) => inFlight.current.delete(t));
       // Stored whatever happened meanwhile: each entry names its body and config, and is shown only if both still match.

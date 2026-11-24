@@ -62,6 +62,7 @@ describe("verifyReport", () => {
       ["signature", "pass"],
       ["linked", "pass"],
       ["active", "pass"],
+      ["guardian", "n/a"],
       ["rescues", "pass"],
     ]);
     expect(r.ok).toBe(true);
@@ -218,5 +219,117 @@ describe("verifyReport", () => {
     const r = await verifyReport({ id: "x" } as never, ctx());
     expect(r.ok).toBe(false);
     expect(byId(r, "signature").status).toBe("fail");
+  });
+});
+
+describe("guardian co-signature check (submission gap 3)", () => {
+  const MNEMONIC = "test test test test test test test test test test test junk";
+  const OTHER = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+  /** A report co-signed by `m`'s account with QoreSign, as the agent produces it, then sent as JSON. */
+  async function coSigned(m = MNEMONIC, b = body()) {
+    const { deriveUnifiedAccount } = await import("@qorechain/sdk");
+    const { classicalKeyFromPrivate, signMessage } = await import("@qorechain/qoresign");
+    const g = await deriveUnifiedAccount(m);
+    const ck = classicalKeyFromPrivate(Buffer.from(g.privateKey.replace(/^0x/, ""), "hex"), "eth_secp256k1");
+    const signed = signIncident(b, SK, {
+      guardian: g.cosmos,
+      sign: (data) => signMessage({ chainId: "qorechain-diana", signer: g.cosmos, data, classicalKey: ck, pqKey: { secretKey: g.pqc.secretKey } }) as never,
+    });
+    return { g, report: JSON.parse(JSON.stringify(signed, (_, v) => (typeof v === "bigint" ? v.toString() : v))) };
+  }
+  /** Offline stand-in for verifyMessageWithChain: QoreSign's verifyMessage against `g`'s PQ key as "registered on chain". */
+  async function offlineVerifier(g: { pqc: { publicKey: Uint8Array } }) {
+    const { verifyMessage } = await import("@qorechain/qoresign");
+    return async (a: { chainId: string; signer: string; data: Uint8Array; signature: unknown }) => {
+      verifyMessage({ ...a, signature: a.signature as never, pqPublicKey: g.pqc.publicKey, requirePq: true });
+      return { possessionProven: true };
+    };
+  }
+
+  it("pass: signed by the vault's guardian (its qor1), verified over the report's exact bytes", async () => {
+    const { g, report } = await coSigned();
+    const r = await verifyReport(report, ctx({ guardian: g.evm as Hex, verifyGuardianSig: await offlineVerifier(g) }));
+    expect(byId(r, "guardian").status).toBe("pass");
+    expect(byId(r, "guardian").detail).toMatch(/ML-DSA-87/);
+    expect(r.ok).toBe(true);
+  });
+
+  it("fail: the co-signer is not the vault's guardian (the verifier is never asked)", async () => {
+    const { report } = await coSigned(OTHER);
+    const { deriveUnifiedAccount } = await import("@qorechain/sdk");
+    const real = await deriveUnifiedAccount(MNEMONIC);
+    let asked = false;
+    const r = await verifyReport(report, ctx({ guardian: real.evm as Hex, verifyGuardianSig: async () => ((asked = true), { possessionProven: true }) }));
+    expect(byId(r, "guardian").status).toBe("fail");
+    expect(byId(r, "guardian").detail).toMatch(/not the vault's guardian/);
+    expect(asked).toBe(false);
+    expect(r.ok).toBe(false);
+  });
+
+  it("fail: a changed report no longer verifies", async () => {
+    const { g, report } = await coSigned();
+    const r = await verifyReport({ ...report, guardianSig: report.guardianSig, reason: "changed" }, ctx({ guardian: g.evm as Hex, verifyGuardianSig: await offlineVerifier(g) }));
+    expect(byId(r, "guardian").status).toBe("fail");
+  });
+
+  it("fail: a classical-only co-signature (no ML-DSA-87 part)", async () => {
+    const { g, report } = await coSigned();
+    const classicalOnly = { ...report, guardianSig: { ...report.guardianSig, signatureType: "secp256k1", pq: undefined } };
+    const r = await verifyReport(classicalOnly, ctx({ guardian: g.evm as Hex, verifyGuardianSig: await offlineVerifier(g) }));
+    expect(byId(r, "guardian").status).toBe("fail");
+    expect(byId(r, "guardian").detail).toMatch(/no ML-DSA-87/);
+  });
+
+  it("Review Focus 5: names the real guardian but was co-signed by another account's keys → fail (the verifier is asked)", async () => {
+    const { g } = await coSigned();
+    const { report: byOther } = await coSigned(OTHER);
+    const forged = { ...byOther, guardian: g.cosmos };
+    const r = await verifyReport(forged, ctx({ guardian: g.evm as Hex, verifyGuardianSig: await offlineVerifier(g) }));
+    expect(byId(r, "guardian").status).toBe("fail");
+  });
+
+  it("fail: valid classical part, ML-DSA-87 part spliced from another report", async () => {
+    const { g, report } = await coSigned();
+    const { report: other } = await coSigned(MNEMONIC, body({ id: "inc-2", summary: "another report" }));
+    const spliced = { ...report, guardianSig: { ...report.guardianSig, pq: other.guardianSig.pq } };
+    const r = await verifyReport(spliced, ctx({ guardian: g.evm as Hex, verifyGuardianSig: await offlineVerifier(g) }));
+    expect(byId(r, "guardian").status).toBe("fail");
+    expect(byId(r, "guardian").detail).toMatch(/PQ_SIGNATURE_INVALID/);
+  });
+
+  it("fail when the config check failed: the guardian it names is not the vault's", async () => {
+    const { g, report } = await coSigned();
+    const r = await verifyReport(report, ctx({ guardian: g.evm as Hex, verifyGuardianSig: await offlineVerifier(g), config: { ok: false, detail: "mismatch" } }));
+    expect(byId(r, "guardian").status).toBe("fail");
+  });
+
+  it("never throws: a malformed guardian address fails the row", async () => {
+    const { g, report } = await coSigned();
+    const r = await verifyReport(report, ctx({ guardian: "0xnot-an-address" as Hex, verifyGuardianSig: await offlineVerifier(g) }));
+    expect(byId(r, "guardian").status).toBe("fail");
+  });
+
+  it("an unreachable chain reads as 'could not check', still a fail", async () => {
+    const { g, report } = await coSigned();
+    const down = async () => {
+      throw Object.assign(new Error("fetch failed"), { code: "NETWORK_UNAVAILABLE" });
+    };
+    const r = await verifyReport(report, ctx({ guardian: g.evm as Hex, verifyGuardianSig: down }));
+    expect(byId(r, "guardian").status).toBe("fail");
+    expect(byId(r, "guardian").detail).toMatch(/could not check/);
+  });
+
+  it("n/a for a report signed before co-signing; it does not fail an otherwise valid report", async () => {
+    const r = await verifyReport(wire(body()), ctx({ guardian: VAULT, verifyGuardianSig: async () => ({ possessionProven: true }) }));
+    expect(byId(r, "guardian").status).toBe("n/a");
+    expect(byId(r, "guardian").detail).toMatch(/classical/);
+    expect(r.ok).toBe(true);
+  });
+
+  it("fail when the report carries a co-signature but the vault's guardian is unknown", async () => {
+    const { g, report } = await coSigned();
+    const r = await verifyReport(report, ctx({ verifyGuardianSig: await offlineVerifier(g) }));
+    expect(byId(r, "guardian").status).toBe("fail");
   });
 });

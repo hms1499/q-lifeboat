@@ -155,7 +155,8 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSig
 `linkAuthenticatorMsgs`, `signAuthenticatorLinkEd25519`, `revokeAuthenticatorMsg`,
 `buildPhantomExecuteEvm`, `fetchAuthNonce`, `fetchSpendingRules`, `fetchAuthenticators`,
 `decodeAuthenticatorExecutions`, `resolveEvmAuthDigestVersion`, `openEvmWindowMsg`,
-`closeEvmWindowMsg`, `fetchPqcStatus`. Check typings before using anything else. Working references:
+`closeEvmWindowMsg`, `fetchPqcStatus`. `@qorechain/qoresign@0.2.0` (agent + dashboard): `classicalKeyFromPrivate(pk,
+"eth_secp256k1")`, `signMessage`, `verifyMessage`, and `verifyMessageWithChain` from `@qorechain/qoresign/network`. Check typings before using anything else. Working references:
 `spike/probe/probe.mjs` and `spike/workshop/workshop-2/`.
 
 ## Session notes
