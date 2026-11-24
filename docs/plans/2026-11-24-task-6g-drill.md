@@ -86,7 +86,7 @@ stages and streams them over SSE; past runs come from the `verdict.json` files i
 to the target only when its balance is below it, register its ML-DSA-87 key (classical, bootstrap-exempt, as
 `fresh-owner` does) only when not registered. Running it again later is how the builder tops the drill guardian up.
 
-- [ ] **Step 1: Write the failing tests** in `drillguardian.test.ts` (deps mocked, as in `fresh.test.ts`):
+- [x] **Step 1: Write the failing tests** in `drillguardian.test.ts` (deps mocked, as in `fresh.test.ts`):
   - `test_createsFileBeforeFunding`: no file → `newMnemonic` called once, the file write happens before `broadcast`,
     mode 0600, the content has exactly the two keys.
   - `test_reusesExistingFile`: file present → `newMnemonic` not called, `created: false`.
@@ -98,10 +98,10 @@ to the target only when its balance is below it, register its ML-DSA-87 key (cla
   - `test_refusesWhenFunderShort`: funder balance < top-up + `FEE_RESERVE_UQOR` → throws before any broadcast.
   - `test_neverLogsMnemonic`: no logged line contains the mnemonic.
   - `runDrillGuardian(["bogus"])` throws `usage: drill-guardian init`.
-- [ ] **Step 2:** Run `pnpm -F cli test drillguardian`. Expected: FAIL (module missing).
-- [ ] **Step 3:** Implement `drillguardian.ts`; wire `index.ts` and the usage text; document the file in `.env.example`.
-- [ ] **Step 4:** Run `pnpm -F cli test && pnpm -F cli typecheck`. Expected: all PASS, no type errors.
-- [ ] **Step 5:** Commit `feat(cli): drill-guardian init for the fire drill's own guardian (Task 6G)`.
+- [x] **Step 2:** Run `pnpm -F cli test drillguardian`. Expected: FAIL (module missing).
+- [x] **Step 3:** Implement `drillguardian.ts`; wire `index.ts` and the usage text; document the file in `.env.example`.
+- [x] **Step 4:** Run `pnpm -F cli test && pnpm -F cli typecheck`. Expected: all PASS, no type errors.
+- [x] **Step 5:** Commit `feat(cli): drill-guardian init for the fire drill's own guardian (Task 6G)`.
 
 ### Task 2: `demo.sh --drill`, `INCIDENTS_FILE`, `demo-check --out` (high tier)
 
@@ -125,7 +125,7 @@ unless `${QDAY_DRILL_GUARDIAN_FILE:-$HOME/.config/qday/drill-guardian.env}` exis
 refill them). After `run.env` is loaded: `export INCIDENTS_FILE="$RUN_DIR/incidents.jsonl"`. Refuse when the drill port
 equals the root `.env`'s `AGENT_PORT` (or 8787). Every run (drill or not) ends with `demo-check --out "$RUN_DIR/verdict.json"`.
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
   - `config.test.ts`: `test_incidentsFileDefaultsToRepoData`, `test_incidentsFileFromEnv`, `test_incidentsFileMustBeAbsolute`.
   - `democheck.test.ts`: `test_buildVerdictFileFromPassingRun` (`blocks: "2"`, `keptPct: "90.00"`, `mode: "demo"`),
     `test_verdictModeDrillWhenDrillEnv`, `test_verdictFileHasNoSecretKeys` (keys are exactly the `VerdictFile` keys).
@@ -134,10 +134,10 @@ equals the root `.env`'s `AGENT_PORT` (or 8787). Every run (drill or not) ends w
     without the drill guardian file exits 2 before fresh-owner; `--drill` with `DRILL_AGENT_PORT=8787` exits 2; the
     Telegram vars reach the agent step empty; the final demo-check gets `--out <run dir>/verdict.json`; without
     `--drill` the agent step sees the root `GAS_MNEMONIC` (unchanged behaviour).
-- [ ] **Step 2:** Run `pnpm -F agent test config`, `pnpm -F cli test democheck`, `bash scripts/test-demo.sh`. Expected: the new cases FAIL.
-- [ ] **Step 3:** Implement `INCIDENTS_FILE` in the agent, `--out` in `demo-check`, `--drill` in `demo.sh` (usage comment too).
-- [ ] **Step 4:** Run `pnpm -F agent test && pnpm -F agent typecheck && pnpm -F cli test && pnpm -F cli typecheck && bash scripts/test-demo.sh`. Expected: all PASS.
-- [ ] **Step 5:** Commit `feat: demo.sh --drill with its own guardian, port and incidents file; demo-check --out (Task 6G)`.
+- [x] **Step 2:** Run `pnpm -F agent test config`, `pnpm -F cli test democheck`, `bash scripts/test-demo.sh`. Expected: the new cases FAIL.
+- [x] **Step 3:** Implement `INCIDENTS_FILE` in the agent, `--out` in `demo-check`, `--drill` in `demo.sh` (usage comment too).
+- [x] **Step 4:** Run `pnpm -F agent test && pnpm -F agent typecheck && pnpm -F cli test && pnpm -F cli typecheck && bash scripts/test-demo.sh`. Expected: all PASS.
+- [x] **Step 5:** Commit `feat: demo.sh --drill with its own guardian, port and incidents file; demo-check --out (Task 6G)`.
 
 ### Task 3: Agent drill runner and `/drill` API (high tier)
 
@@ -172,7 +172,7 @@ stdout+stderr line-split, each line appended to `<run dir>/drill.log` once the r
 SIGTERM in `index.ts`) and the timeout kill the process group with SIGTERM. `runs()` reads `<runsDir>/<id>/verdict.json`
 only (a dir without it is skipped; a malformed one is skipped and logged).
 
-- [ ] **Step 1: Write the failing tests** in `drill.test.ts` (spawn mocked with an EventEmitter child):
+- [x] **Step 1: Write the failing tests** in `drill.test.ts` (spawn mocked with an EventEmitter child):
   - `test_parseStageLines` (each of the 7 stages, the verdict line with its suffix), `test_parseRunIdAndResult`.
   - `test_redactsMnemonicLikeLine` (a 12-word line → `[redacted]`; an address/tx-hash line unchanged).
   - `test_drillEnvDropsAgentVars` (`AGENT_PORT`, `INCIDENTS_FILE`, `GAS_MNEMONIC` not passed; `PATH`, `HOME` kept).
@@ -182,17 +182,17 @@ only (a dir without it is skipped; a malformed one is skipped and logged).
   - `test_subscribersGetEveryChange`, `test_linesCappedAt200`.
   - `test_runsReadsVerdictOnly` (`readFile` is asked for `verdict.json` paths only, never `run.env`; newest first; max 20;
     a malformed verdict is skipped).
-- [ ] **Step 2: Write the failing tests** in `server.test.ts`:
+- [x] **Step 2: Write the failing tests** in `server.test.ts`:
   - `test_drillPostRejectedFromNonLoopback`, `test_drillPostRejectsForeignOrigin`, `test_drillPostRejectsTextPlain`,
     `test_drillRoutesRejectForeignHost` (GET `/drill`, `/drill/events`, `/drill/runs` too) — nothing started in each.
   - `test_drillPostFromDashboardOriginStarts` (202, CORS names that origin), `test_drillPost409Passthrough`.
   - `test_drillEventsSendsStateOnConnect`, `test_drillRoutes404WithoutRunner`.
-- [ ] **Step 3:** Run `pnpm -F agent test drill server`. Expected: the new tests FAIL.
-- [ ] **Step 4:** Implement `drill.ts`, the routes in `server.ts`, and in `index.ts` create the runner
+- [x] **Step 3:** Run `pnpm -F agent test drill server`. Expected: the new tests FAIL.
+- [x] **Step 4:** Implement `drill.ts`, the routes in `server.ts`, and in `index.ts` create the runner
   (`runsDir = ~/.config/qday/runs`, `guardianFile = ~/.config/qday/drill-guardian.env`), pass it to `startServer`, and
   call `drill.stop()` on SIGINT/SIGTERM before exiting.
-- [ ] **Step 5:** Run `pnpm -F agent test && pnpm -F agent typecheck`. Expected: all PASS.
-- [ ] **Step 6:** Commit `feat(agent): fire drill runner and /drill API (Task 6G)`.
+- [x] **Step 5:** Run `pnpm -F agent test && pnpm -F agent typecheck`. Expected: all PASS.
+- [x] **Step 6:** Commit `feat(agent): fire drill runner and /drill API (Task 6G)`.
 
 ### Task 4: Dashboard Fire drill screen (low tier)
 
@@ -212,26 +212,27 @@ Screen: one-paragraph explainer (a throwaway owner is attacked; the watched owne
 from the funder), "Run drill" button (disabled while `running` or the agent is offline), the 7 stages with
 `stageStatus` marks, a collapsible log (`lines`), the verdict (PASS/FAIL, blocks, kept %), and a past-runs table
 (run id, date, mode, PASS/FAIL, blocks, kept %). On load: `GET /drill` + `GET /drill/runs`, then the SSE stream; when a
-drill ends, re-read `/drill/runs`. A 503 shows the `pnpm cli drill-guardian init` command (absolute repo path).
+drill ends, re-read `/drill/runs`. A 503 shows the `pnpm cli drill-guardian init` command (run from the repo root; no personal path in the repo).
 
-- [ ] **Step 1: Write the failing tests** in `drill.test.ts`: `test_stageStatusRunning` (stages before `stage` done,
+- [x] **Step 1: Write the failing tests** in `drill.test.ts`: `test_stageStatusRunning` (stages before `stage` done,
   `stage` active, after pending), `test_stageStatusFailMarksCurrentStageFailed`, `test_stageStatusPassAllDone`,
   `test_parseDrillStateRejectsBadShape`, `test_parseDrillRunsDropsMalformedRows`.
-- [ ] **Step 2:** Run `pnpm -F dashboard test drill`. Expected: FAIL (module missing).
-- [ ] **Step 3:** Implement `lib/drill.ts`, `Drill.tsx`, the nav entry.
-- [ ] **Step 4:** Run `cd contracts && forge build && cd .. && pnpm -F dashboard test && pnpm -F dashboard build`. Expected: PASS and the build succeeds.
-- [ ] **Step 5:** Commit `feat(dashboard): Fire drill screen (Task 6G)`.
+- [x] **Step 2:** Run `pnpm -F dashboard test drill`. Expected: FAIL (module missing).
+- [x] **Step 3:** Implement `lib/drill.ts`, `Drill.tsx`, the nav entry.
+- [x] **Step 4:** Run `cd contracts && forge build && cd .. && pnpm -F dashboard test && pnpm -F dashboard build`. Expected: PASS and the build succeeds.
+- [x] **Step 5:** Commit `feat(dashboard): Fire drill screen (Task 6G)`.
 
 ### Task 5: Diana verification and records
 
-- [ ] **Step 1:** `pnpm cli drill-guardian init` on diana. Expected: a fund tx and a register tx (hashes logged), file
+- [x] **Step 1:** `pnpm cli drill-guardian init` on diana. Expected: a fund tx and a register tx (hashes logged), file
   `~/.config/qday/drill-guardian.env` mode 0600. Running it again sends nothing.
-- [ ] **Step 2:** Start the main agent (`pnpm agent`, root `.env`) and the dashboard (`pnpm -F dashboard dev`), open
+  Diana (2026-11-24): the 2nd run topped up 0.225 QOR, because the register fee is paid from the 2 QOR just sent; the 3rd run sent nothing.
+- [x] **Step 2:** Start the main agent (`pnpm agent`, root `.env`) and the dashboard (`pnpm -F dashboard dev`), open
   `#/drill`, click "Run drill". Expected: the 7 stages tick live, verdict PASS with ≤ 3 blocks and ≥ 80% kept; the
   past-runs table shows it; the main agent's `/health` shows its own window still live and scoped to the real vault
   throughout; the Incidents screen shows no drill incident.
-- [ ] **Step 3:** Review (fresh context) of Tasks 1-3 against Review Focus 1-5 and the Hard rules; fixes loop back.
-- [ ] **Step 4:** Record: drill guardian txs and the drill's run id + rescue hash in `docs/EVIDENCE.md`; a T-entry in
+- [x] **Step 3:** Review (fresh context) of Tasks 1-3 against Review Focus 1-5 and the Hard rules; fixes loop back.
+- [x] **Step 4:** Record: drill guardian txs and the drill's run id + rescue hash in `docs/EVIDENCE.md`; a T-entry in
   `docs/THREAT_MODEL.md` (drill endpoint spends funder QOR → loopback + origin gate; separate drill guardian); Task 6G
   in `AI_USAGE.md`; the drill commands in `CLAUDE.md`; tick Task 6G in the main plan and this sub-plan.
-- [ ] **Step 5:** Commit `docs: Task 6G evidence on diana, threat model, plan ticks`.
+- [x] **Step 5:** Commit `docs: Task 6G evidence on diana, threat model, plan ticks`.

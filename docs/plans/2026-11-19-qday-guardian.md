@@ -278,10 +278,13 @@ Work in `spike/`, never import from it.
   that an owner without an ML-DSA-87 key could create a vault (a leaked-key holder could register theirs): every vault step now
   waits for step 1. Diana: deploy `0x469bba2a…`, link `AAC92F42…`, attack PASS (rescue 2 blocks, 90% kept).
 
-#### Task 6G: Dashboard: Fire drill (lowest priority)
+#### Task 6G: Dashboard: Fire drill (lowest priority), DONE 2026-11-24
 
-- [ ] **Step 1:** Agent endpoint `POST /drill` (loopback only) runs `fresh-owner`, `attack` and `demo-check` and streams progress over SSE; the screen shows stages and past runs from the run dirs.
-- [ ] **Step 2:** Run a drill from the screen. Expected: PASS within ≤ 3 blocks and ≥ 80% kept. Commit.
+- [x] **Step 1:** Agent endpoint `POST /drill` (loopback only) runs `fresh-owner`, `attack` and `demo-check` and streams progress over SSE; the screen shows stages and past runs from the run dirs.
+- [x] **Step 2:** Run a drill from the screen. Expected: PASS within ≤ 3 blocks and ≥ 80% kept. Commit.
+  Sub-plan `docs/plans/2026-11-24-task-6g-drill.md`. Approved departures (2026-11-24): a separate drill guardian (`pnpm cli drill-guardian
+  init`), the drill reuses `demo.sh --drill` (own agent on :8788, incidents and verdict in the run dir, no alerts). Diana: run
+  `20261124T081242Z` from the screen PASS (rescue 2 blocks, 80.00% kept), the main agent's window untouched.
 
 ### Task 7: Audit Stage 2 + submission (Nov 30 → Dec 2)
 
