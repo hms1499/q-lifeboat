@@ -25,7 +25,7 @@ printf 'OWNER_MNEMONIC="root owner words"\nGUARDIAN_ADDRESS="0x1"\n' >"$WORK/.en
 cat >"$WORK/bin/pnpm" <<'STUB'
 #!/usr/bin/env bash
 # Stub pnpm. FAKE_FAIL=<step> makes that step exit 1 (steps: cli:drill-guardian, cli:fresh-owner, cli:setup, agent,
-# cli:attack, cli:demo-check:wait, cli:sign-withdraw, cli:withdraw, cli:demo-check).
+# cli:attack, cli:phish, cli:demo-check:wait, cli:sign-withdraw, cli:withdraw, cli:demo-check).
 W="$(cd "$(dirname "$0")/.." && pwd)"
 [[ "$1" == "-s" ]] && shift
 what="$1"
@@ -332,6 +332,31 @@ echo "FUNDER_MNEMONIC from .env wins over OWNER_MNEMONIC"
 printf 'OWNER_MNEMONIC="root owner words"\nFUNDER_MNEMONIC="funder words"\nGUARDIAN_ADDRESS="0x1"\n' >"$WORK/.env"
 run_demo funder --
 expect "attack sees FUNDER_MNEMONIC = funder" has funder '\[stub\] cli:attack FUNDER=\[funder words\]'
+
+echo "approval phishing (--phish)"
+printf 'OWNER_MNEMONIC="root owner words"\nGUARDIAN_ADDRESS="0x1"\n' >"$WORK/.env"
+run_demo phishnofunder -- --phish
+expect "--phish without FUNDER_MNEMONIC in .env is refused (the drainer would be the watched owner), nothing ran" bash -c "[ $RC -eq 2 ] && ! grep -q 'stub\]' '$WORK/phishnofunder.out'"
+expect "...and says why" has phishnofunder "refusing --phish: FUNDER_MNEMONIC is not set"
+printf 'OWNER_MNEMONIC="root owner words"\nFUNDER_MNEMONIC="funder words"\nGUARDIAN_ADDRESS="0x1"\n' >"$WORK/.env"
+run_demo phish -- --phish --runs 2
+expect "exit 0, two runs, each PASS" bash -c "[ $RC -eq 0 ] && [ \$(grep -c '^PASS: run ' '$WORK/phish.out') -eq 2 ]"
+expect "phish runs after the agent, with the fresh owner and the .env funder" has phish '\[stub\] cli:phish FUNDER=\[funder words\] OWNER=\[fresh owner words\]'
+expect "no attack, demo-check or recovery in a phishing run" bash -c "! grep -Eq 'stub\] cli:(attack|demo-check|sign-withdraw|withdraw) ' '$WORK/phish.out'"
+expect "agent process group killed" agent_killed
+run_demo phishfail FAKE_FAIL=cli:phish -- --phish
+expect "a FAIL from phish fails the run" bash -c "[ $RC -eq 1 ] && grep -q '^FAIL: run ' '$WORK/phishfail.out'"
+run_demo phishdelay -- --phish --drainer-delay 2 --runs 2
+expect "--drainer-delay reaches every run's phish" bash -c "[ $RC -eq 0 ] && [ \$(grep -c 'stub\] cli:phish .*ARGS=\[--drainer-delay 2\]' '$WORK/phishdelay.out') -eq 2 ]"
+expect "a plain --phish passes no delay" bash -c "grep -q 'stub\] cli:phish .*ARGS=\[\]' '$WORK/phish.out'"
+run_demo delaynophish -- --drainer-delay 2
+expect "--drainer-delay without --phish is refused, nothing ran" bash -c "[ $RC -eq 2 ] && ! grep -q 'stub\]' '$WORK/delaynophish.out'"
+run_demo delaybad -- --phish --drainer-delay x
+expect "a non-number delay is a usage error" bash -c "[ $RC -eq 2 ] && ! grep -q 'stub\]' '$WORK/delaybad.out'"
+run_demo delaybig -- --phish --drainer-delay 21
+expect "--drainer-delay above 20 is refused before any QOR is spent" bash -c "[ $RC -eq 2 ] && ! grep -q 'stub\]' '$WORK/delaybig.out'"
+run_demo phishdrill -- --phish --drill
+expect "--phish with --drill is refused, nothing ran" bash -c "[ $RC -eq 2 ] && ! grep -q 'stub\]' '$WORK/phishdrill.out'"
 
 echo
 echo "demo.sh harness: $PASSED passed, $FAILED failed"

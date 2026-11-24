@@ -33,6 +33,8 @@ spike/            THROWAWAY Task 0 probes + workshop clone. Gitignored. Never im
 - Browser onboarding (Task 6F): `pnpm cli fresh-owner --no-vault`, `pnpm cli window open --onboard [--topup QOR] --expect <0x>`
   (UNSCOPED, for the MetaMask vault deploy), `pnpm cli link --expect <0x>` (run.env loaded + `VAULT_ADDRESS` exported).
 - The dashboard imports the forge artifact: run `cd contracts && forge build` before `pnpm -F dashboard build|test|dev`.
+- Approval phishing demo (Task 7): `./demo.sh --phish [--drainer-delay N]` (fresh owner, its own agent on :8787: stop `pnpm agent`
+  first). The drainer is FUNDER_MNEMONIC's account in its own fUSD-scoped window; `phish.json` in the run dir. Same-block drainers can win.
 - Fire drill (Task 6G): `pnpm cli drill-guardian init` (once, idempotent: separate drill guardian in `~/.config/qday/drill-guardian.env`,
   topped up to 2 QOR) and `pnpm cli drill-guardian check` (read-only, needs >= 0.5 QOR). Then `pnpm agent` + dashboard `#/drill` "Run drill",
   or `./demo.sh --drill` from a terminal (needs `FUNDER_MNEMONIC`, drill agent on `DRILL_AGENT_PORT` default 8788, one drill at a time).

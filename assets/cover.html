@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Q-Lifeboat cover</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root { --harbour: #0F2236; --harbour-2: #2A3D52; --rescue: #E8501A; --safe: #2FA37F; --chart: #EEF2F5; --rope: #D6DEE6; }
+  html, body { margin: 0; }
+  body { width: 1920px; height: 1080px; background: var(--harbour); color: #fff; font-family: "Archivo", sans-serif; overflow: hidden; }
+  .wrap { position: relative; width: 100%; height: 100%; box-sizing: border-box; padding: 110px 128px; display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 72px; align-items: center; }
+  .stripe { position: absolute; left: 0; top: 0; right: 0; height: 14px; background: var(--rescue); }
+  .brand { display: flex; align-items: center; gap: 28px; }
+  .brand h1 { margin: 0; font-stretch: 120%; font-weight: 800; font-size: 104px; letter-spacing: -0.02em; line-height: 1; white-space: nowrap; }
+  .tag { margin: 48px 0 0; font-size: 46px; line-height: 60px; font-weight: 500; color: #E8EEF4; max-width: 900px; }
+  .tag b { color: #fff; font-weight: 700; }
+  .tag .pq { color: #FF8A57; }
+  .meta { margin-top: 56px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .chip { font-size: 26px; font-weight: 600; padding: 10px 20px; border-radius: 10px; border: 2px solid rgba(255,255,255,0.28); color: #E8EEF4; }
+  .chip.hot { border-color: var(--rescue); color: #fff; background: rgba(232,80,26,0.16); }
+
+  .board { background: #fff; color: var(--harbour); border-radius: 28px; padding: 48px 52px 44px; box-shadow: 0 0 0 1px var(--rope); }
+  .board .k { font-size: 24px; color: #5A6878; font-weight: 500; }
+  .board .h { margin: 6px 0 0; font-stretch: 118%; font-weight: 700; font-size: 44px; letter-spacing: -0.01em; }
+  .board .h .dot { display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: var(--rescue); margin-right: 14px; vertical-align: 6px; }
+  .wl { margin-top: 34px; border-top: 4px dashed var(--harbour); padding-top: 10px; }
+  .row { display: grid; grid-template-columns: 110px 1fr 120px; align-items: center; gap: 20px; padding: 20px 0; border-bottom: 1px solid #E6ECF1; }
+  .row:last-child { border-bottom: 0; }
+  .sym { font-weight: 700; font-size: 32px; }
+  .bar { height: 26px; border-radius: 999px; background: #E6ECF1; display: flex; overflow: hidden; }
+  .bar .acct { background: var(--harbour-2); }
+  .bar .vault { background: #0B6B50; }
+  .amt { text-align: right; font-weight: 700; font-size: 30px; color: #0B6B50; font-variant-numeric: tabular-nums; }
+  .legend { margin-top: 18px; display: flex; gap: 28px; font-size: 22px; color: #5A6878; }
+  .legend i { display: inline-block; width: 18px; height: 18px; border-radius: 4px; margin-right: 10px; vertical-align: -2px; }
+  .sig { margin-top: 26px; font-family: "IBM Plex Mono", monospace; font-size: 22px; color: #5A6878; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="stripe"></div>
+  <div>
+    <div class="brand">
+      <svg width="132" height="132" viewBox="0 0 64 64" aria-hidden="true">
+        <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+          <rect width="64" height="64" fill="#fff"/>
+          <circle cx="32" cy="22" r="4.5" fill="none" stroke="#000" stroke-width="3"/>
+          <path d="M18 31 H46 L42 40 Q41 42 39 42 H25 Q23 42 22 40 Z" fill="#000"/>
+          <path d="M21 48 q2.75 -2.5 5.5 0 t5.5 0 t5.5 0 t5.5 0" fill="none" stroke="#000" stroke-width="2.6" stroke-linecap="round"/>
+        </mask>
+        <path d="M32 5 L54 13 V30 C54 44 44 54 32 59 C20 54 10 44 10 30 V13 Z" fill="#fff" mask="url(#cut)"/>
+      </svg>
+      <h1>Q-Lifeboat</h1>
+    </div>
+    <p class="tag">When your <b>ECDSA key leaks</b>, an AI Guardian sweeps your tokens into a vault that only your <b class="pq">ML-DSA-87</b> post-quantum key can open.</p>
+    <div class="meta">
+      <span class="chip hot">Post-Quantum AI Agents</span>
+      <span class="chip">QoreChain Build Before Q-Day</span>
+      <span class="chip">Testnet diana</span>
+    </div>
+  </div>
+  <div class="board">
+    <div class="k">Rescued, 2 blocks after the drain</div>
+    <div class="h"><span class="dot"></span>Safe in your vault</div>
+    <div class="wl">
+      <div class="row"><span class="sym">fUSD</span><div class="bar"><div class="acct" style="width:0%"></div><div class="vault" style="width:100%"></div></div><span class="amt">99</span></div>
+      <div class="row"><span class="sym">fETH</span><div class="bar"><div class="acct" style="width:0%"></div><div class="vault" style="width:100%"></div></div><span class="amt">97</span></div>
+      <div class="row"><span class="sym">fBTC</span><div class="bar"><div class="acct" style="width:0%"></div><div class="vault" style="width:100%"></div></div><span class="amt">100</span></div>
+    </div>
+    <div class="legend"><span><i style="background:#2A3D52"></i>On your account</span><span><i style="background:#0B6B50"></i>In your vault</span></div>
+    <div class="sig">withdraw: pqcVerify(ML-DSA-87) only</div>
+  </div>
+</div>
+</body>
+</html>
