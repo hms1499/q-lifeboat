@@ -286,6 +286,16 @@ Work in `spike/`, never import from it.
   init`), the drill reuses `demo.sh --drill` (own agent on :8788, incidents and verdict in the run dir, no alerts). Diana: run
   `20261124T081242Z` from the screen PASS (rescue 2 blocks, 80.00% kept), the main agent's window untouched.
 
+#### Task 6H: UX clarity pass (added 2026-11-24, low tier)
+
+From the UX review of 2026-11-24: a first-time viewer could not tell what the product does, Incidents listed every demo
+owner's reports (all ✗), loading never ended while diana was slow, and incident summaries were raw wei. Sub-plan
+`docs/plans/2026-11-24-task-6h-ux.md`.
+
+- [ ] **Step 1:** Helpers (plain-words incident text, owner partition from the trigger tx sender, slow-read flag), test-first.
+- [ ] **Step 2:** Screens (how-it-works explainer with Protect and Fire drill links, own incidents only, slow-chain messages).
+- [ ] **Step 3:** Check in the browser, commit.
+
 ### Task 7: Audit Stage 2 + submission (Nov 30 → Dec 2)
 
 **Files:**
