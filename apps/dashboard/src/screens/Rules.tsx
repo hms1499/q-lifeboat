@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { formatUnits } from "viem";
 import { EditorMessages, TrustedEditor, usePolicyEditor } from "../components/TrustedEditor";
+import { TurnOff } from "../components/TurnOff";
 import { fetchHealth } from "../lib/agent";
 import { readSpendingRules } from "../lib/chain";
 import { errorText, fmtAmount } from "../lib/format";
@@ -132,6 +133,7 @@ export function Rules() {
           </section>
         </aside>
       </div>
+      <TurnOff cfg={cfg} />
     </>
   );
 }

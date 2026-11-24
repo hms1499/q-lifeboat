@@ -260,7 +260,13 @@ Work in `spike/`, never import from it.
   window carries fees only, so `pnpm cli window open --topup <QOR>` adds exactly that much value headroom (opt-in; a
   leaked ECDSA key can spend it while the window is open, THREAT_MODEL). The dashboard checks a top-up's
   `evmWindowCost` against the window's `remainingValue` before asking MetaMask.
-- [ ] **Step 4 (optional, deferred 2026-11-23 until 6F/6G are done):** "Turn off protection": `approve(vault, 0)` per token and `revokeAuthenticatorMsg`.
+- [x] **Step 4 (optional, deferred 2026-11-23 until 6F/6G are done, DONE 2026-11-24):** "Turn off protection": `approve(vault, 0)` per token and `revokeAuthenticatorMsg`.
+  A folded card at the bottom of Rules: revoke the allowances from MetaMask (what actually stops rescues: the agent rescues through
+  the guardian account, chain fact 7), `pnpm cli unlink --expect <owner>` (new, hybrid), stop the agent; each step ticks from the
+  chain or the agent. Diana run `20261124T125220Z`: approvals `0xa1c0c87b…`/`0x67d9eb00…`/`0xdb828cb5…` (3 alerts, no rescue),
+  unlink `4E787126…`; re-linking the revoked key works (`D06BA5BD…`, chain fact 21).
+  Review (fresh context): no blocker; fixed the window left open after the revokes (the card now shows `window close`), the agent
+  step ticking before /health answered, a re-read of each allowance before sending, and a read-back in `unlink`.
 - [x] **Step 5:** `pnpm -F dashboard test && pnpm -F dashboard build`, then commit.
   Diana: Rescue now `0x378117ff…` (fUSD 5 back to the vault), top-up 0.1 QOR `0xa6b34d03…`, Rules writes logged by the
   agent. The run found a false incident on the owner's own top-up: fixed in `rules.ts` (native QOR to the guardian is not

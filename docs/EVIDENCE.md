@@ -186,6 +186,22 @@ Root owner `0xE871748C0922745Ad94d065a388e95eC420A67EB`, vault v3 `0x776913Abe05
 | The diana explorer has no EVM tx page: `explore.qore.network/tx/0x7eec…` shows "Transaction not found: encoding/hex: invalid byte: U+0078 'x'" (its LCD call `/cosmos/tx/v1beta1/txs/0x…` answers 500), and the same hash without `0x` shows "tx not found" (404) | The dashboard shows EVM hashes as copyable text, checked by their receipts from the EVM RPC | browser check, 2026-11-23 02:13Z |
 | `pnpm cli window close --expect 0xE871…` | OK, "owner window closed" | `3AAA928C69B2F17705BA2FF899A6074347B622E42B0EC85DAF9069ABF8D384AE` |
 
+## Task 6E step 4: Turn off protection on diana (2026-11-24)
+
+Fresh owner `0xCCD4384329e5783B7246480016dAf2D4fE8Cb20e` (`qor1en2rssefu4urkujxfqqpdkhj6nlgevswr37qaa`, run `20261124T125220Z`), vault
+`0xd6dc8d45f7457e659729285a16ef553635261359`, guardian `0xFf82cAD6638a38d7009D0d5DfB757136B0C03850`. Branch `task-6e-turn-off`. An agent with
+that run.env on `:8787`; the builder clicked the MetaMask txs on `127.0.0.1:5173/#/rules`.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| `fresh-owner` + `setup`: protected owner (window + link, `approve(vault, max)` × 3) | fund `8C95BFE3…`, register `E7F95344…`, deploy `0x5203f7a5…`, approvals `0x9649cb01…`, `0x603ffcae…`, `0x703c6bdc…` | window + link `D1651352FDB185F351DFB6AA59E033DF8CCD561E61B018BDF1F3BBC6879DF1C3` |
+| **Revoke 3 allowances** from the Turn off protection card: `approve(vault, 0)` for fUSD, fETH, fBTC from MetaMask inside the scoped owner window (`window open` `7123AD60…`) | 3 × success from the owner (blocks 10668391 / 10668395 / 10668398); allowances read back 0, 0, 0 | `0xa1c0c87b1d83b66445438c3f967ddcc2defe4a00391a4da795d95bfa539fa740`, `0x67d9eb00aa71c52afa89f204b7974d6d82d2d020e83acdbf8f61a73ed94c80a0`, `0xdb828cb5cd70ef3da4785a9c6a4f91ca9f7289b53378949b8fd97014928c3b98` |
+| The agent raises an alert, no rescue, for each `approve(vault, 0)` (Review Focus 7) | 3 incidents "the vault allowance was lowered to 0 (revoked)", 0 rescues each, Telegram alerts | `GET /incidents` 12:57:02Z-12:57:12Z |
+| `pnpm cli unlink --expect 0xCCD4…`: `MsgRevokeAuthenticator` for the Guardian's ed25519 key, one hybrid tx | authenticator `f35d7d95…` read back `revoked: true`; a second `unlink` refused before signing ("already revoked") | `4E7871265C31168446437A51F28C6ECE269CB7ACD7A74FD5098B582429BE02E4` |
+| **Chain fact 21:** re-linking a REVOKED key to the same account is accepted (`pnpm cli link`, 2 msgs) | the same key reads `revoked: false`, new `createdAtUnix`, new expiry; rule `0xd6dc…1359/0x839006f2 (denoms uqor)` | `D06BA5BDB7668AA30422E89E679B34C0BF19CB6B08F4086B06FAB5C0F6803746` |
+| Unlink again (owner topped up 0.5 QOR first: `0F0625C9…`; a hybrid tx needs 0.225 QOR of fees) | revoked again | `12B951E7F062FF8CC564963101ADD6784ACF03972DC438A03BBE88BD12DEF862` |
+| The card ticks each step from the chain or the agent | ✓ "No allowance left", ✓ "No live Guardian key", and after the agent was stopped ✓ "The agent does not answer" | browser check 13:0xZ |
+
 ## Task 6F: Protect onboarding on diana (2026-11-23)
 
 Fresh owner `0xd823806154A2546184D23BE2cf775d14497adF1E` (`qor1mq3cqc255f2xrpxj803v7a6az3yh4hc768p2vn`, run `20261123T025547Z`), onboarded
