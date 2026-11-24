@@ -321,7 +321,8 @@ only: no data, verification, signing or test logic changes.
 Spec `docs/specs/2026-11-24-submission-gaps.md`, from checking the event's published requirements against the product.
 
 - [x] **Gap 1:** agent link TTL 30 days; root owner renewed to 2026-12-24 (unlink `9D90D512…`, link `1D5FEE88…`).
-- [ ] **Gap 2:** both QCAI reports as dated PDFs in `docs/audit/` (builder exports them).
+- [x] **Gap 2:** both QCAI reports as dated PDFs in `docs/audit/`. The original Stage 1 PDF was not kept, so the same v1 source
+  was re-audited on 2026-11-24 (85/100, different findings, rescue access control not flagged this time); Stage 2 PDF 85/100.
 - [x] **Gap 3:** reports co-signed by the vault's guardian with QoreSign (secp256k1 + ML-DSA-87), verified in the browser with
   `verifyMessageWithChain`. Spike passed; diana run `20261124T135836Z`, incident `43f6f1b1…` ✓, a changed copy ✗.
   Review (fresh context): no blocker. Fixed: verdicts keyed on the whole report (the sig alone did not cover the co-signature;
