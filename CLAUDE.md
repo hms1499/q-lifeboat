@@ -28,6 +28,8 @@ spike/            THROWAWAY Task 0 probes + workshop clone. Gitignored. Never im
 - TS workspaces: `pnpm -F <core|agent|cli|dashboard> test`
 - E2E: `./demo.sh` (must pass 3 runs in a row from fresh accounts)
 - CLI (diana, reads root `.env`): `pnpm cli status | setup | sign-withdraw <to> <fUSD|fETH|fBTC|QOR|0x…> <amount> | withdraw <file>`
+- Turn off protection (Task 6E step 4): dashboard Rules → "Turn off protection" (revoke allowances via MetaMask), then
+  `pnpm cli unlink --expect <0x>` (revokes the Guardian's key; hybrid), then stop the agent. Turn back on: Protect (approve + `pnpm cli link`).
 - Browser onboarding (Task 6F): `pnpm cli fresh-owner --no-vault`, `pnpm cli window open --onboard [--topup QOR] --expect <0x>`
   (UNSCOPED, for the MetaMask vault deploy), `pnpm cli link --expect <0x>` (run.env loaded + `VAULT_ADDRESS` exported).
 - The dashboard imports the forge artifact: run `cd contracts && forge build` before `pnpm -F dashboard build|test|dev`.
@@ -143,6 +145,9 @@ checkboxes and the docs below are the handoff state, not the chat history.
     QOR send needs headroom: `pnpm cli window open --topup <QOR>`.
 20. MetaMask deploys a contract (GuardianVault, gasUsed 725168 of 950000) inside an owner window opened with NO `allowedTargets`
     (`0x469bba2a…`, 2026-11-23). A window whose txs are used up shows closed ("used up its txs"), like an expired one.
+21. `MsgRevokeAuthenticator` (`pnpm cli unlink`) disables a linked key at once (`revoked: true`). Re-linking the SAME revoked key to
+    the SAME account is accepted and makes it live again with a new expiry (tx `D06BA5BD…`, 2026-11-24), so turning protection back
+    on needs no new agent key. A hybrid tx costs the signer 0.225 QOR of fees: a demo owner that spent its funding cannot send one.
 
 SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSign`, `EthNativeSigner`,
 `linkAuthenticatorMsgs`, `signAuthenticatorLinkEd25519`, `revokeAuthenticatorMsg`,

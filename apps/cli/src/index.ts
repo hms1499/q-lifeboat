@@ -7,6 +7,7 @@ import { runAgentMisuse } from "./misuse";
 import { runSetup } from "./setup";
 import { runSignWithdraw } from "./signer";
 import { runStatus } from "./status";
+import { runUnlink } from "./unlink";
 import { runWithdraw } from "./withdraw";
 import { runWindow } from "./window";
 
@@ -16,6 +17,9 @@ const USAGE = `Q-Lifeboat CLI (qorechain-diana testnet)
   pnpm cli link [--expect 0xOWNER]            link the Guardian's key to a vault deployed from the browser (reads
                                               OWNER_MNEMONIC, VAULT_ADDRESS, AGENT_ED25519_SK; refuses a vault the owner
                                               does not own); one hybrid tx, no window
+  pnpm cli unlink [--expect 0xOWNER]          revoke the Guardian's key (AGENT_ED25519_SK) on OWNER_MNEMONIC's account;
+                                              one hybrid tx, no window. Turn off protection: revoke the vault approvals
+                                              in the dashboard (Rules) first, then this, then stop the agent
   pnpm cli sign-withdraw <to> <token> <amt>   Guardian Signer: write withdrawal.json (--out <file>)
   pnpm cli withdraw <withdrawal.json>         submit a signed withdrawal from any funded wallet
   pnpm cli agent-misuse <token> <to> <wei>    negative gate: agent key tries token.transfer directly (must be REFUSED)
@@ -66,6 +70,9 @@ async function main(): Promise<number> {
       return runAgentMisuse(args);
     case "link":
       await runLink(args);
+      return 0;
+    case "unlink":
+      await runUnlink(args);
       return 0;
     case "window":
       await runWindow(args);

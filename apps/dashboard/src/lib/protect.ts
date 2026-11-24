@@ -141,7 +141,7 @@ export function ruleIsExact(rules: SpendingRules, vault: string): boolean {
 }
 
 /** An agent key that is linked, not revoked and not about to expire (same margin as `setup`). */
-export const hasLiveAuthenticator = (list: AuthenticatorView[], nowUnix: number): boolean =>
+export const hasLiveAuthenticator = (list: Pick<AuthenticatorView, "revoked" | "expiryUnix">[], nowUnix: number): boolean =>
   list.some((a) => !a.revoked && a.expiryUnix > BigInt(nowUnix + EXPIRY_MARGIN_SECONDS));
 
 function guardianStep(i: ProtectInput, vaultDone: boolean, connect: Verdict): Verdict {
