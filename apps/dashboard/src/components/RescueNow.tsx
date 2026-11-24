@@ -30,11 +30,13 @@ export function RescueNow({ cfg, rows, win, onSent }: { cfg: AgentConfig; rows: 
   const fees = usePoll(readFees, 15_000, open ? "fees" : null);
 
   if (!open) {
-    // Orange only while something is still on the account for the vault to pull.
+    // Offered only while something is still on the account for the vault to pull. An open panel (a run in flight, or
+    // its done/error message) stays until the user closes it, even once the balances read zero.
     const remaining = !!rows?.some((r) => rescuable(r.owner, r.allowance) > 0n);
+    if (!remaining) return null;
     return (
       <div className="actions">
-        <button type="button" className={`btn${remaining ? " rescue" : ""}`} onClick={() => setOpen(true)} aria-expanded={false}>
+        <button type="button" className="btn rescue" onClick={() => setOpen(true)} aria-expanded={false}>
           Rescue now
         </button>
       </div>
@@ -164,14 +166,14 @@ export function RescueNow({ cfg, rows, win, onSent }: { cfg: AgentConfig; rows: 
       {run.sent.length ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 4, margin: "12px 0" }}>
           {run.sent.map((s) => (
-            <div key={s.sym} className="mono wrap-any" style={{ fontSize: 12, color: "var(--ink-2)" }}>
+            <div key={s.sym} className="wrap-any" style={{ fontSize: 13, color: "var(--harbour-2)" }}>
               {s.sym}:{" "}
               {s.hash ? (
                 <>
-                  <TxHash hash={s.hash} /> ·{" "}
+                  <TxHash hash={s.hash} />,{" "}
                 </>
               ) : null}
-              <span style={s.status === "reverted" ? { color: "var(--red)" } : undefined}>
+              <span style={s.status === "reverted" ? { color: "var(--danger)" } : undefined}>
                 {s.status === "skipped"
                   ? "skipped: nothing left to move"
                   : s.status === "pending"

@@ -14,3 +14,6 @@ dist/
 data/
 .DS_Store
 withdrawal*.json
+
+# Playwright MCP screenshots and logs
+.playwright-mcp/

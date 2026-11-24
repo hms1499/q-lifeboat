@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckRow, Command, CopyText } from "../components/ui";
+import { Command, CopyText } from "../components/ui";
 import { DRILL_STAGES, fetchDrill, fetchDrillRuns, stageStatus, startDrill, subscribeDrill, type DrillState, type VerdictFile } from "../lib/drill";
 import { errorText } from "../lib/format";
 import { useApp } from "../state";
@@ -7,7 +7,8 @@ import { useApp } from "../state";
 /** The drill guardian setup command; run from the repo root (the CLI reads the root .env). */
 const GUARDIAN_INIT_CMD = "pnpm cli drill-guardian init";
 
-const MARK = { done: "pass", failed: "fail", active: "pending", pending: "pending" } as const;
+const STAGE_WORD = { done: "done", failed: "failed", active: "running", pending: "not started" } as const;
+const STAGE_MARK = { done: "✓", failed: "✗", active: "", pending: "" } as const;
 const pct = (k: string) => `${k}%`;
 const when = (iso: string) => (Number.isNaN(Date.parse(iso)) ? iso : new Date(iso).toLocaleString());
 
@@ -82,126 +83,135 @@ export function Drill() {
           <strong>Agent offline: drills are off.</strong> Start it from the repo root with <span className="mono">pnpm agent</span>.
         </div>
       ) : null}
-      <div className="row">
-        <div className="stack" style={{ flex: "999 1 560px", minWidth: 0 }}>
-          <section className="card">
-            <div className="between">
-              <h2>Drill</h2>
-              <button type="button" className="btn primary" disabled={!online || running || starting} onClick={() => void run()}>
-                {running ? "Running…" : "Run drill"}
-              </button>
+      <div className="stack">
+        <section className="card roomy">
+          <div className="between">
+            <h2>Drill</h2>
+            <button type="button" className="btn primary" disabled={!online || running || starting} onClick={() => void run()}>
+              {running ? "Running…" : "Run drill"}
+            </button>
+          </div>
+          {err ? (
+            <div className="banner bad" role="alert" style={{ marginTop: 12 }}>
+              {err}
             </div>
-            {err ? (
-              <div className="banner bad" role="alert" style={{ marginTop: 12 }}>
-                {err}
-              </div>
-            ) : null}
-            {needsGuardian ? (
-              <Command cmd={GUARDIAN_INIT_CMD}>
-                <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>The drill needs its own guardian wallet. Create it once, from the repo root:</div>
-              </Command>
-            ) : null}
-            {state && state.status !== "idle" ? (
-              <div className="checks" style={{ marginTop: 16 }}>
-                {DRILL_STAGES.map((g) => {
+          ) : null}
+          {needsGuardian ? (
+            <Command cmd={GUARDIAN_INIT_CMD}>
+              <div style={{ marginBottom: 8 }}>The drill needs its own guardian wallet. Create it once, from the repo root:</div>
+            </Command>
+          ) : null}
+          {state && state.status !== "idle" ? (
+            <>
+              <ol className="track" aria-label="Drill stages">
+                {DRILL_STAGES.map((g, n) => {
                   const st = stageStatus(state, g);
-                  return <CheckRow key={g} status={MARK[st]} title={g} detail={st === "active" ? "running" : st === "failed" ? (state.error ?? "failed") : undefined} />;
+                  return (
+                    <li key={g} className={`track-stage ${st}`} aria-current={st === "active" ? "step" : undefined}>
+                      <span className="track-mark" aria-hidden="true">
+                        {STAGE_MARK[st] || n + 1}
+                      </span>
+                      <span className="track-label">
+                        {g.charAt(0).toUpperCase() + g.slice(1)}
+                        <span className="track-state">{STAGE_WORD[st]}</span>
+                      </span>
+                    </li>
+                  );
                 })}
-              </div>
-            ) : (
-              <div className="empty">No drill running.</div>
-            )}
-            {state?.runId ? (
-              <p style={{ margin: "12px 0 0", fontSize: 13, color: "var(--muted)" }}>
-                Run <CopyText text={state.runId} label="run id" />
+              </ol>
+              {DRILL_STAGES.some((g) => stageStatus(state, g) === "failed") ? <div className="err">{state.error ?? "A stage failed."}</div> : null}
+            </>
+          ) : (
+            <div className="empty">No drill running.</div>
+          )}
+          {state?.runId ? (
+            <p className="caption" style={{ margin: "14px 0 0" }}>
+              Run <CopyText text={state.runId} label="run id" />
+            </p>
+          ) : null}
+          {state && state.lines.length > 0 ? (
+            <details className="log">
+              <summary>Log ({state.lines.length} lines)</summary>
+              <pre className="mono">{state.lines.join("\n")}</pre>
+            </details>
+          ) : null}
+        </section>
+
+        {ended ? (
+          <section className="card roomy">
+            <h2>Verdict</h2>
+            {(() => {
+              const pass = verdict ? verdict.pass : state.status === "pass";
+              return (
+                <div className={`result ${pass ? "pass" : "fail"}`}>
+                  <div className="result-word">{pass ? "Passed" : "Failed"}</div>
+                  {verdict ? (
+                    <dl className="result-stats">
+                      <div>
+                        <dt>Blocks to rescue</dt>
+                        <dd>{verdict.blocks ?? "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Value kept</dt>
+                        <dd>{pct(verdict.keptPct)}</dd>
+                      </div>
+                    </dl>
+                  ) : null}
+                </div>
+              );
+            })()}
+            {verdict && verdict.failures.length > 0 ? (
+              <ul className="failures">
+                {verdict.failures.map((f) => (
+                  <li key={f}>{f}</li>
+                ))}
+              </ul>
+            ) : null}
+            {!verdict ? (
+              <p className="caption" style={{ margin: "12px 0 0" }}>
+                No verdict file for this run{state.error ? `: ${state.error}` : ""}. The result above comes from the drill's own status.
               </p>
             ) : null}
-            {state && state.lines.length > 0 ? (
-              <details style={{ marginTop: 12 }}>
-                <summary>Log ({state.lines.length} lines)</summary>
-                <pre className="mono" style={{ fontSize: 12, overflow: "auto", maxHeight: 320, margin: "8px 0 0" }}>
-                  {state.lines.join("\n")}
-                </pre>
-              </details>
-            ) : null}
           </section>
+        ) : null}
 
-          {ended ? (
-            <section className="card">
-              <div className="between">
-                <h2>Verdict</h2>
-                <span className={`tag ${(verdict ? verdict.pass : state.status === "pass") ? "blue" : "red"}`}>
-                  {(verdict ? verdict.pass : state.status === "pass") ? "PASS" : "FAIL"}
-                </span>
-              </div>
-              {verdict ? (
-                <>
-                  <dl className="kv">
-                    <div>
-                      <dt>Blocks to rescue</dt>
-                      <dd>{verdict.blocks ?? "-"}</dd>
-                    </div>
-                    <div>
-                      <dt>Kept</dt>
-                      <dd>{pct(verdict.keptPct)}</dd>
-                    </div>
-                  </dl>
-                  {verdict.failures.length > 0 ? (
-                    <ul style={{ margin: "8px 0 0", fontSize: 13 }}>
-                      {verdict.failures.map((f) => (
-                        <li key={f}>{f}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </>
-              ) : (
-                <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--muted)" }}>
-                  No verdict file for this run{state.error ? `: ${state.error}` : ""}. The result above comes from the drill's own status.
-                </p>
-              )}
-            </section>
-          ) : null}
-        </div>
-
-        <aside className="side">
-          <section className="card">
-            <h2>Past runs</h2>
-            {runs.length === 0 ? (
-              <div className="empty">No runs yet.</div>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Run</th>
-                      <th>Date</th>
-                      <th>Mode</th>
-                      <th>Result</th>
-                      <th className="num">Blocks</th>
-                      <th className="num">Kept</th>
+        <section className="card">
+          <h2>Past runs</h2>
+          {runs.length === 0 ? (
+            <div className="empty">No runs yet.</div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table className="runs">
+                <thead>
+                  <tr>
+                    <th>Run</th>
+                    <th>Date</th>
+                    <th>Mode</th>
+                    <th>Result</th>
+                    <th className="num">Blocks</th>
+                    <th className="num">Kept</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runs.map((r) => (
+                    <tr key={r.runId}>
+                      <td className="run-id">
+                        <CopyText text={r.runId} label="run id" />
+                      </td>
+                      <td className="run-date">{when(r.checkedAt)}</td>
+                      <td className="run-mode">{r.mode === "drill" ? "Drill" : "Demo"}</td>
+                      <td className="run-result">
+                        <span className={`tag ${r.pass ? "safe" : "red"}`}>{r.pass ? "Passed" : "Failed"}</span>
+                      </td>
+                      <td className="num" data-label="Blocks">{r.blocks ?? "-"}</td>
+                      <td className="num" data-label="Kept">{pct(r.keptPct)}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {runs.map((r) => (
-                      <tr key={r.runId}>
-                        <td>
-                          <CopyText text={r.runId} label="run id" />
-                        </td>
-                        <td>{when(r.checkedAt)}</td>
-                        <td>{r.mode}</td>
-                        <td>
-                          <span className={`tag ${r.pass ? "blue" : "red"}`}>{r.pass ? "PASS" : "FAIL"}</span>
-                        </td>
-                        <td className="num">{r.blocks ?? "-"}</td>
-                        <td className="num">{pct(r.keptPct)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </aside>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
     </>
   );

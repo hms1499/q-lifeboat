@@ -14,9 +14,9 @@ function FixedRow({ label, address, note }: { label: string; address: string; no
     <div className="trusted" style={{ alignItems: "center" }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontWeight: 500 }}>
-          {label} <span className="tag blue">{note}</span>
+          {label} <span className="tag safe">{note}</span>
         </div>
-        <div className="mono wrap-any" style={{ fontSize: 12, color: "var(--ink-2)", marginTop: 2 }}>
+        <div className="mono wrap-any" style={{ fontSize: 12, color: "var(--harbour-2)", marginTop: 2 }}>
           <ExtLink href={explorerAddress(address)}>{address}</ExtLink>
         </div>
       </div>
@@ -121,9 +121,9 @@ export function TrustedEditor({ cfg, editor }: { cfg: Pick<AgentConfig, "owner" 
             <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 500 }}>
                 {t.label}
-                <span className="kind">{t.kind === "app" ? "APP" : "WALLET"}</span>
+                <span className="kind">{t.kind === "app" ? "App" : "Wallet"}</span>
               </div>
-              <div className="mono wrap-any" style={{ fontSize: 12, color: "var(--ink-2)", marginTop: 2 }}>
+              <div className="mono wrap-any" style={{ fontSize: 12, color: "var(--harbour-2)", marginTop: 2 }}>
                 <ExtLink href={explorerAddress(t.address)}>{t.address}</ExtLink>
               </div>
             </div>
@@ -140,8 +140,8 @@ export function TrustedEditor({ cfg, editor }: { cfg: Pick<AgentConfig, "owner" 
         ))}
         {current && !current.trusted.length ? <div className="empty">Nothing trusted yet besides your vault and the guardian.</div> : null}
         {!current ? <div className="empty">{policy.error ? `Trusted list unavailable: ${policy.error}` : "Reading the trusted list…"}</div> : null}
-        <FixedRow label="Your vault" address={cfg.vault} note="always trusted" />
-        <FixedRow label="Guardian" address={cfg.guardian} note="always trusted" />
+        <FixedRow label="Your vault" address={cfg.vault} note="Always trusted" />
+        <FixedRow label="Guardian" address={cfg.guardian} note="Always trusted" />
       </div>
 
       <form

@@ -299,6 +299,17 @@ owner's reports (all ✗), loading never ended while diana was slow, and inciden
   owner's 5 reports (all ✓) and 9 demo-run reports under "Other accounts"; headlines in plain words. The slow-chain message is
   covered by `isSlow` tests only (diana answered during the check).
 
+#### Task 6I: "Lifeboat" visual redesign (added 2026-11-24, low tier), DONE 2026-11-24
+
+The builder asked for a professional, real-product UI. Design doc `docs/design/2026-11-24-dashboard-redesign.md`. Presentation
+only: no data, verification, signing or test logic changes.
+
+- [x] **Step 1:** Visual system (tokens, Archivo + IBM Plex Mono), app shell (navy sidebar, mobile Menu), Overview status board with the waterline.
+- [x] **Step 2:** Incidents (compact rows, single-row stats, `--safe` checks), Fire drill (stage track, result block, stacked past runs on
+  mobile), Protect stepper, Recover, Rules and shared components on the new tokens; pre-redesign CSS aliases removed.
+- [x] **Step 3:** Browser check (Playwright, 1280 and 375 px): every screen renders, no horizontal scroll at 375 px, sidebar stays
+  pinned while scrolling. Drill running/passed states checked with a mocked `/drill` (no QOR spent).
+
 ### Task 7: Audit Stage 2 + submission (Nov 30 → Dec 2)
 
 **Files:**

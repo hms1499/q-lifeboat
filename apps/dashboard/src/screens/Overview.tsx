@@ -418,52 +418,51 @@ function LowerGrid({ cfg, win, health }: { cfg: AgentConfig; win: Polled<EvmWind
 
   return (
     <div className="ov-grid">
-      <section className="card">
-        <h2>Outgoing activity</h2>
-        <p className="caption">Every token transfer and approval from your account in the last {fmtInt(ACTIVITY_BLOCKS)} blocks</p>
-        {activity.data?.items.length ? (
-          activity.data.items.map((e) => {
-            const who = labelCounterparty(e.to, cfg, policy.data);
-            const sym = tokenSymbol(cfg, e.token);
-            const inc = byHash.get(e.hash.toLowerCase());
-            const tag = inc
-              ? { text: incidentTag(inc) === "Rescue" ? "Rescue triggered" : "Alert", tone: "orange" }
-              : who.trusted
-                ? { text: "Allowed", tone: "" }
-                : { text: "Not trusted", tone: "orange" };
-            return (
-              <div key={`${e.hash}/${e.logIndex}`} className="activity">
-                <span className="muted" style={{ fontSize: 13 }}>
-                  Block {fmtInt(e.block)}
-                </span>
-                <div style={{ minWidth: 0 }}>
-                  <div className="what">
-                    {e.kind === "transfer" ? `Sent ${fmtAmount(e.amount)} ${sym} to ${who.label}` : `Approved ${fmtAmount(e.amount)} ${sym} for ${who.label}`}
+      <div className="stack">
+        <section className="card">
+          <h2>Outgoing activity</h2>
+          <p className="caption">Every token transfer and approval from your account in the last {fmtInt(ACTIVITY_BLOCKS)} blocks</p>
+          {activity.data?.items.length ? (
+            activity.data.items.map((e) => {
+              const who = labelCounterparty(e.to, cfg, policy.data);
+              const sym = tokenSymbol(cfg, e.token);
+              const inc = byHash.get(e.hash.toLowerCase());
+              const tag = inc
+                ? { text: incidentTag(inc) === "Rescue" ? "Rescue triggered" : "Alert", tone: "orange" }
+                : who.trusted
+                  ? { text: "Allowed", tone: "" }
+                  : { text: "Not trusted", tone: "orange" };
+              return (
+                <div key={`${e.hash}/${e.logIndex}`} className="activity">
+                  <span className="muted" style={{ fontSize: 13 }}>
+                    Block {fmtInt(e.block)}
+                  </span>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="what">
+                      {e.kind === "transfer" ? `Sent ${fmtAmount(e.amount)} ${sym} to ${who.label}` : `Approved ${fmtAmount(e.amount)} ${sym} for ${who.label}`}
+                    </div>
+                    <div className="meta wrap-any">
+                      <span className="mono">{e.to}</span>, {who.trusted ? "trusted" : "not a trusted address"}
+                    </div>
+                    <div className="meta" style={{ marginTop: 2 }}>
+                      Tx <TxHash hash={e.hash} />
+                    </div>
                   </div>
-                  <div className="meta wrap-any">
-                    <span className="mono">{e.to}</span>, {who.trusted ? "trusted" : "not a trusted address"}
-                  </div>
-                  <div className="meta" style={{ marginTop: 2 }}>
-                    Tx <TxHash hash={e.hash} />
-                  </div>
+                  {inc ? (
+                    <a className={`tag ${tag.tone}`} href={`#/incidents/${encodeURIComponent(inc.id)}`}>
+                      {tag.text}
+                    </a>
+                  ) : (
+                    <span className={`tag ${tag.tone}`}>{tag.text}</span>
+                  )}
                 </div>
-                {inc ? (
-                  <a className={`tag ${tag.tone}`} href={`#/incidents/${encodeURIComponent(inc.id)}`}>
-                    {tag.text}
-                  </a>
-                ) : (
-                  <span className={`tag ${tag.tone}`}>{tag.text}</span>
-                )}
-              </div>
-            );
-          })
-        ) : (
-          <div className="empty">{activity.error ? `Could not read logs: ${activity.error}` : activity.data ? "Nothing sent from your account in this range." : activity.slow ? SLOW_TEXT : "Reading logs…"}</div>
-        )}
-      </section>
+              );
+            })
+          ) : (
+            <div className="empty">{activity.error ? `Could not read logs: ${activity.error}` : activity.data ? "Nothing sent from your account in this range." : activity.slow ? SLOW_TEXT : "Reading logs…"}</div>
+          )}
+        </section>
 
-      <div className="side">
-        <GuardianHealth cfg={cfg} win={win} health={health} />
         <section className="card">
           <div className="between">
             <h2>Trusted wallets and apps</h2>
@@ -500,6 +499,9 @@ function LowerGrid({ cfg, win, health }: { cfg: AgentConfig; win: Polled<EvmWind
             ) : null}
           </div>
         </section>
+      </div>
+      <div className="side">
+        <GuardianHealth cfg={cfg} win={win} health={health} />
       </div>
     </div>
   );

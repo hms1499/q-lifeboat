@@ -49,7 +49,7 @@ export function Rules() {
         </div>
       ) : null}
       <div className="row">
-        <div className="stack" style={{ flex: "999 1 560px", minWidth: 0 }}>
+        <div className="stack grow">
           <TrustedEditor cfg={cfg} editor={editor} />
 
           <section className="card">
@@ -94,11 +94,11 @@ export function Rules() {
             <dl className="kv">
               <div>
                 <dt>Telegram</dt>
-                <dd>{!h ? "—" : h.alerts.telegram ? "on" : "off"}</dd>
+                <dd>{!h ? "—" : h.alerts.telegram ? "On" : "Off"}</dd>
               </div>
               <div>
                 <dt>Webhook</dt>
-                <dd>{!h ? "—" : h.alerts.webhook ? "on" : "off"}</dd>
+                <dd>{!h ? "—" : h.alerts.webhook ? "On" : "Off"}</dd>
               </div>
             </dl>
             <p style={{ margin: "12px 0 0", fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
@@ -109,7 +109,7 @@ export function Rules() {
           <section className="card">
             <div className="between">
               <h2>The Guardian's permission</h2>
-              <span className="tag blue">enforced by the chain</span>
+              <span className="tag safe">Enforced by the chain</span>
             </div>
             <p style={{ margin: "6px 0 0", fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
               The spending rule on your account that bounds the agent's linked key, read from diana. Read only here.
@@ -119,9 +119,9 @@ export function Rules() {
                 {detail.map((r) => (
                   <div key={r.k}>
                     <dt>{r.k}</dt>
-                    <dd className="wrap-any" style={r.ok === false ? { color: "var(--orange)" } : r.ok ? { color: "var(--blue)" } : undefined}>
+                    <dd className="wrap-any" style={r.ok === false ? { color: "var(--danger)" } : r.ok ? { color: "var(--safe)" } : undefined}>
                       {r.v}
-                      {r.ok !== undefined ? <small>{r.ok ? "matches the Hard rule" : "not the expected rule"}</small> : null}
+                      {r.ok !== undefined ? <small>{r.ok ? "Matches the hard rule" : "Not the expected rule"}</small> : null}
                     </dd>
                   </div>
                 ))}

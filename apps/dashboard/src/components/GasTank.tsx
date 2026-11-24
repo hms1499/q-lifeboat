@@ -106,7 +106,7 @@ export function GasTank({ cfg, health, win }: { cfg: AgentConfig; health: Health
           </button>
         </div>
       ) : (
-        <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line-soft)" }}>
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--rope-soft)" }}>
           <div className="form">
             <label style={{ flex: "1 1 120px" }}>
               Amount (QOR)
@@ -141,17 +141,17 @@ export function GasTank({ cfg, health, win }: { cfg: AgentConfig; health: Health
           {plan.blockers.length && !busy ? <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 8 }}>To top up: {plan.blockers.join("; ")}.</div> : null}
           {plan.command && !busy ? (
             <Command cmd={plan.command}>
-              <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5 }}>
+              <div style={{ fontSize: 13, color: "var(--harbour-2)", lineHeight: 1.5 }}>
                 The default owner window covers fees only. This opens one (replacing the current one) with exactly this much extra value budget. A leaked
                 ECDSA key could spend that headroom while the window is open, so keep it small and close the window when you are done.
               </div>
-              <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5, marginTop: 6 }}>{ownerEnvNote(cfg.vault)}</div>
+              <div style={{ fontSize: 13, color: "var(--harbour-2)", lineHeight: 1.5, marginTop: 6 }}>{ownerEnvNote(cfg.vault)}</div>
             </Command>
           ) : null}
           {fees.error && !fees.data ? <div className="err">Could not read the network fee: {fees.error}</div> : null}
           {send.state === "done" ? (
             <div className={send.status === "success" ? "ok-note" : "err"}>
-              {send.status === "success" ? "Topped up" : "The transfer reverted on chain"} · tx{" "}
+              {send.status === "success" ? "Topped up" : "The transfer reverted on chain"}, tx{" "}
               <TxHash hash={send.hash} />
             </div>
           ) : null}

@@ -31,7 +31,9 @@ function VerifyBadge({ v }: { v: VerifyResult | undefined }) {
       Report verified
     </span>
   ) : (
-    <span className="badge bad">✗ Not verified</span>
+    <span className="badge bad">
+      <span aria-hidden="true">✗</span> Not verified
+    </span>
   );
 }
 
@@ -71,99 +73,91 @@ function Detail({ i, cfg, v }: { i: Incident; cfg: AgentConfig | null; v: Verify
   const pct = kind === "transfer" && keptSame + lost > 0n ? Number((keptSame * 1000n) / (keptSame + lost)) / 10 : null;
 
   const stats = [
-    { k: "Drain → rescue", v: !done.length ? "—" : lastRescue === null ? "…" : `${fmtInt(lastRescue - triggerBlock)} block${lastRescue - triggerBlock === 1n ? "" : "s"}` },
+    { k: "Drain to rescue", v: !done.length ? "—" : lastRescue === null ? "…" : `${fmtInt(lastRescue - triggerBlock)} block${lastRescue - triggerBlock === 1n ? "" : "s"}` },
     { k: `Value kept (${sym})`, v: pct === null || !done.length ? "—" : `${pct}%` },
     { k: kind === "approval" ? "Spender got" : "Attacker got", v: kind === "approval" ? "an allowance" : `${fmtAmount(lost)} ${sym}` },
     { k: "Rescue txs", v: i.rescues.length ? `${done.length} of ${i.rescues.length} ok` : "none (alert)" },
   ];
 
   return (
-    <div className="stack" style={{ flex: "999 1 600px", minWidth: 0 }}>
-      <section className="card" style={{ padding: 24 }}>
-        <div className="between" style={{ alignItems: "flex-start" }}>
+    <div className="stack inc-detail">
+      <section className="card roomy">
+        <div className="inc-head">
           <div style={{ minWidth: 0 }}>
-            <div className="mono wrap-any" style={{ fontSize: 13, color: "var(--muted)" }}>
-              Incident {i.id}
+            <div className="lbl wrap-any">
+              Incident <span className="mono">{i.id}</span>
             </div>
-            <h2 className="h" style={{ margin: "6px 0 0", fontSize: 24 }}>
-              {describeIncident(i, cfg).headline}
-            </h2>
-            <p style={{ margin: "6px 0 0", fontSize: 15, color: "var(--ink-2)" }}>{describeIncident(i, cfg).detail}</p>
+            <h2 className="inc-title">{describeIncident(i, cfg).headline}</h2>
+            <p className="inc-sub">{describeIncident(i, cfg).detail}</p>
           </div>
           <VerifyBadge v={v} />
         </div>
 
-        <div className="stats">
+        <dl className="stats">
           {stats.map((s) => (
             <div key={s.k} className="stat">
-              <div className="k">{s.k}</div>
-              <div className="v">{s.v}</div>
+              <dt className="k">{s.k}</dt>
+              <dd className="v">{s.v}</dd>
             </div>
           ))}
-        </div>
+        </dl>
 
         <div className="agent-note">
-          <div className="lbl">Agent's summary · {i.summarySource === "llm" ? "written by AI" : "template"}</div>
+          <div className="lbl">
+            Agent's summary <span className="tag">{i.summarySource === "llm" ? "Written by AI" : "Template"}</span>
+          </div>
           <p className="wrap-any">{i.summary}</p>
         </div>
 
-        <div style={{ marginTop: 22 }}>
-          <div className="lbl" style={{ marginBottom: 4 }}>
-            Timeline
-          </div>
+        <div className="timeline">
+          <h3>Timeline</h3>
           <div className="tl">
-            <span className="mono" style={{ fontSize: 12, color: "var(--muted)", paddingTop: 2 }}>
-              #{fmtInt(String(t.block))}
-            </span>
+            <span className="tl-when">Block {fmtInt(String(t.block))}</span>
             <div style={{ minWidth: 0 }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <div className="tl-what">
                 <span className="who attacker">Your ECDSA key</span>
-                <span style={{ fontSize: 14, fontWeight: 600 }}>
+                <span className="tl-act">
                   {kind === "approval" ? `Approved ${shortAddr(t.to)} for ${fmtAmount(big(t.amount))} ${sym}` : `Sent ${fmtAmount(big(t.amount))} ${sym} to ${shortAddr(t.to)}`}
                 </span>
               </div>
-              <div className="wrap-any" style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
-                tx <TxHash hash={t.hash} />
+              <div className="tl-meta wrap-any">
+                Tx <TxHash hash={t.hash} />
               </div>
             </div>
           </div>
           <div className="tl">
-            <span className="mono" style={{ fontSize: 12, color: "var(--muted)", paddingTop: 2 }}>
-              {when(i.detectedAt)}
-            </span>
+            <span className="tl-when">{when(i.detectedAt)}</span>
             <div style={{ minWidth: 0 }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <div className="tl-what">
                 <span className="who guardian">Guardian</span>
-                <span className="wrap-any" style={{ fontSize: 14, fontWeight: 600 }}>
+                <span className="tl-act wrap-any">
                   Rule matched: {i.reason}
                 </span>
               </div>
-              <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>Decided by fixed rules, not by AI</div>
+              <div className="tl-meta">Decided by fixed rules, not by AI</div>
             </div>
           </div>
           {i.rescues.map((r, n) => (
             <div key={`${r.hash}/${r.token}/${n}`} className="tl">
-              <span className="mono" style={{ fontSize: 12, color: "var(--muted)", paddingTop: 2 }}>
-                {blocks[r.hash] ? `#${fmtInt(blocks[r.hash]!)}` : "—"}
-              </span>
+              <span className="tl-when">{blocks[r.hash] ? `Block ${fmtInt(blocks[r.hash]!)}` : "—"}</span>
               <div style={{ minWidth: 0 }}>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <div className="tl-what">
                   <span className="who guardian">Guardian</span>
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>
+                  <span className="tl-act">
                     {r.success
                       ? `vault.rescue(${tokenSymbol(cfg, r.token)}): ${fmtAmount(big(r.amount))} ${tokenSymbol(cfg, r.token)} into your vault`
                       : `vault.rescue(${tokenSymbol(cfg, r.token)}) failed`}
                   </span>
                 </div>
-                <div className="wrap-any" style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
+                <div className="tl-meta wrap-any">
                   {HASH_RE.test(r.hash) ? (
                     <>
-                      tx <TxHash hash={r.hash} />
+                      Tx <TxHash hash={r.hash} />
                     </>
                   ) : r.hash ? (
-                    `tx ${shortHash(r.hash)}`
+                    `Tx ${shortHash(r.hash)}`
                   ) : null}
-                  {r.error ? ` · ${r.error}` : null}
+                  {r.error ? `${r.hash ? ", " : ""}${r.error}` : null}
                 </div>
               </div>
             </div>
@@ -183,10 +177,8 @@ function Detail({ i, cfg, v }: { i: Incident; cfg: AgentConfig | null; v: Verify
       </section>
 
       <section className="card">
-        <h3 className="h" style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 600 }}>
-          Why you can trust this report
-        </h3>
-        <p style={{ margin: "0 0 14px", fontSize: 13, color: "var(--muted)" }}>
+        <h2>Why you can trust this report</h2>
+        <p className="caption" style={{ marginBottom: 14 }}>
           Checked in your browser against the chain, not taken from the agent's word{cfg ? ` (owner ${shortAddr(cfg.owner)})` : ""}
         </p>
         <div className="checks">
@@ -208,16 +200,32 @@ export function Incidents({ selected }: { selected?: string }) {
     const tag = incidentTag(i);
     const v = verdictFor(i);
     return (
-      <a key={i.id} className="inc-item" href={`#/incidents/${encodeURIComponent(i.id)}`} aria-current={i === current ? "true" : undefined}>
-        <span className="between" style={{ alignItems: "center" }}>
-          <span className={`tag ${tag === "Rescue" ? "orange" : ""}`}>{tag}</span>
-          <span style={{ fontSize: 12, color: "var(--muted)" }} title={i.detectedAt}>
-            {ago(i.detectedAt)} {v ? (v.ok ? <span style={{ color: "var(--blue)" }}>✓</span> : <span style={{ color: "var(--red)" }}>✗</span>) : "…"}
-          </span>
-        </span>
+      <a
+        key={i.id}
+        className={`inc-item ${tag === "Rescue" ? "rescue" : "alert"}`}
+        href={`#/incidents/${encodeURIComponent(i.id)}`}
+        aria-current={i === current ? "true" : undefined}
+      >
         <span className="t">{describeIncident(i, cfg).headline}</span>
         <span className="s">{subtitle(i, cfg)}</span>
-        {isChecking(i) ? <span className="inc-owner">checking owner…</span> : null}
+        <span className="m">
+          <span className={tag === "Rescue" ? "kind-rescue" : undefined}>{tag}</span>
+          <span title={i.detectedAt}>{ago(i.detectedAt)}</span>
+          {v ? (
+            v.ok ? (
+              <span className="ok">
+                <span aria-hidden="true">✓</span> Verified
+              </span>
+            ) : (
+              <span className="bad">
+                <span aria-hidden="true">✗</span> Not verified
+              </span>
+            )
+          ) : (
+            <span>Checking…</span>
+          )}
+        </span>
+        {isChecking(i) ? <span className="inc-owner">Checking owner…</span> : null}
       </a>
     );
   };
@@ -229,7 +237,7 @@ export function Incidents({ selected }: { selected?: string }) {
       {incidentsError && !incidents.length ? <div className="banner warn">Could not load incidents from the agent: {incidentsError}</div> : null}
       {!incidents.length && !incidentsError ? <div className="empty">No incidents yet. New ones appear here live.</div> : null}
       {incidents.length ? (
-        <div className="row">
+        <div className="inc-layout">
           <section aria-label="Incident list" className="inc-list">
             {own.length ? own.map(card) : <div className="empty">No incidents for your account yet.</div>}
             {others.length ? (

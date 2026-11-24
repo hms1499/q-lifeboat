@@ -20,7 +20,7 @@ export function describeAgentRule(rules: SpendingRules, vault: string): { ok: bo
   const callsOk = r.allowedEvmCalls.length === 1 && lc(r.allowedEvmCalls[0]) === want;
   const denomsOk = r.allowedDenoms.length === 1 && r.allowedDenoms[0] === "uqor";
   if (callsOk && denomsOk) return { ok: true, text: "vault.rescue only" };
-  return { ok: false, text: `calls ${r.allowedEvmCalls.join(", ") || "any"} · denoms ${r.allowedDenoms.join(", ") || "none"}` };
+  return { ok: false, text: `calls ${r.allowedEvmCalls.join(", ") || "any"}; denoms ${r.allowedDenoms.join(", ") || "none"}` };
 }
 
 /** The vault can pull a token only up to the owner's allowance; `setup` approves the maximum. */
