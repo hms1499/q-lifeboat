@@ -265,3 +265,15 @@ was ordered after it because the rescue tips 40 gwei (`apps/agent/src/rescue.ts`
 drainer that outbids that tip wins there too. With `--drainer-delay 2` the pull landed 4 blocks after the approval, 2 after the
 rescue (THREAT_MODEL T13, Honest limits).
 
+## Submission gap 1: agent link renewed for 30 days (2026-11-24)
+
+Root owner `0xE871748C0922745Ad94d065a388e95eC420A67EB`, agent key `1cb28515…8a38`, which was due to expire 2026-11-27 08:01 UTC (7-day
+TTL). `AGENT_TTL_SECONDS` raised to 30 days (branch `task-8-submission-gaps`). `link` does not renew a live key, so it was renewed
+the way chain fact 21 proved.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| `pnpm cli unlink --expect 0xE871…` | key read back `revoked: true` | `9D90D5128F41827EDD5F8EC47A9F7B906854C1A557B9458C6B9082AD4549B03B` |
+| `pnpm cli link --expect 0xE871…` with a 30-day expiry: diana accepts it | same key `revoked: false`, `createdAtUnix` 2026-11-24T13:51:34Z, `expiryUnix` **2026-12-24T13:51:33Z**; rule `0x7769…71e6/0x839006f2 (denoms uqor)` | `1D5FEE885111FA58FB57300637A35CED7265275F4CE6E48F33539E2B8B2B2934` |
+| Dashboard Incidents for the root owner | 5 of 5 reports ✓; "The key is not revoked or expired: active until 2026-12-24T13:51:33.000Z" | browser check 13:52Z |
+

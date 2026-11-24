@@ -119,6 +119,13 @@ describe("buildGuardianLinkMsgs", () => {
     expect(rules[0].allowedDenoms).toEqual(["uqor"]);
   });
 
+  it("links the key for 30 days, the event's re-link interval, so one link outlives checks and judging", () => {
+    const msgs = buildGuardianLinkMsgs(owner, VAULT, agent, [], NOW);
+    const reg = msgs.find((m) => m.typeUrl === REG)!.value as Record<string, unknown>;
+    const expiry = Object.entries(reg).find(([k]) => /expiry/i.test(k))?.[1];
+    expect(BigInt(String(expiry))).toBe(BigInt(NOW + 30 * 24 * 3600));
+  });
+
   it("sends only the rules update when the key is already linked and live", () => {
     const linked = [{ pubkeyHex: toHex(agent.pk), revoked: false, expiryUnix: BigInt(NOW + 86_400) }];
     expect(buildGuardianLinkMsgs(owner, VAULT, agent, linked, NOW).map((m) => m.typeUrl)).toEqual([RULES]);

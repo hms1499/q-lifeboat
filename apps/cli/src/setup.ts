@@ -21,7 +21,11 @@ export const WINDOW_MAX_TXS = 10;
 /** The tokens `setup` approves to the vault, one EVM tx each inside the window above. */
 export const APPROVED_TOKENS: readonly TokenSymbol[] = ["fUSD", "fETH", "fBTC"];
 const APPROVE_GAS = 100_000n;
-const AGENT_TTL_SECONDS = 7 * 24 * 3600;
+/**
+ * 30 days: the event's re-link interval for an agent key (build.qorechain.io FAQ), so one link outlives the checks (3-5 Dec)
+ * and judging (6-15 Dec). A live key is not renewed by `link` (only its rules are sent): renew with `unlink`, then `link`.
+ */
+const AGENT_TTL_SECONDS = 30 * 24 * 3600;
 const EXPIRY_MARGIN_SECONDS = 60;
 
 /**
