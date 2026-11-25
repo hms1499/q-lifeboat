@@ -82,11 +82,16 @@ export function needsWindow(s: WindowStatus, vault: Hex): boolean {
   );
 }
 
+/** Guardian window length that outlasts an owner window with `ownerRemainingBlocks` left by 200 blocks, capped. */
+export function guardianBlocksFor(ownerRemainingBlocks: bigint): number {
+  return Math.min(Number(ownerRemainingBlocks) + 200, WINDOW_BLOCKS);
+}
+
 /** `MsgOpenEVMWindow` parameters: 14400 blocks, 10 txs, budget for 10 rescue txs, the vault as the only target. */
-export function buildGuardianWindowParams(guardianCosmos: string, vault: Hex) {
+export function buildGuardianWindowParams(guardianCosmos: string, vault: Hex, blocks: number = WINDOW_BLOCKS) {
   return {
     sender: guardianCosmos,
-    blocks: WINDOW_BLOCKS,
+    blocks,
     maxTxs: WINDOW_MAX_TXS,
     maxValue: (RESCUE_TX_COST * BigInt(WINDOW_MAX_TXS)).toString(),
     allowedTargets: [vault],
@@ -98,7 +103,7 @@ export type WindowDeps = {
   vault: Hex;
   readStatus(): Promise<WindowStatus>;
   /** Broadcast `MsgOpenEVMWindow` (replaces an unexpired window); resolves with the tx hash once delivered. */
-  open(): Promise<string>;
+  open(blocks?: number): Promise<string>;
   log(line: string): void;
   sleep?: (ms: number) => Promise<void>;
 };
@@ -111,16 +116,18 @@ export function createWindowKeeper(deps: WindowDeps) {
   let lastRead: WindowStatus | undefined;
   const unusable = (s: WindowStatus) => needsWindow(s, deps.vault);
   const read = async () => (lastRead = await deps.readStatus());
+  let lastOpenHash: string | undefined;
 
   /**
    * Read the window; if it is not usable, open ONE new window and re-read it (a few times: REST may still serve
    * the block before the open). Throws when it stays unusable. Resolves true when it opened a window: the open
    * is a tx from the guardian account, so a nonce read before it is stale.
    */
-  async function ensure(): Promise<boolean> {
+  async function ensure(opts?: { blocks?: number }): Promise<boolean> {
     cached = await read();
     if (!unusable(cached)) return false;
-    const hash = await deps.open();
+    const hash = await deps.open(opts?.blocks);
+    lastOpenHash = hash;
     deps.log(`guardian window opened: ${hash}`);
     cached = await pollUntil(read, (s) => !unusable(s), { tries: STATUS_POLLS, delayMs: POLL_DELAY_MS, sleep: deps.sleep });
     if (unusable(cached)) throw new Error(`guardian window still not usable after opening (tx ${hash})`);
@@ -134,6 +141,10 @@ export function createWindowKeeper(deps: WindowDeps) {
       if (cached && !unusable(cached)) return false;
       return ensure();
     },
+    /** The hash of the last window this keeper opened. */
+    lastOpen(): string | undefined {
+      return lastOpenHash;
+    },
     /** The last window status read (undefined before the first read). No REST call. */
     status(): WindowStatus | undefined {
       return lastRead;
@@ -141,6 +152,41 @@ export function createWindowKeeper(deps: WindowDeps) {
     /** Forget the cached status (a tx was sent, so it no longer describes the window). */
     invalidate(): void {
       cached = undefined;
+    },
+  };
+}
+
+const ARM_ALERT_SUPPRESS_MS = 60_000;
+
+export type OnDemandDeps = {
+  readOwnerWindow(): Promise<Pick<EvmWindow, "live" | "remainingBlocks">>;
+  keeper: Pick<WindowKeeper, "ensure" | "lastOpen">;
+  alert(msg: string): void;
+  log(line: string): void;
+  now?: () => number;
+};
+
+/**
+ * Hosted guardians open their window only when needed: `arm` (the owner is about to open theirs) or `tick` (the
+ * owner's window is live and the guardian's is not usable). An idle owner costs no tx.
+ */
+export function createOnDemandWatcher(deps: OnDemandDeps) {
+  const now = deps.now ?? Date.now;
+  let armedAt = -Infinity;
+  return {
+    async tick(): Promise<void> {
+      const owner = await deps.readOwnerWindow();
+      if (!owner.live) return;
+      const opened = await deps.keeper.ensure({ blocks: guardianBlocksFor(owner.remainingBlocks) });
+      if (!opened) return;
+      deps.log(`owner window live: guardian window opened (${deps.keeper.lastOpen()})`);
+      if (now() - armedAt > ARM_ALERT_SUPPRESS_MS) deps.alert("owner window opened outside the app; guardian window opened");
+    },
+    /** Open the guardian window now; resolves with the open tx hash, or null when a usable window already existed. */
+    async arm(blocks: number): Promise<string | null> {
+      const opened = await deps.keeper.ensure({ blocks });
+      armedAt = now();
+      return opened ? (deps.keeper.lastOpen() ?? null) : null;
     },
   };
 }
@@ -172,9 +218,9 @@ export function productionWindowDeps(cfg: AgentConfig, log: (line: string) => vo
         address: cfg.gas.evm,
         fetch: (url) => fetch(url, { signal: AbortSignal.timeout(REST_TIMEOUT_MS) }),
       }),
-    open: async () => {
+    open: async (blocks) => {
       const before = await evmNonce();
-      const msg = openEvmWindowMsg(buildGuardianWindowParams(cfg.gas.cosmos, cfg.vault));
+      const msg = openEvmWindowMsg(buildGuardianWindowParams(cfg.gas.cosmos, cfg.vault, blocks));
       const { transactionHash } = await withTimeout(
         broadcastTx(cfg.gas, [msg], "qday-guardian: open guardian window"),
         OPEN_TIMEOUT_MS,

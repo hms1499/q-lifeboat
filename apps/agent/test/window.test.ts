@@ -4,8 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import { RESCUE_GAS, RESCUE_MAX_FEE_PER_GAS } from "../src/rescue";
 import {
   buildGuardianWindowParams,
+  createOnDemandWatcher,
   createSerial,
   createWindowKeeper,
+  guardianBlocksFor,
   needsWindow,
   pollUntil,
   skipWhileBusy,
@@ -242,5 +244,67 @@ describe("createWindowKeeper.status (Task 6C /health)", () => {
     expect(k.status()).toEqual(healthy);
     k.invalidate();
     expect(k.status()).toEqual(healthy);
+  });
+});
+
+describe("guardianBlocksFor", () => {
+  it("is remaining + 200, capped at 14400", () => {
+    expect(guardianBlocksFor(600n)).toBe(800);
+    expect(guardianBlocksFor(14_400n)).toBe(14_400);
+    expect(guardianBlocksFor(1_000_000n)).toBe(14_400);
+  });
+  it("buildGuardianWindowParams forwards a custom block count", () => {
+    expect(buildGuardianWindowParams("qor1g", VAULT, 800).blocks).toBe(800);
+  });
+});
+
+describe("createOnDemandWatcher", () => {
+  function setup(owner: { live: boolean; remainingBlocks: bigint }) {
+    let usable = false;
+    const ensure = vi.fn(async (_o?: { blocks?: number }) => {
+      if (usable) return false;
+      usable = true;
+      return true;
+    });
+    const keeper = { ensure, lastOpen: () => "ARMHASH" };
+    const alert = vi.fn();
+    const log = vi.fn();
+    let t = 1_000_000;
+    const w = createOnDemandWatcher({ readOwnerWindow: async () => owner, keeper, alert, log, now: () => t });
+    return { w, ensure, alert, advance: (ms: number) => (t += ms) };
+  }
+
+  it("idle owner: no window is opened", async () => {
+    const { w, ensure, alert } = setup({ live: false, remainingBlocks: 0n });
+    for (let i = 0; i < 3; i++) await w.tick();
+    expect(ensure).not.toHaveBeenCalled();
+    expect(alert).not.toHaveBeenCalled();
+  });
+
+  it("owner window live, guardian none: opens once with blocks = remaining + 200", async () => {
+    const { w, ensure, alert } = setup({ live: true, remainingBlocks: 600n });
+    await w.tick();
+    await w.tick();
+    expect(ensure.mock.calls.filter(([o]) => o?.blocks === 800)).toHaveLength(2); // second call finds it usable
+    expect(ensure.mock.results.length).toBe(2);
+    expect(await ensure.mock.results[0].value).toBe(true);
+    expect(await ensure.mock.results[1].value).toBe(false);
+    expect(alert).toHaveBeenCalledTimes(1);
+    expect(alert).toHaveBeenCalledWith("owner window opened outside the app; guardian window opened");
+  });
+
+  it("arm opens before the owner window and suppresses the alert", async () => {
+    const { w, ensure, alert, advance } = setup({ live: true, remainingBlocks: 600n });
+    expect(await w.arm(600)).toBe("ARMHASH");
+    expect(ensure).toHaveBeenCalledWith({ blocks: 600 });
+    advance(5_000);
+    await w.tick();
+    expect(alert).not.toHaveBeenCalled();
+  });
+
+  it("arm resolves null when the guardian window was already usable", async () => {
+    const { w } = setup({ live: false, remainingBlocks: 0n });
+    await w.arm(600);
+    expect(await w.arm(600)).toBeNull();
   });
 });

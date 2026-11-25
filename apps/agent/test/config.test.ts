@@ -178,3 +178,13 @@ describe("publicConfig (GET /config)", () => {
     for (const v of [p.owner, p.vault, p.guardian, ...Object.values(p.tokens)]) expect(v).toMatch(/^0x[0-9a-fA-F]{40}$/);
   });
 });
+
+describe("GUARDIAN_WINDOW_MODE", () => {
+  it("defaults to always, accepts on-demand, refuses anything else; exposes the owner's cosmos address", async () => {
+    const cfg = await loadAgentConfig(base);
+    expect(cfg.windowMode).toBe("always");
+    expect(cfg.ownerCosmos).toMatch(/^qor1/);
+    expect((await loadAgentConfig({ ...base, GUARDIAN_WINDOW_MODE: "on-demand" })).windowMode).toBe("on-demand");
+    await expect(loadAgentConfig({ ...base, GUARDIAN_WINDOW_MODE: "never" })).rejects.toThrow(/GUARDIAN_WINDOW_MODE/);
+  });
+});

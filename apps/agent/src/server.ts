@@ -19,6 +19,8 @@ export type ServerOptions = {
   config?: () => unknown;
   /** GET/PUT /policy. */
   policy?: { get(): PolicyFile; set(input: unknown): PolicyFile };
+  /** POST /arm (on-demand guardian windows): open the guardian's window now. Absent = 404. */
+  arm?: (blocks: number) => Promise<string | null>;
   /** POST/GET /drill, GET /drill/events and /drill/runs (Task 6G fire drill). */
   drill?: DrillRunner;
   /** Origins allowed to read and write /policy and /drill from a browser (the dashboard). */
@@ -202,10 +204,55 @@ export async function startServer(opts: ServerOptions): Promise<Server> {
     }
   }
 
+  async function postArm(req: IncomingMessage, res: ServerResponse, cors: Record<string, string>, arm: NonNullable<ServerOptions["arm"]>) {
+    const refused = checkPolicyWrite(
+      { remoteAddress: req.socket.remoteAddress, host: req.headers.host, origin: req.headers.origin, contentType: req.headers["content-type"] },
+      { port: boundPort, origins },
+    );
+    if (refused) {
+      req.resume();
+      return json(res, refused.status, cors, { error: refused.error });
+    }
+    const body = await readBody(req, 1024);
+    let blocks: unknown;
+    try {
+      blocks = body === null ? undefined : (JSON.parse(body) as { blocks?: unknown }).blocks;
+    } catch {
+      blocks = undefined;
+    }
+    if (typeof blocks !== "number" || !Number.isInteger(blocks) || blocks < 1 || blocks > 14_400) {
+      return json(res, 400, cors, { error: "blocks must be an integer from 1 to 14400" });
+    }
+    try {
+      return json(res, 200, cors, { tx: await arm(blocks) });
+    } catch (e) {
+      log(`POST /arm failed: ${e instanceof Error ? e.message : String(e)}`);
+      return json(res, 500, cors, { error: "could not open the guardian window" });
+    }
+  }
+
   function route(req: IncomingMessage, res: ServerResponse) {
     const path = (req.url ?? "").split("?")[0];
     if (path === "/drill" || path.startsWith("/drill/")) {
       handleDrillRequest(req, res, { drill: opts.drill, port: boundPort, origins, sse: drillClients, log });
+    } else if (path === "/arm") {
+      const cors = policyCors(req.headers.origin);
+      if (!isLocalHost(req.headers.host, boundPort)) {
+        req.resume();
+        json(res, 403, cors, { error: "unexpected Host header" });
+      } else if (req.method === "OPTIONS") {
+        res.writeHead(204, { ...cors, "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }).end();
+      } else if (!opts.arm) {
+        req.resume();
+        res.writeHead(404, cors).end();
+      } else if (req.method === "POST") {
+        postArm(req, res, cors, opts.arm).catch((e) => {
+          log(`POST /arm error: ${e instanceof Error ? e.message : String(e)}`);
+          if (!res.headersSent) json(res, 500, cors, { error: "internal error" });
+        });
+      } else {
+        res.writeHead(405, cors).end();
+      }
     } else if (path === "/policy") {
       const cors = policyCors(req.headers.origin);
       if (!isLocalHost(req.headers.host, boundPort)) {

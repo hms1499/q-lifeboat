@@ -497,3 +497,48 @@ describe("server: /drill", () => {
     for (const path of ["/drill", "/drill/events", "/drill/runs"]) expect((await raw(srv.port, "GET", path)).status).toBe(404);
   });
 });
+
+describe("POST /arm", () => {
+  const post = (port: number, body: string, headers: Record<string, string> = { "Content-Type": "application/json" }) =>
+    raw(port, "POST", "/arm", headers, body);
+  const file = () => join(mkdtempSync(join(tmpdir(), "qday-")), "i.jsonl");
+
+  it("opens the guardian window and answers { tx }", async () => {
+    const arm = vi.fn(async () => "0xTX");
+    srv = await startServer({ file: file(), port: 0, arm, dashboardOrigins: [DASH] });
+    const r = await post(srv.port, '{"blocks":600}');
+    expect(r.status).toBe(200);
+    expect(JSON.parse(r.body)).toEqual({ tx: "0xTX" });
+    expect(arm).toHaveBeenCalledWith(600);
+  });
+
+  it("refuses 1 > blocks or blocks > 14400 with 400", async () => {
+    const arm = vi.fn(async () => null);
+    srv = await startServer({ file: file(), port: 0, arm });
+    for (const b of ['{"blocks":0}', '{"blocks":14401}', '{"blocks":1.5}', '{"blocks":"9"}', "{}", "nope"]) {
+      expect((await post(srv.port, b)).status).toBe(400);
+    }
+    expect(arm).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 when the agent is not on-demand (windowMode always)", async () => {
+    srv = await startServer({ file: file(), port: 0 });
+    expect((await post(srv.port, '{"blocks":600}')).status).toBe(404);
+  });
+
+  it("refuses a foreign Origin and a bad Host with 403", async () => {
+    const arm = vi.fn(async () => null);
+    srv = await startServer({ file: file(), port: 0, arm, dashboardOrigins: [DASH] });
+    expect((await post(srv.port, '{"blocks":600}', { "Content-Type": "application/json", Origin: "http://evil.example" })).status).toBe(403);
+    expect((await post(srv.port, '{"blocks":600}', { "Content-Type": "application/json", Host: "evil.example" })).status).toBe(403);
+    expect(arm).not.toHaveBeenCalled();
+  });
+
+  it("checkPolicyWrite refuses a non-loopback peer (403), which /arm uses", () => {
+    const r = checkPolicyWrite(
+      { remoteAddress: "192.168.1.5", host: "127.0.0.1:8787", contentType: "application/json" },
+      { port: 8787, origins: [] },
+    );
+    expect(r?.status).toBe(403);
+  });
+});

@@ -7,7 +7,9 @@ export type AlertEvent =
   /** `error`: rescue() itself failed (e.g. the guardian window could not be opened), so `rescues` may be empty. */
   | { type: "rescue"; trigger: OutboundTx; reason: string; rescues: RescueRecord[]; detectedAt: string; error?: string }
   | { type: "alert"; trigger: OutboundTx; reason: string; detectedAt: string }
-  | { type: "gas-low"; guardian: Hex; balance: bigint; threshold: bigint };
+  | { type: "gas-low"; guardian: Hex; balance: bigint; threshold: bigint }
+  /** A plain notice (e.g. the guardian window opened because the owner's did). */
+  | { type: "info"; message: string };
 
 const TELEGRAM_MAX = 4000; // sendMessage takes at most 4096 characters
 
@@ -16,6 +18,7 @@ const describeTrigger = (t: OutboundTx) =>
 
 /** Plain-text message for an event: what happened, token, amounts, rescue tx hashes and success, reason. */
 export function formatAlert(e: AlertEvent): string {
+  if (e.type === "info") return `Q-Lifeboat: ${e.message}`;
   if (e.type === "gas-low") {
     return [
       "Q-Lifeboat: guardian gas LOW",
