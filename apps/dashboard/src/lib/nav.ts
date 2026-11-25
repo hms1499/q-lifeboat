@@ -6,8 +6,8 @@ export type NavGroup = { label: string; items: NavItem[] };
  * "hosted": the public product (in-app wallet, hosted Guardian). "local": the builder's own agent on this machine,
  * with MetaMask onboarding (Protect) and the fire drill. A browser with an in-app wallet is always hosted.
  */
-export function navMode(i: { hasSeed: boolean | undefined; localAgent: boolean }): NavMode {
-  return i.hasSeed || !i.localAgent ? "hosted" : "local";
+export function navMode(i: { hasSeed: boolean | undefined; localAgent: boolean; hostedBuild?: boolean }): NavMode {
+  return i.hostedBuild || i.hasSeed || !i.localAgent ? "hosted" : "local";
 }
 
 export function navGroups(mode: NavMode): NavGroup[] {

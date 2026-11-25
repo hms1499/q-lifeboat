@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { APP_NAME } from "./brand";
 import { LifeboatMark, NavIcon, ScreenBoundary } from "./components/ui";
-import { agentBase, fetchHealth } from "./lib/agent";
+import { agentBase, fetchHealth, HOSTED_BUILD } from "./lib/agent";
 import { appSession } from "./lib/appWallet";
 import { navGroups, navMode } from "./lib/nav";
 import { loadSeed } from "./lib/keystore";
@@ -32,7 +32,7 @@ function useGuardianStatus(): { dot: string; text: string } {
 function Sidebar({ active, hasSeed }: { active: string; hasSeed: boolean | undefined }) {
   const { config, wallet } = useApp();
   const { cfg, source, agentOnline } = config;
-  const groups = navGroups(navMode({ hasSeed, localAgent: !!cfg && agentBase().owner === null }));
+  const groups = navGroups(navMode({ hasSeed, localAgent: !!cfg && agentBase().owner === null, hostedBuild: HOSTED_BUILD }));
   const status = useGuardianStatus();
   const [open, setOpen] = useState(false);
   const walletDiffers = !!wallet && !!cfg && wallet.account.toLowerCase() !== cfg.owner.toLowerCase();

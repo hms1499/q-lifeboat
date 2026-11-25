@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AGENT_URL, agentBase, fetchHealth, onAgentBaseChange, putPolicy, resetAgentBase, setAgentBase, type Policy } from "./agent";
+import { AGENT_URL, agentBase, fetchHealth, NO_AGENT, onAgentBaseChange, putPolicy, resetAgentBase, setAgentBase, subscribeIncidents, type Policy } from "./agent";
 
 const policy: Policy = { trusted: [{ label: "Alice", address: "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01", kind: "wallet" }], maxOutbound: "0" };
 
@@ -50,7 +50,7 @@ describe("agent base (hosted: /api/o/<owner>)", () => {
     resetAgentBase();
   });
 
-  it("defaults to AGENT_URL with no expected owner", () => {
+  it("defaults to AGENT_URL with no expected owner (a local build)", () => {
     expect(agentBase()).toEqual({ url: AGENT_URL, owner: null });
   });
 
@@ -78,5 +78,25 @@ describe("putPolicy through the hosted gateway", () => {
     expect(sign).toHaveBeenCalledWith(policy);
     const body = JSON.parse((f.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
     expect(body).toEqual({ request: { owner: "0xabc", purpose: "policy", body: policy, nonce: "n", expiresAt: 1 }, sig: "0x01" });
+  });
+});
+
+describe("no agent (hosted build, no wallet in this browser yet)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetAgentBase();
+  });
+
+  it("reads nothing: requests reject without a fetch, and the event stream opens nothing", async () => {
+    const f = stubFetch(200, {});
+    const es = vi.fn();
+    vi.stubGlobal("EventSource", es);
+    setAgentBase(NO_AGENT, null);
+    expect(agentBase().url).toBe(NO_AGENT);
+    await expect(fetchHealth()).rejects.toThrow(/no Guardian/);
+    const stop = subscribeIncidents(() => {}, () => {}, () => {});
+    stop();
+    expect(f).not.toHaveBeenCalled();
+    expect(es).not.toHaveBeenCalled();
   });
 });

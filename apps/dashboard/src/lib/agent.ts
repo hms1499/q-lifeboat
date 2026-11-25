@@ -11,7 +11,12 @@ export const AGENT_URL = ((import.meta.env.VITE_AGENT_URL as string | undefined)
  * another owner is never shown as this one's.
  */
 export type AgentBase = { url: string; owner: string | null };
-let base: AgentBase = { url: AGENT_URL, owner: null };
+/** No agent at all: the hosted build before this browser holds a wallet (never probe the visitor's own localhost). */
+export const NO_AGENT = "";
+/** Built for the hosted service (VITE_HOSTED=1, the Dockerfile): the public product, never a local agent. */
+export const HOSTED_BUILD = (import.meta.env.VITE_HOSTED as string | undefined) === "1";
+const DEFAULT_URL = HOSTED_BUILD ? NO_AGENT : AGENT_URL;
+let base: AgentBase = { url: DEFAULT_URL, owner: null };
 const listeners = new Set<(b: AgentBase) => void>();
 
 export const agentBase = (): AgentBase => base;
@@ -24,7 +29,7 @@ export function setAgentBase(url: string, owner: string | null): void {
 }
 
 export function resetAgentBase(): void {
-  setAgentBase(AGENT_URL, null);
+  setAgentBase(DEFAULT_URL, null);
 }
 
 /** Called on every change of base; returns the unsubscribe. */
@@ -53,6 +58,7 @@ export type TrustedEntry = { label: string; address: string; kind: "wallet" | "a
 export type Policy = { trusted: TrustedEntry[]; maxOutbound: string };
 
 async function getJson(path: string, timeoutMs = 5000): Promise<unknown> {
+  if (base.url === NO_AGENT) throw new Error("no Guardian for this browser yet");
   const r = await fetch(`${base.url}${path}`, { signal: AbortSignal.timeout(timeoutMs) });
   if (!r.ok) throw new Error(`agent ${path}: HTTP ${r.status}`);
   return r.json();
@@ -74,6 +80,7 @@ export async function fetchPolicy(): Promise<Policy> {
  * allowed", is thrown verbatim. Returns the policy the agent saved.
  */
 export async function putPolicy(policy: Policy, sign?: (p: Policy) => unknown, timeoutMs = 5000): Promise<Policy> {
+  if (base.url === NO_AGENT) throw new Error("no Guardian for this browser yet");
   // The hosted gateway forwards a policy write only with the owner's ML-DSA signature over it (purpose "policy").
   const payload = sign ? sign(policy) : policy;
   const r = await fetch(`${base.url}/policy`, {
@@ -96,6 +103,7 @@ export async function putPolicy(policy: Policy, sign?: (p: Policy) => unknown, t
 
 /** Live incidents (SSE). `onOpen` fires on every (re)connect: the caller refetches what it may have missed. */
 export function subscribeIncidents(onIncident: (i: Incident) => void, onOpen: () => void, onDown: () => void): () => void {
+  if (base.url === NO_AGENT) return () => {};
   const es = new EventSource(`${base.url}/events`);
   es.addEventListener("open", onOpen);
   es.addEventListener("error", onDown);

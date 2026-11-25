@@ -1,7 +1,7 @@
 import { vaultAbi, type Incident } from "@qday/core";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { EIP1193Provider, Hex } from "viem";
-import { agentBase, fetchConfig, fetchIncidents, onAgentBaseChange, subscribeIncidents } from "./lib/agent";
+import { agentBase, NO_AGENT, fetchConfig, fetchIncidents, onAgentBaseChange, subscribeIncidents } from "./lib/agent";
 import { publicClient, readAuthenticators, readReceipt, verifyGuardianSig } from "./lib/chain";
 import { checkConfigOnChain, loadCachedConfig, saveCachedConfig, type AgentConfig } from "./lib/config";
 import { errorText } from "./lib/format";
@@ -53,6 +53,7 @@ export function useApp(): AppData {
 
 /** The cached config, only when it is for the owner the current agent base serves (any owner in local mode). */
 function cachedFor(owner: string | null): AgentConfig | null {
+  if (agentBase().url === NO_AGENT) return null; // no Guardian here: never show a config cached for another one
   const c = loadCachedConfig(storage);
   return c && (owner === null || c.owner.toLowerCase() === owner) ? c : null;
 }

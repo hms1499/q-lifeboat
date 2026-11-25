@@ -21,5 +21,6 @@ describe("nav", () => {
     expect(navMode({ hasSeed: false, localAgent: false })).toBe("hosted");
     expect(navMode({ hasSeed: undefined, localAgent: false })).toBe("hosted");
     expect(navMode({ hasSeed: false, localAgent: true })).toBe("local");
+    expect(navMode({ hasSeed: false, localAgent: true, hostedBuild: true })).toBe("hosted");
   });
 });
