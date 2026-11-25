@@ -2,6 +2,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, sep } from "node:path";
 import type { HostedStatus, OwnerPublicState } from "@qday/core";
+import type { Gateway } from "./gateway.ts";
 import type { Provisioner } from "./provision.ts";
 import { isOwnerAddress, type Store } from "./store.ts";
 
@@ -19,6 +20,8 @@ export type HostedDeps = {
   provision?: Pick<Provisioner, "starter" | "topup" | "onboard" | "activate">;
   /** TRUST_PROXY=1: the client IP is the right-most X-Forwarded-For entry (appended by the proxy) instead of the socket address. */
   trustProxy?: boolean;
+  /** `/api/o/<owner>/*` to the owner's loopback agent. Absent: those routes answer 404. */
+  gateway?: Pick<Gateway, "handle">;
 };
 
 /** Largest JSON body a provisioning route reads (an ML-DSA-87 signature is ~9.3 KB as hex). */
@@ -36,7 +39,7 @@ export function clientIp(req: IncomingMessage, trustProxy: boolean): string {
 }
 
 /** Read a JSON body of at most MAX_JSON_BODY bytes. Past the cap it drains without buffering. */
-async function readJson(req: IncomingMessage): Promise<{ ok: true; value: unknown } | { ok: false; code: 400 | 413 }> {
+export async function readJson(req: IncomingMessage): Promise<{ ok: true; value: unknown } | { ok: false; code: 400 | 413 }> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const c of req) {
@@ -141,6 +144,10 @@ export function createHostedServer(deps: HostedDeps): Server {
         const s = deps.store.get(m[1]!);
         const out: OwnerPublicState = s ? { stage: s.stage, ...(s.guardian ? { guardian: s.guardian } : {}), ...(s.vault ? { vault: s.vault } : {}) } : { stage: "none" };
         return json(res, 200, out);
+      }
+      if (isUnder(pathname, "/api/o")) {
+        if (!deps.gateway) return json(res, 404, { error: "not found" });
+        return void (await deps.gateway.handle(req, res));
       }
       if (pathname.startsWith("/api/")) return json(res, 404, { error: "not found" });
       if (req.method !== "GET" && req.method !== "HEAD") return json(res, 405, { error: "method not allowed" });

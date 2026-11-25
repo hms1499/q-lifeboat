@@ -523,3 +523,28 @@ describe("hosted routes", () => {
   });
 });
 
+
+describe("refundGuardian", () => {
+  it("tops a swept guardian back up to 1 QOR from the funder, once", async () => {
+    const { prov, st } = setup();
+    expect((await prov.onboard(sign("onboard", {}))).code).toBe(200);
+    // Retirement swept it down to the 0.3 QOR reserve.
+    st.balances.set(guardianAcc.cosmos, 300_000n);
+    const funderBefore = st.balances.get(funder.cosmos)!;
+    const tx = await prov.refundGuardian(ownerAcc.evm as Hex);
+    expect(tx).toMatch(/^TX/);
+    expect(st.balances.get(guardianAcc.cosmos)).toBe(GUARDIAN_FUND_UQOR);
+    expect(st.balances.get(funder.cosmos)).toBe(funderBefore - 700_000n);
+    expect(st.calls.at(-1)).toBe("broadcast:funder:hybrid:qlifeboat: re-fund guardian");
+    expect(await prov.refundGuardian(ownerAcc.evm as Hex)).toBeNull();
+  });
+
+  it("refuses an owner with no guardian and a funder too low to pay", async () => {
+    const { prov, st } = setup();
+    await expect(prov.refundGuardian(ownerAcc.evm as Hex)).rejects.toThrow(/not-provisioned/);
+    expect((await prov.onboard(sign("onboard", {}))).code).toBe(200);
+    st.balances.set(guardianAcc.cosmos, 0n);
+    st.balances.set(funder.cosmos, 1_000_000n);
+    await expect(prov.refundGuardian(ownerAcc.evm as Hex)).rejects.toThrow(/funder-low/);
+  });
+});

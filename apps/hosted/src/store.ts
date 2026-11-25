@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { Hex } from "viem";
 import type { OwnerStage } from "@qday/core";
 
@@ -11,7 +11,12 @@ export type OwnerState = {
   starter?: boolean;
   guardian?: Hex;
   vault?: Hex;
+  /** The agent's loopback port (9100 upward), kept across restarts. */
   port?: number;
+  /** Set by a signed `stop`: the supervisor does not start this owner on boot. A signed `arm` clears it. */
+  stopped?: boolean;
+  /** Retired, but the guardian's QOR was not yet swept back to the funder: `retireIdle` retries it. */
+  sweepPending?: boolean;
   createdAt: number;
   lastActiveAt: number;
   topups: number;
@@ -42,7 +47,7 @@ function readJson<T>(path: string): T | null {
 }
 
 export function createStore(dir: string) {
-  const root = join(dir, "owners");
+  const root = join(resolve(dir), "owners");
   mkdirSync(root, { recursive: true });
   const ownerDir = (owner: string) => join(root, key(owner));
   const ensure = (owner: string) => {
@@ -51,6 +56,10 @@ export function createStore(dir: string) {
     return d;
   };
   return {
+    /** The owner's directory (absolute, created 0700): secrets, state and the agent's incidents file. */
+    dir(owner: string): string {
+      return ensure(owner);
+    },
     get(owner: string): OwnerState | null {
       return readJson<OwnerState>(join(ownerDir(owner), "state.json"));
     },

@@ -6,18 +6,13 @@ import {
   loadAgentKey,
   NETWORK,
   newAgentKeyHex,
-  OWNER_REQUEST_MAX_TTL,
   ruleIsExact,
   vaultAbi,
-  verifyOwnerRequest,
   type AgentLinkProofJson,
   type HostedStatus,
-  type OwnerPurpose,
-  type SignedOwnerRequest,
 } from "@qday/core";
 import { broadcastTx, publicClient, uqorBalance } from "@qday/core/chain";
 import {
-  addressesFrom20,
   clearPqcStatusCache,
   deriveUnifiedAccount,
   fetchAuthenticators,
@@ -30,7 +25,8 @@ import {
   type SpendingRules,
   type UnifiedAccount,
 } from "@qorechain/sdk";
-import { BaseError, bytesToHex, ContractFunctionRevertedError, ContractFunctionZeroDataError, hexToBytes, isHex, type Hex } from "viem";
+import { BaseError, bytesToHex, ContractFunctionRevertedError, ContractFunctionZeroDataError, type Hex } from "viem";
+import { cosmosOf, createOwnerAuth, type OwnerAuth, type Reply } from "./auth.ts";
 import {
   DAILY_CAP,
   FUNDER_FEE_RESERVE_UQOR,
@@ -45,6 +41,7 @@ import {
 import { isOwnerAddress, type OwnerSecrets, type OwnerState, type Store } from "./store.ts";
 
 export { GUARDIAN_FUND_UQOR, STARTER_OWNER_UQOR, TOPUP_UQOR } from "./limits.ts";
+export { NONCE_TTL_MS, type Reply } from "./auth.ts";
 
 type Msg = { typeUrl: string; value: unknown };
 
@@ -76,18 +73,15 @@ export type ProvisionDeps = {
   newAgentKey?(): string;
   /** Hand-off once an owner is active (Task 7: the supervisor starts its agent). */
   onActivated?(owner: Hex): void | Promise<void>;
+  /** Signed-request verification; share one with the gateway so they share one replay set. Default: built from `chain`. */
+  auth?: OwnerAuth;
   log?(line: string): void;
 };
 
-export type Reply = { code: number; body: unknown };
-
-/** A signed request's `(owner, nonce)` is refused again for this long. */
-export const NONCE_TTL_MS = 10 * 60 * 1000;
 const STATUS_CACHE_MS = 10_000;
 const EXPIRY_MARGIN_SECONDS = 60;
 const POLL_TRIES = 20;
 const POLL_DELAY_MS = 1_500;
-const MAX_NONCE_LENGTH = 128;
 
 const LIMIT_CODE: Record<LimitReason, number> = { "owner-used": 409, "ip-limit": 429, "daily-cap": 429, "funder-low": 503 };
 
@@ -97,8 +91,6 @@ const lower = (h: string) => h.toLowerCase() as Hex;
 const norm = (h: string) => h.replace(/^0x/i, "").toLowerCase();
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-const cosmosOf = (owner: Hex) => addressesFrom20(hexToBytes(owner)).cosmos;
-
 /** Derive an account from a mnemonic. Only the error name is surfaced: a message could carry the secret. */
 async function deriveSecret(mnemonic: string, what: string): Promise<UnifiedAccount> {
   try {
@@ -106,20 +98,6 @@ async function deriveSecret(mnemonic: string, what: string): Promise<UnifiedAcco
   } catch (e) {
     throw new Error(`${what} could not be used to derive an account (${e instanceof Error ? e.name : "UnknownError"})`);
   }
-}
-
-/** The shape checks a signed request must pass before any chain read. */
-function parseSigned(x: unknown): SignedOwnerRequest | null {
-  if (!x || typeof x !== "object") return null;
-  const { request, sig } = x as Partial<SignedOwnerRequest>;
-  if (!request || typeof request !== "object" || typeof sig !== "string" || !isHex(sig)) return null;
-  const r = request as Partial<SignedOwnerRequest["request"]>;
-  if (typeof r.owner !== "string" || !isOwnerAddress(r.owner)) return null;
-  if (typeof r.purpose !== "string") return null;
-  if (typeof r.nonce !== "string" || r.nonce.length === 0 || r.nonce.length > MAX_NONCE_LENGTH) return null;
-  if (!Number.isSafeInteger(r.expiresAt)) return null;
-  if (!("body" in r)) return null;
-  return x as SignedOwnerRequest;
 }
 
 /**
@@ -151,41 +129,8 @@ export function createProvisioner(deps: ProvisionDeps) {
     return v;
   };
 
-  // Seen (owner, nonce) pairs and when they may be reused.
-  const nonces = new Map<string, number>();
-
-  type Authorized = { ok: true; owner: Hex; ownerCosmos: string; body: unknown } | { ok: false; reply: Reply };
-
-  /** Shape, purpose, expiry, the owner's registered ML-DSA-87 key, then the nonce. */
-  async function authorize(x: unknown, purpose: OwnerPurpose): Promise<Authorized> {
-    const signed = parseSigned(x);
-    if (!signed) return { ok: false, reply: err(400, "malformed signed request") };
-    const { request } = signed;
-    if (request.purpose !== purpose) return { ok: false, reply: err(401, "wrong-purpose") };
-    const t = nowSec();
-    // Cheap refusals first: no chain read for a stale or over-long request.
-    if (request.expiresAt < t) return { ok: false, reply: err(401, "expired") };
-    if (request.expiresAt > t + OWNER_REQUEST_MAX_TTL) return { ok: false, reply: err(401, "too-far") };
-    const owner = lower(request.owner);
-    const ownerCosmos = cosmosOf(owner);
-    let status: PqcStatus;
-    try {
-      // The status fetched for request.owner: verifyOwnerRequest does not bind the owner to the key.
-      status = await chain.pqcStatus(ownerCosmos);
-    } catch (e) {
-      log(`pqc status for ${owner} unreadable: ${errorText(e)}`);
-      return { ok: false, reply: err(502, "chain unreachable") };
-    }
-    const v = verifyOwnerRequest(signed, status, nowSec());
-    if (!v.ok) return { ok: false, reply: err(401, v.reason) };
-    // Synchronous from here: check and record the nonce with no await in between.
-    const now = deps.now();
-    for (const [k, until] of nonces) if (until <= now) nonces.delete(k);
-    const key = `${owner}\n${request.nonce}`;
-    if (nonces.has(key)) return { ok: false, reply: err(409, "nonce-reused") };
-    nonces.set(key, now + NONCE_TTL_MS);
-    return { ok: true, owner, ownerCosmos, body: request.body };
-  }
+  const auth = deps.auth ?? createOwnerAuth({ pqcStatus: (c) => chain.pqcStatus(c), now: deps.now, log });
+  const authorize = auth.authorize;
 
   const linkProofFor = (ownerCosmos: string, secrets: OwnerSecrets): AgentLinkProofJson => {
     const agent = loadAgentKey({ AGENT_ED25519_SK: secrets.AGENT_ED25519_SK });
@@ -383,6 +328,26 @@ export function createProvisioner(deps: ProvisionDeps) {
         log(`hand-off for ${a.owner} failed: ${errorText(e)}`);
       }
       return reply(200, { ok: true });
+    },
+
+    /**
+     * Top a retired owner's guardian back up to `GUARDIAN_FUND_UQOR` (retirement swept it down to its fee reserve), in
+     * the funder queue. Resolves to the tx hash, or null when the guardian already holds enough. Throws "not-provisioned"
+     * or "funder-low".
+     */
+    async refundGuardian(owner: Hex): Promise<string | null> {
+      const o = lower(owner);
+      const secrets = store.readSecrets(o);
+      if (!store.get(o)?.guardian || !secrets) throw new Error("not-provisioned");
+      const guardian = await deriveSecret(secrets.GAS_MNEMONIC, "the stored GAS_MNEMONIC");
+      const balance = await chain.uqorBalance(guardian.cosmos);
+      if (balance >= GUARDIAN_FUND_UQOR) return null;
+      const amount = GUARDIAN_FUND_UQOR - balance;
+      if ((await chain.uqorBalance(funder.cosmos)) < amount + FUNDER_FEE_RESERVE_UQOR) throw new Error("funder-low");
+      const tx = await funderSend(guardian.cosmos, amount, "qlifeboat: re-fund guardian");
+      log(`owner ${o}: re-fund guardian ${amount} uqor: ${tx}`);
+      await waitFor(() => chain.uqorBalance(guardian.cosmos), (b) => b >= GUARDIAN_FUND_UQOR, "the guardian's balance");
+      return tx;
     },
 
     /** `GET /api/status`: paused below the funder floor or at the daily cap, so the landing page blocks before step 1. */
