@@ -77,6 +77,7 @@ describe("health", () => {
       window: { live: true, remainingBlocks: 500n, remainingTxs: 8n, remainingValue: QOR },
       gas: { guardian: GUARDIAN, balance: null, threshold: QOR / 2n, low: false },
       alerts: { telegram: true, webhook: false },
+      recentAlerts: [],
     });
     h.setTip(7n);
     expect(h.snapshot().ok).toBe(false); // balance unknown
@@ -109,5 +110,19 @@ describe("health", () => {
       await s.h.checkGas();
       expect(s.h.snapshot()).toMatchObject({ ok: false, window: { live: true } });
     }
+  });
+});
+
+describe("recent alerts", () => {
+  it("recordAlert shows up in the snapshot, newest first, capped at 10", () => {
+    const { h, advance } = setup([QOR]);
+    for (let i = 0; i < 12; i++) {
+      advance(1_000);
+      h.recordAlert(`m${i}`);
+    }
+    const r = h.snapshot().recentAlerts;
+    expect(r).toHaveLength(10);
+    expect(r[0]).toEqual({ at: Date.parse("2026-11-21T10:00:12.000Z") / 1000, message: "m11" });
+    expect(r[9].message).toBe("m2");
   });
 });

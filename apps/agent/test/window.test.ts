@@ -259,52 +259,135 @@ describe("guardianBlocksFor", () => {
 });
 
 describe("createOnDemandWatcher", () => {
-  function setup(owner: { live: boolean; remainingBlocks: bigint }) {
-    let usable = false;
-    const ensure = vi.fn(async (_o?: { blocks?: number }) => {
-      if (usable) return false;
-      usable = true;
+  const OWNER_LIVE = { live: true, remainingBlocks: 600n };
+  const OWNER_IDLE = { live: false, remainingBlocks: 0n };
+  /** A fake keeper: `remaining` is the guardian window's blocks left (0 = none); ensure opens when it is below the bar. */
+  function setup(owner: { live: boolean; remainingBlocks: bigint }, remaining = 0n) {
+    const state = { remaining, failOpen: false };
+    const needs = (min = 100n) => state.remaining < min;
+    const peek = vi.fn(async () => ({ ...healthy, remainingBlocks: state.remaining }) as WindowStatus);
+    const ensure = vi.fn(async (o?: { blocks?: number; minRemaining?: bigint }) => {
+      if (!needs(o?.minRemaining)) return false;
+      if (state.failOpen) throw new Error("open failed");
+      state.remaining = BigInt(o?.blocks ?? 14_400);
       return true;
     });
-    const keeper = { ensure, lastOpen: () => "ARMHASH" };
+    const keeper = { peek, needsOpen: (s: WindowStatus) => needs() && s.remainingBlocks < 100n, ensure, lastOpen: () => "ARMHASH" };
     const alert = vi.fn();
     const log = vi.fn();
     let t = 1_000_000;
     const w = createOnDemandWatcher({ readOwnerWindow: async () => owner, keeper, alert, log, now: () => t });
-    return { w, ensure, alert, advance: (ms: number) => (t += ms) };
+    return { w, ensure, peek, alert, state, advance: (ms: number) => (t += ms) };
   }
 
   it("idle owner: no window is opened", async () => {
-    const { w, ensure, alert } = setup({ live: false, remainingBlocks: 0n });
+    const { w, ensure, peek, alert } = setup(OWNER_IDLE);
     for (let i = 0; i < 3; i++) await w.tick();
     expect(ensure).not.toHaveBeenCalled();
+    expect(peek).not.toHaveBeenCalled();
     expect(alert).not.toHaveBeenCalled();
   });
 
   it("owner window live, guardian none: opens once with blocks = remaining + 200", async () => {
-    const { w, ensure, alert } = setup({ live: true, remainingBlocks: 600n });
+    const { w, ensure, alert } = setup(OWNER_LIVE);
     await w.tick();
     await w.tick();
-    expect(ensure.mock.calls.filter(([o]) => o?.blocks === 800)).toHaveLength(2); // second call finds it usable
-    expect(ensure.mock.results.length).toBe(2);
-    expect(await ensure.mock.results[0].value).toBe(true);
-    expect(await ensure.mock.results[1].value).toBe(false);
+    expect(ensure).toHaveBeenCalledTimes(1); // the second tick peeks, finds a usable window, never enters ensure
+    expect(ensure).toHaveBeenCalledWith({ blocks: 800 });
     expect(alert).toHaveBeenCalledTimes(1);
     expect(alert).toHaveBeenCalledWith("owner window opened outside the app; guardian window opened");
   });
 
   it("arm opens before the owner window and suppresses the alert", async () => {
-    const { w, ensure, alert, advance } = setup({ live: true, remainingBlocks: 600n });
+    const { w, ensure, alert, advance } = setup(OWNER_LIVE);
     expect(await w.arm(600)).toBe("ARMHASH");
-    expect(ensure).toHaveBeenCalledWith({ blocks: 600 });
+    expect(ensure).toHaveBeenCalledWith({ blocks: 800, minRemaining: 700n }); // blocks + 200, capped; bar blocks + MIN_BLOCKS
     advance(5_000);
     await w.tick();
     expect(alert).not.toHaveBeenCalled();
   });
 
-  it("arm resolves null when the guardian window was already usable", async () => {
-    const { w } = setup({ live: false, remainingBlocks: 0n });
+  it("arm resolves null when the guardian window already covers it", async () => {
+    const { w } = setup(OWNER_IDLE);
     await w.arm(600);
     expect(await w.arm(600)).toBeNull();
+  });
+
+  it("arm(600) opens when the usable window has 650 blocks left, not when it has 800", async () => {
+    const short = setup(OWNER_IDLE, 650n);
+    expect(await short.w.arm(600)).toBe("ARMHASH");
+    const enough = setup(OWNER_IDLE, 800n);
+    expect(await enough.w.arm(600)).toBeNull();
+  });
+
+  it("arm(14400) is capped at 14400 blocks", async () => {
+    const { w, ensure } = setup(OWNER_IDLE);
+    await w.arm(14_400);
+    expect(ensure).toHaveBeenCalledWith({ blocks: 14_400, minRemaining: 14_300n });
+  });
+
+  it("a tick after a thrown open does not open again within 60 s", async () => {
+    const { w, ensure, state, advance } = setup(OWNER_LIVE);
+    state.failOpen = true;
+    await expect(w.tick()).rejects.toThrow(/open failed/);
+    advance(5_000);
+    await w.tick();
+    expect(ensure).toHaveBeenCalledTimes(1);
+    advance(60_000);
+    await expect(w.tick()).rejects.toThrow(/open failed/);
+    expect(ensure).toHaveBeenCalledTimes(2);
+  });
+
+  it("arm during an in-flight tick does not raise the outside-the-app alert", async () => {
+    const { w, ensure, alert } = setup(OWNER_LIVE);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const real = ensure.getMockImplementation()!;
+    ensure.mockImplementationOnce(async (o) => {
+      await gate; // the tick's open is queued behind something (a rescue, an arm)
+      return real(o);
+    });
+    const tick = w.tick();
+    await Promise.resolve();
+    const arm = w.arm(600);
+    release();
+    await Promise.all([tick, arm]);
+    expect(alert).not.toHaveBeenCalled();
+  });
+
+  it("a rescue queued on serial during a tick is not delayed by the tick's guardian-window read", async () => {
+    let releaseRead!: () => void;
+    const slowRead = new Promise<void>((r) => (releaseRead = r));
+    const serial = createSerial();
+    const peek = vi.fn(async () => {
+      await slowRead; // the REST read runs OUTSIDE serial
+      return healthy;
+    });
+    const w = createOnDemandWatcher({
+      readOwnerWindow: async () => ({ live: true, remainingBlocks: 600n }),
+      keeper: { peek, needsOpen: () => false, ensure: (o) => serial(async () => (void o, false)), lastOpen: () => undefined },
+      alert: () => {},
+      log: () => {},
+    });
+    const tick = w.tick();
+    await new Promise((r) => setTimeout(r, 10));
+    let rescued = false;
+    await serial(async () => void (rescued = true)); // resolves while the read is still pending
+    expect(rescued).toBe(true);
+    releaseRead();
+    await tick;
+  });
+});
+
+describe("keeper ensure minRemaining and peek", () => {
+  it("ensure({ minRemaining }) opens when the usable window has fewer blocks left; peek reads without opening", async () => {
+    const { k, open } = keeper([healthy, { ...healthy, remainingBlocks: 5_000n }]);
+    expect(await k.ensure({ blocks: 800, minRemaining: 700n })).toBe(true); // healthy has 500 left
+    expect(open).toHaveBeenCalledWith(800);
+    const p = keeper([healthy]);
+    expect(await p.k.peek()).toEqual(healthy);
+    expect(p.open).not.toHaveBeenCalled();
+    expect(p.k.needsOpen({ ...healthy, live: false })).toBe(true);
+    expect(p.k.needsOpen(healthy)).toBe(false);
   });
 });

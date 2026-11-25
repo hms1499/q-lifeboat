@@ -17,7 +17,7 @@ import { RESCUE_GAS, RESCUE_MAX_FEE_PER_GAS } from "./rescue";
  */
 const WINDOW_BLOCKS = 14_400;
 const WINDOW_MAX_TXS = 10;
-const MIN_BLOCKS = 100n;
+export const MIN_BLOCKS = 100n;
 const MIN_TXS = 3n;
 /** What one rescue tx can take from the window, in uqor (at the fee cap every rescue tx is sent with). */
 const RESCUE_TX_COST = evmWindowCost({ gas: RESCUE_GAS, maxFeePerGas: RESCUE_MAX_FEE_PER_GAS });
@@ -114,7 +114,8 @@ export function createWindowKeeper(deps: WindowDeps) {
   let cached: WindowStatus | undefined;
   /** The last status read, for /health. Unlike `cached`, invalidate() keeps it. */
   let lastRead: WindowStatus | undefined;
-  const unusable = (s: WindowStatus) => needsWindow(s, deps.vault);
+  const unusable = (s: WindowStatus, minRemaining?: bigint) =>
+    needsWindow(s, deps.vault) || (minRemaining !== undefined && s.remainingBlocks < minRemaining);
   const read = async () => (lastRead = await deps.readStatus());
   let lastOpenHash: string | undefined;
 
@@ -123,19 +124,23 @@ export function createWindowKeeper(deps: WindowDeps) {
    * the block before the open). Throws when it stays unusable. Resolves true when it opened a window: the open
    * is a tx from the guardian account, so a nonce read before it is stale.
    */
-  async function ensure(opts?: { blocks?: number }): Promise<boolean> {
+  async function ensure(opts?: { blocks?: number; minRemaining?: bigint }): Promise<boolean> {
     cached = await read();
-    if (!unusable(cached)) return false;
+    if (!unusable(cached, opts?.minRemaining)) return false;
     const hash = await deps.open(opts?.blocks);
     lastOpenHash = hash;
     deps.log(`guardian window opened: ${hash}`);
-    cached = await pollUntil(read, (s) => !unusable(s), { tries: STATUS_POLLS, delayMs: POLL_DELAY_MS, sleep: deps.sleep });
-    if (unusable(cached)) throw new Error(`guardian window still not usable after opening (tx ${hash})`);
+    cached = await pollUntil(read, (s) => !unusable(s, opts?.minRemaining), { tries: STATUS_POLLS, delayMs: POLL_DELAY_MS, sleep: deps.sleep });
+    if (unusable(cached, opts?.minRemaining)) throw new Error(`guardian window still not usable after opening (tx ${hash})`);
     return true;
   }
 
   return {
     ensure,
+    /** Read the window status (REST) without opening anything and without needing the guardian's nonce. */
+    peek: read,
+    /** True when `status` is not usable for a rescue of this vault. */
+    needsOpen: (status: WindowStatus): boolean => unusable(status),
     /** Before a rescue: no REST read when the cached status says the window is usable. True when it opened one. */
     async ensureIfStale(): Promise<boolean> {
       if (cached && !unusable(cached)) return false;
@@ -157,10 +162,21 @@ export function createWindowKeeper(deps: WindowDeps) {
 }
 
 const ARM_ALERT_SUPPRESS_MS = 60_000;
+/** After an open throws (e.g. REST lags behind the RPC), wait this long before the watcher tries another one. */
+const OPEN_BACKOFF_MS = 60_000;
 
 export type OnDemandDeps = {
   readOwnerWindow(): Promise<Pick<EvmWindow, "live" | "remainingBlocks">>;
-  keeper: Pick<WindowKeeper, "ensure" | "lastOpen">;
+  /**
+   * `peek` and `needsOpen` run OUTSIDE the guardian's serial queue (a REST read needs no nonce), so a slow read never
+   * delays a rescue. `ensure` is the serialised one: it re-reads and opens only if still needed.
+   */
+  keeper: {
+    peek(): Promise<WindowStatus>;
+    needsOpen(status: WindowStatus): boolean;
+    ensure(opts?: { blocks?: number; minRemaining?: bigint }): Promise<boolean>;
+    lastOpen(): string | undefined;
+  };
   alert(msg: string): void;
   log(line: string): void;
   now?: () => number;
@@ -168,23 +184,40 @@ export type OnDemandDeps = {
 
 /**
  * Hosted guardians open their window only when needed: `arm` (the owner is about to open theirs) or `tick` (the
- * owner's window is live and the guardian's is not usable). An idle owner costs no tx.
+ * owner's window is live and the guardian's is not usable). An idle owner costs no tx and no guardian read.
  */
 export function createOnDemandWatcher(deps: OnDemandDeps) {
   const now = deps.now ?? Date.now;
   let armedAt = -Infinity;
+  let backoffUntil = -Infinity;
+  const open = async (opts: { blocks: number; minRemaining?: bigint } | { blocks: number }): Promise<boolean> => {
+    try {
+      return await deps.keeper.ensure(opts);
+    } catch (e) {
+      backoffUntil = now() + OPEN_BACKOFF_MS;
+      throw e;
+    }
+  };
   return {
     async tick(): Promise<void> {
       const owner = await deps.readOwnerWindow();
-      if (!owner.live) return;
-      const opened = await deps.keeper.ensure({ blocks: guardianBlocksFor(owner.remainingBlocks) });
+      if (!owner.live || now() < backoffUntil) return;
+      if (!deps.keeper.needsOpen(await deps.keeper.peek())) return;
+      const opened = await open({ blocks: guardianBlocksFor(owner.remainingBlocks) });
       if (!opened) return;
       deps.log(`owner window live: guardian window opened (${deps.keeper.lastOpen()})`);
       if (now() - armedAt > ARM_ALERT_SUPPRESS_MS) deps.alert("owner window opened outside the app; guardian window opened");
     },
-    /** Open the guardian window now; resolves with the open tx hash, or null when a usable window already existed. */
+    /**
+     * Open a guardian window sized to cover an owner window of `blocks` (blocks + 200, capped). An existing usable
+     * window counts only if it has at least blocks + 100 left. Resolves with the open tx hash, or null when none.
+     */
     async arm(blocks: number): Promise<string | null> {
-      const opened = await deps.keeper.ensure({ blocks });
+      armedAt = now(); // before any wait: a tick queued behind this must not raise a false alert
+      const openBlocks = guardianBlocksFor(BigInt(blocks));
+      const need = BigInt(blocks) + MIN_BLOCKS;
+      const cap = BigInt(openBlocks) - MIN_BLOCKS;
+      const opened = await open({ blocks: openBlocks, minRemaining: need < cap ? need : cap });
       armedAt = now();
       return opened ? (deps.keeper.lastOpen() ?? null) : null;
     },

@@ -65,8 +65,11 @@ async function main() {
     const windowTick = skipWhileBusy(async () => void (await serial(() => windowKeeper.ensure())));
     setInterval(() => void windowTick().catch((e) => log(`window error: ${errorText(e)}`)), WINDOW_CHECK_MS);
   } else {
+    // peek/needsOpen stay outside serial (a REST read needs no nonce); only the open is serialised.
     const keeper = {
-      ensure: (o?: { blocks?: number }) => serial(() => windowKeeper.ensure(o)),
+      peek: windowKeeper.peek,
+      needsOpen: windowKeeper.needsOpen,
+      ensure: (o?: { blocks?: number; minRemaining?: bigint }) => serial(() => windowKeeper.ensure(o)),
       lastOpen: windowKeeper.lastOpen,
     };
     watcher = createOnDemandWatcher({
@@ -110,7 +113,10 @@ async function main() {
     log,
     startedAt,
   });
-  notifyAlert = (m) => void Promise.resolve(notifier.notify({ type: "info", message: m })).catch((e) => log(`alert error: ${errorText(e)}`));
+  notifyAlert = (m) => {
+    health.recordAlert(m);
+    void Promise.resolve(notifier.notify({ type: "info", message: m })).catch((e) => log(`alert error: ${errorText(e)}`));
+  };
   const gasTick = () => void health.checkGas().catch((e) => log(`gas check error: ${errorText(e)}`));
   gasTick();
   setInterval(gasTick, GAS_CHECK_MS).unref();

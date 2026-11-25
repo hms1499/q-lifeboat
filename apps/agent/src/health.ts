@@ -30,6 +30,8 @@ export type HealthSnapshot = {
   window: { live: boolean; remainingBlocks: bigint; remainingTxs: bigint; remainingValue: bigint } | null;
   gas: { guardian: Hex; balance: bigint | null; threshold: bigint; low: boolean };
   alerts: { telegram: boolean; webhook: boolean };
+  /** The last 10 notices the agent raised on its own (newest first), for the dashboard. `at` is unix seconds. */
+  recentAlerts: { at: number; message: string }[];
 };
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -45,8 +47,13 @@ export function createHealth(opts: HealthOptions) {
   let lastBlockAt: Date | null = null;
   let balance: bigint | null = null;
   let alerted = false;
+  let recent: { at: number; message: string }[] = [];
 
   return {
+    recordAlert(message: string): void {
+      recent = [{ at: Math.floor(now().getTime() / 1000), message }, ...recent].slice(0, 10);
+    },
+
     setTip(block: bigint): void {
       lastBlock = block;
       lastBlockAt = now();
@@ -90,6 +97,7 @@ export function createHealth(opts: HealthOptions) {
         window,
         gas: { guardian: opts.guardian, balance, threshold: opts.gasLowWei, low },
         alerts: { ...opts.channels },
+        recentAlerts: [...recent],
       };
     },
   };
