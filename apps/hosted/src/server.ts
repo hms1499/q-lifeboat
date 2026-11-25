@@ -17,7 +17,7 @@ export type HostedDeps = {
   fetchImpl?: typeof fetch;
   /** Starter pack, top-up, onboard and activate. Absent (no FUNDER_MNEMONIC): those routes answer 503. */
   provision?: Pick<Provisioner, "starter" | "topup" | "onboard" | "activate">;
-  /** TRUST_PROXY=1: the client IP is the first X-Forwarded-For entry instead of the socket address. */
+  /** TRUST_PROXY=1: the client IP is the right-most X-Forwarded-For entry (appended by the proxy) instead of the socket address. */
   trustProxy?: boolean;
 };
 
@@ -26,9 +26,11 @@ export const MAX_JSON_BODY = 64 * 1024;
 
 export function clientIp(req: IncomingMessage, trustProxy: boolean): string {
   if (trustProxy) {
+    // The right-most entry is the hop our trusted proxy appended; entries left of it are client-supplied and forgeable.
     const xff = req.headers["x-forwarded-for"];
-    const first = (Array.isArray(xff) ? xff[0] : xff)?.split(",")[0]?.trim();
-    if (first) return first;
+    const joined = Array.isArray(xff) ? xff.join(",") : xff;
+    const last = joined?.split(",").map((s) => s.trim()).filter(Boolean).at(-1);
+    if (last) return last;
   }
   return req.socket.remoteAddress ?? "unknown";
 }

@@ -12,8 +12,8 @@ const port = Number(process.env.PORT ?? 8080);
 const store = createStore(dataDir);
 const activeGuardians = () => store.list().filter((o) => o.stage === "active").length;
 const funder = await loadFunder();
-// Owners already in the store stay used and count toward today's cap after a restart.
-const limits = createLimits(Date.now, store.list().map((o) => ({ owner: o.owner, at: o.createdAt })));
+// Owners that took a starter pack stay used and count toward today's cap after a restart.
+const limits = createLimits(Date.now, store.list().filter((o) => o.starter === true).map((o) => ({ owner: o.owner, at: o.createdAt })));
 const provision = funder
   ? createProvisioner({ store, chain: productionChainDeps(), funder, limits, now: Date.now, log: (l) => console.log(l) })
   : undefined;

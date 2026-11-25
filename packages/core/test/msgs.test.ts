@@ -13,6 +13,8 @@ import {
   buildOwnerWindowParams,
   buildSetupRule,
   buildUnlinkMsg,
+  decodeLinkProof,
+  encodeLinkProof,
   newAgentKeyHex,
   ruleIsExact,
   selectLinkMsgs,
@@ -37,6 +39,22 @@ describe("buildGuardianLinkMsgsFromProof", () => {
     const live = [{ pubkeyHex: toHex(agent.pk), revoked: false, expiryUnix: BigInt(NOW + AGENT_TTL_SECONDS) }];
     const msgs = buildGuardianLinkMsgsFromProof(owner, VAULT, proof, live, NOW);
     expect(msgs.map((m) => m.typeUrl)).toEqual([expect.stringMatching(/MsgUpdateSpendingRules$/)]);
+  });
+});
+
+describe("link proof JSON", () => {
+  const proof = {
+    ...signAuthenticatorLinkEd25519({ chainId: NETWORK.chainId, account: owner.cosmos, privateKey: agent.sk }),
+    agentPubKeyHex: toHex(agent.pk),
+  };
+
+  it("round-trips through JSON as 0x hex and builds the same link messages", () => {
+    const wire = JSON.parse(JSON.stringify(encodeLinkProof(proof)));
+    expect(wire.pubkey).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(wire.possessionProof).toMatch(/^0x[0-9a-f]{128}$/);
+    const back = decodeLinkProof(wire);
+    expect(back).toEqual(proof);
+    expect(buildGuardianLinkMsgsFromProof(owner, VAULT, back, [], NOW)).toEqual(buildGuardianLinkMsgsFromProof(owner, VAULT, proof, [], NOW));
   });
 });
 

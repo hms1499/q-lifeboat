@@ -11,7 +11,7 @@ import {
   type SpendingRules,
   type UnifiedAccount,
 } from "@qorechain/sdk";
-import { toHex } from "viem";
+import { bytesToHex, hexToBytes, toHex, type Hex } from "viem";
 import { RESCUE_SELECTOR } from "./abi";
 import { NETWORK } from "./config";
 
@@ -88,6 +88,22 @@ export function selectLinkMsgs<T extends { typeUrl: string }>(
 
 /** The agent key's possession proof for one owner account, plus its public key as hex: all a browser needs to build the link. */
 export type AgentLinkProof = ReturnType<typeof signAuthenticatorLinkEd25519> & { agentPubKeyHex: string };
+
+/** `AgentLinkProof` as JSON (what `/api/onboard` returns): its byte fields as 0x hex. */
+export type AgentLinkProofJson = { scheme: AgentLinkProof["scheme"]; pubkey: Hex; possessionProof: Hex; agentPubKeyHex: string };
+
+export function encodeLinkProof(p: AgentLinkProof): AgentLinkProofJson {
+  return { scheme: p.scheme, pubkey: bytesToHex(p.pubkey), possessionProof: bytesToHex(p.possessionProof), agentPubKeyHex: p.agentPubKeyHex };
+}
+
+/** Inverse of `encodeLinkProof`. Throws on a field that is not 0x hex. */
+export function decodeLinkProof(j: AgentLinkProofJson): AgentLinkProof {
+  const bytes = (h: unknown, name: string) => {
+    if (typeof h !== "string" || !/^0x([0-9a-fA-F]{2})*$/.test(h)) throw new Error(`link proof ${name} must be 0x hex`);
+    return hexToBytes(h as Hex);
+  };
+  return { scheme: j.scheme, pubkey: bytes(j.pubkey, "pubkey"), possessionProof: bytes(j.possessionProof, "possessionProof"), agentPubKeyHex: j.agentPubKeyHex };
+}
 
 /**
  * The messages that link the Guardian's ed25519 key from a possession proof (`signAuthenticatorLinkEd25519`), so the

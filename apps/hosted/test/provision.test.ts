@@ -8,8 +8,9 @@ import { toHex, type Hex } from "viem";
 import { RESCUE_SELECTOR, signOwnerRequest, type OwnerPurpose, type SignedOwnerRequest } from "@qday/core";
 import { deriveUnifiedAccount, type AuthenticatorView, type PqcStatus, type SpendingRules, type UnifiedAccount } from "@qorechain/sdk";
 import { createLimits } from "../src/limits.ts";
-import { createProvisioner, decodeLinkProof, GUARDIAN_FUND_UQOR, STARTER_OWNER_UQOR, TOPUP_UQOR, type ChainDeps } from "../src/provision.ts";
-import { createHostedServer } from "../src/server.ts";
+import { decodeLinkProof } from "@qday/core";
+import { createProvisioner, GUARDIAN_FUND_UQOR, STARTER_OWNER_UQOR, TOPUP_UQOR, type ChainDeps } from "../src/provision.ts";
+import { clientIp, createHostedServer } from "../src/server.ts";
 import { createStore, type Store } from "../src/store.ts";
 
 const OWNER_MN = "legal winner thank year wave sausage worth useful legal winner thank yellow";
@@ -43,7 +44,7 @@ function fakeChain(store: Store) {
     calls,
     balances,
     pqc,
-    vault: { owner: ownerAcc.evm as Hex, guardian: guardianAcc.evm as Hex },
+    vault: { owner: ownerAcc.evm as Hex, guardian: guardianAcc.evm as Hex } as { owner: Hex; guardian: Hex } | null | "throw",
     auths: [] as AuthenticatorView[],
     rules: { rules: [], authenticatorRules: [] } as SpendingRules,
     inFlight: 0,
@@ -83,7 +84,10 @@ function fakeChain(store: Store) {
       }
     },
     pqcStatus: async (c) => pqc.get(c) ?? { registered: false },
-    readVault: async () => st.vault,
+    readVault: async () => {
+      if (st.vault === "throw") throw new Error("HTTP request failed: fetch failed");
+      return st.vault;
+    },
     authenticators: async () => st.auths,
     spendingRules: async () => st.rules,
     sleep: async () => {},
@@ -91,8 +95,10 @@ function fakeChain(store: Store) {
   return { st, chain };
 }
 
-function setup(opts: { onActivated?: (o: Hex) => void; failBroadcast?: () => boolean; newMnemonic?: () => string } = {}) {
+/** `starter` (default true): the owner already took a starter pack (seeded row, no tx). */
+function setup(opts: { onActivated?: (o: Hex) => void; failBroadcast?: () => boolean; newMnemonic?: () => string; starter?: boolean } = {}) {
   const raw = createStore(mkdtempSync(join(tmpdir(), "hp-")));
+  if (opts.starter !== false) raw.put({ owner: ownerAcc.evm as Hex, stage: "starter", starter: true, createdAt: T0, lastActiveAt: T0, topups: 0 });
   const order: string[] = [];
   const store: Store = {
     ...raw,
@@ -137,7 +143,7 @@ function linkOnChain(st: Fake["st"], pkHex: string) {
 
 describe("starter", () => {
   it("sends 2.5 QOR from the funder, records stage starter, refuses the same owner again", async () => {
-    const { prov, store, st } = setup();
+    const { prov, store, st } = setup({ starter: false });
     const r = await prov.starter("1.1.1.1", { owner: ownerAcc.evm });
     expect(r.code).toBe(200);
     expect(r.body).toEqual({ tx: "TX1" });
@@ -148,14 +154,14 @@ describe("starter", () => {
   });
 
   it("refuses a malformed owner with 400 and a low funder with 503 funder-low", async () => {
-    const { prov, st } = setup();
+    const { prov, st } = setup({ starter: false });
     expect((await prov.starter("1.1.1.1", { owner: "0x12" })).code).toBe(400);
     st.balances.set(funder.cosmos, 19_900_000n);
     expect(await prov.starter("1.1.1.1", { owner: ownerAcc.evm })).toEqual({ code: 503, body: { error: "funder-low" } });
   });
 
   it("a failed starter tx releases the owner so it can retry", async () => {
-    const { prov, st, store } = setup();
+    const { prov, st, store } = setup({ starter: false });
     st.failNext = "refused";
     expect((await prov.starter("1.1.1.1", { owner: ownerAcc.evm })).code).toBe(502);
     expect(store.get(ownerAcc.evm)).toBeNull();
@@ -202,6 +208,16 @@ describe("onboard", () => {
     expect(order[0]).toBe("secrets");
     expect(st.secretsAtFirstBroadcast).toEqual({ GAS_MNEMONIC: GUARD_MN, AGENT_ED25519_SK: AGENT_SK });
     expect(st.calls[0]).toMatch(/^broadcast:funder:hybrid:/);
+  });
+
+  it("onboard for an owner with no starter pack → 403 no-starter, nothing written or sent", async () => {
+    const { prov, st, store } = setup({ starter: false });
+    expect(await prov.onboard(sign("onboard", {}))).toEqual({ code: 403, body: { error: "no-starter" } });
+    // A row without the starter flag (as an earlier build wrote for a self-funded owner) is refused too.
+    store.put({ owner: ownerAcc.evm as Hex, stage: "starter", createdAt: T0, lastActiveAt: T0, topups: 0 });
+    expect((await prov.onboard(sign("onboard", {}))).code).toBe(403);
+    expect(store.readSecrets(ownerAcc.evm)).toBeNull();
+    expect(st.calls).toEqual([]);
   });
 
   it("onboard with an expired request → 401", async () => {
@@ -340,6 +356,28 @@ describe("activate", () => {
     expect((await prov.activate(sign("activate", { vault: VAULT }))).code).toBe(409);
   });
 
+  it("activate again with the same vault → ok without a second hand-off; another vault → 409 already-active", async () => {
+    const handed: Hex[] = [];
+    const { prov, st, store, pk } = await provisioned((o) => handed.push(o));
+    linkOnChain(st, pk);
+    expect((await prov.activate(sign("activate", { vault: VAULT }))).code).toBe(200);
+    expect(await prov.activate(sign("activate", { vault: VAULT.toUpperCase().replace("0X", "0x") }))).toEqual({ code: 200, body: { ok: true } });
+    expect(handed.length).toBe(1);
+    const other = ("0x" + "88".repeat(20)) as Hex;
+    expect(await prov.activate(sign("activate", { vault: other }))).toEqual({ code: 409, body: { error: "already-active" } });
+    expect(store.get(ownerAcc.evm)?.vault).toBe(VAULT.toLowerCase());
+  });
+
+  it("an RPC failure reading the vault → 502 chain-unavailable; no vault at the address → 409 vault-unreadable", async () => {
+    const { prov, st, store, pk } = await provisioned();
+    linkOnChain(st, pk);
+    st.vault = "throw";
+    expect(await prov.activate(sign("activate", { vault: VAULT }))).toEqual({ code: 502, body: { error: "chain-unavailable" } });
+    st.vault = null;
+    expect(await prov.activate(sign("activate", { vault: VAULT }))).toEqual({ code: 409, body: { error: "vault-unreadable" } });
+    expect(store.get(ownerAcc.evm)?.stage).toBe("provisioned");
+  });
+
   it("an owner that was never provisioned → 409; a bad vault address → 400", async () => {
     const { prov } = setup();
     expect((await prov.activate(sign("activate", { vault: VAULT }))).code).toBe(409);
@@ -349,8 +387,9 @@ describe("activate", () => {
 
 describe("topup", () => {
   it("sends 1 QOR once when the owner holds < 0.5 QOR", async () => {
-    const { prov, st, store } = setup();
+    const { prov, st, store } = setup({ starter: false });
     expect((await prov.starter("1.1.1.1", { owner: ownerAcc.evm })).code).toBe(200);
+    expect(store.get(ownerAcc.evm)?.starter).toBe(true);
     st.balances.set(ownerAcc.cosmos, 600_000n);
     expect((await prov.topup(sign("topup", {}))).code).toBe(409); // holds >= 0.5 QOR
     st.balances.set(ownerAcc.cosmos, 400_000n);
@@ -363,7 +402,7 @@ describe("topup", () => {
   });
 
   it("two concurrent top-ups send once", async () => {
-    const { prov, st } = setup();
+    const { prov, st } = setup({ starter: false });
     expect((await prov.starter("1.1.1.1", { owner: ownerAcc.evm })).code).toBe(200);
     st.balances.set(ownerAcc.cosmos, 0n);
     const rs = await Promise.all([prov.topup(sign("topup", {})), prov.topup(sign("topup", {}))]);
@@ -372,8 +411,25 @@ describe("topup", () => {
   });
 
   it("an unknown owner → 404", async () => {
-    const { prov } = setup();
+    const { prov } = setup({ starter: false });
     expect((await prov.topup(sign("topup", {}))).code).toBe(404);
+  });
+
+  it("an owner whose row has no starter pack (onboarded only) → 403 no-starter, nothing sent", async () => {
+    const { prov, st, store } = setup({ starter: false });
+    store.put({ owner: ownerAcc.evm as Hex, stage: "provisioned", guardian: guardianAcc.evm as Hex, createdAt: T0, lastActiveAt: T0, topups: 0 });
+    st.balances.set(ownerAcc.cosmos, 0n);
+    expect(await prov.topup(sign("topup", {}))).toEqual({ code: 403, body: { error: "no-starter" } });
+    expect(st.calls).toEqual([]);
+  });
+
+  it("the normal path starter → onboard → topup works", async () => {
+    const { prov, st, store } = setup({ starter: false });
+    expect((await prov.starter("1.1.1.1", { owner: ownerAcc.evm })).code).toBe(200);
+    expect((await prov.onboard(sign("onboard", {}))).code).toBe(200);
+    expect(store.get(ownerAcc.evm)).toMatchObject({ stage: "provisioned", starter: true });
+    st.balances.set(ownerAcc.cosmos, 0n);
+    expect((await prov.topup(sign("topup", {}))).code).toBe(200);
   });
 });
 
@@ -383,7 +439,7 @@ describe("hosted routes", () => {
     fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
 
   async function serve(trustProxy: boolean) {
-    const ctx = setup();
+    const ctx = setup({ starter: false });
     const srv = createHostedServer({
       distDir: mkdtempSync(join(tmpdir(), "d-")), restUrl: "http://127.0.0.1:1", rpcUrl: "http://127.0.0.1:1",
       store: ctx.store, status: ctx.prov.status, provision: ctx.prov, trustProxy,
@@ -419,16 +475,34 @@ describe("hosted routes", () => {
     srv.close();
   });
 
-  it("the client IP is the socket address unless TRUST_PROXY, then the first X-Forwarded-For entry", async () => {
+  it("clientIp: the socket address, or with TRUST_PROXY the right-most X-Forwarded-For entry", () => {
+    const req = (xff?: string | string[]) => ({ headers: xff ? { "x-forwarded-for": xff } : {}, socket: { remoteAddress: "127.0.0.1" } }) as never;
+    expect(clientIp(req("1.1.1.1, 9.9.9.9"), false)).toBe("127.0.0.1");
+    expect(clientIp(req("1.1.1.1, 9.9.9.9"), true)).toBe("9.9.9.9");
+    expect(clientIp(req("9.9.9.9"), true)).toBe("9.9.9.9");
+    expect(clientIp(req(["1.1.1.1", "2.2.2.2, 8.8.8.8"]), true)).toBe("8.8.8.8");
+    expect(clientIp(req(), true)).toBe("127.0.0.1");
+  });
+
+  it("forged first X-Forwarded-For entries do not dodge the per-IP cap", async () => {
     for (const trust of [false, true]) {
       const { srv, base } = await serve(trust);
       for (let i = 1; i <= 4; i++) {
-        const r = await post(base, "/api/starter", { owner: `0x${String(i).repeat(40)}` }, { "x-forwarded-for": `203.0.113.${i}, 10.0.0.1` });
-        // Untrusted: every request is 127.0.0.1, so the 4th hits the IP limit. Trusted: four different IPs.
-        expect(r.status).toBe(!trust && i === 4 ? 429 : 200);
+        const r = await post(base, "/api/starter", { owner: `0x${String(i).repeat(40)}` }, { "x-forwarded-for": `203.0.113.${i}, 9.9.9.9` });
+        // Untrusted: every request is 127.0.0.1. Trusted: every request is 9.9.9.9 (the hop the proxy appended).
+        expect(r.status).toBe(i === 4 ? 429 : 200);
       }
       srv.close();
     }
+  });
+
+  it("with TRUST_PROXY, different proxy-appended entries count as different IPs", async () => {
+    const { srv, base } = await serve(true);
+    for (let i = 1; i <= 4; i++) {
+      const r = await post(base, "/api/starter", { owner: `0x${String(i).repeat(40)}` }, { "x-forwarded-for": `1.1.1.1, 203.0.113.${i}` });
+      expect(r.status).toBe(200);
+    }
+    srv.close();
   });
 
   it("refuses a body over 64 KB with 413", async () => {

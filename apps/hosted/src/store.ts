@@ -7,6 +7,8 @@ import type { OwnerStage } from "@qday/core";
 export type OwnerState = {
   owner: Hex;
   stage: OwnerStage;
+  /** Set only by a successful `/api/starter`: onboard and topup require it, so they sit under the starter caps. */
+  starter?: boolean;
   guardian?: Hex;
   vault?: Hex;
   port?: number;

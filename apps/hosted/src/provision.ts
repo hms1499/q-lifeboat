@@ -1,6 +1,7 @@
 import {
   assertRegisteredKey,
   buildFundMsg,
+  encodeLinkProof,
   buildRegisterMsg,
   loadAgentKey,
   NETWORK,
@@ -9,7 +10,7 @@ import {
   ruleIsExact,
   vaultAbi,
   verifyOwnerRequest,
-  type AgentLinkProof,
+  type AgentLinkProofJson,
   type HostedStatus,
   type OwnerPurpose,
   type SignedOwnerRequest,
@@ -29,7 +30,7 @@ import {
   type SpendingRules,
   type UnifiedAccount,
 } from "@qorechain/sdk";
-import { bytesToHex, hexToBytes, isHex, type Hex } from "viem";
+import { BaseError, bytesToHex, ContractFunctionRevertedError, ContractFunctionZeroDataError, hexToBytes, isHex, type Hex } from "viem";
 import {
   DAILY_CAP,
   FUNDER_FEE_RESERVE_UQOR,
@@ -53,7 +54,8 @@ export type ChainDeps = {
   /** Sign and broadcast; resolves to the tx hash once delivered, throws when the chain refuses it. */
   broadcast(acc: UnifiedAccount, msgs: Msg[], memo: string, mode: "hybrid" | "classical"): Promise<string>;
   pqcStatus(cosmos: string): Promise<PqcStatus>;
-  readVault(vault: Hex): Promise<{ owner: Hex; guardian: Hex }>;
+  /** The vault's roles; null when the address holds no GuardianVault (no code, or the call reverts). Throws on transport errors. */
+  readVault(vault: Hex): Promise<{ owner: Hex; guardian: Hex } | null>;
   /** The account's linked keys; none for an account that never linked one. */
   authenticators(cosmos: string): Promise<AuthenticatorView[]>;
   /** The account's spending rules; none for an account that never linked a key. */
@@ -78,17 +80,6 @@ export type ProvisionDeps = {
 };
 
 export type Reply = { code: number; body: unknown };
-
-/** `AgentLinkProof` as JSON: its byte fields as 0x hex. `decodeLinkProof` turns it back. */
-export type LinkProofJson = { scheme: AgentLinkProof["scheme"]; pubkey: Hex; possessionProof: Hex; agentPubKeyHex: Hex };
-
-export function encodeLinkProof(p: AgentLinkProof): LinkProofJson {
-  return { scheme: p.scheme, pubkey: bytesToHex(p.pubkey), possessionProof: bytesToHex(p.possessionProof), agentPubKeyHex: p.agentPubKeyHex as Hex };
-}
-
-export function decodeLinkProof(j: LinkProofJson): AgentLinkProof {
-  return { scheme: j.scheme, pubkey: hexToBytes(j.pubkey), possessionProof: hexToBytes(j.possessionProof), agentPubKeyHex: j.agentPubKeyHex };
-}
 
 /** A signed request's `(owner, nonce)` is refused again for this long. */
 export const NONCE_TTL_MS = 10 * 60 * 1000;
@@ -196,7 +187,7 @@ export function createProvisioner(deps: ProvisionDeps) {
     return { ok: true, owner, ownerCosmos, body: request.body };
   }
 
-  const linkProofFor = (ownerCosmos: string, secrets: OwnerSecrets): LinkProofJson => {
+  const linkProofFor = (ownerCosmos: string, secrets: OwnerSecrets): AgentLinkProofJson => {
     const agent = loadAgentKey({ AGENT_ED25519_SK: secrets.AGENT_ED25519_SK });
     const proof = signAuthenticatorLinkEd25519({ chainId: NETWORK.chainId, account: ownerCosmos, privateKey: agent.sk });
     return encodeLinkProof({ ...proof, agentPubKeyHex: bytesToHex(proof.pubkey) });
@@ -211,6 +202,8 @@ export function createProvisioner(deps: ProvisionDeps) {
    */
   async function provisionGuardian(owner: Hex): Promise<Provisioned> {
     const state = store.get(owner);
+    // Only an owner that took a starter pack: onboarding then sits under the starter caps (one per owner, per IP, per day).
+    if (state?.starter !== true) return { ok: false, reply: err(403, "no-starter") };
     let secrets = store.readSecrets(owner);
     if (state?.guardian && secrets) return { ok: true, guardian: state.guardian, secrets };
 
@@ -249,8 +242,7 @@ export function createProvisioner(deps: ProvisionDeps) {
     assertRegisteredKey(status, guardian.pqc.publicKey);
 
     const now = deps.now();
-    const current = store.get(owner);
-    const base: OwnerState = current ?? { owner, stage: "provisioned", createdAt: now, lastActiveAt: now, topups: 0 };
+    const base: OwnerState = store.get(owner) ?? state;
     store.put({ ...base, stage: base.stage === "starter" ? "provisioned" : base.stage, guardian: guardian.evm as Hex, lastActiveAt: now });
     return { ok: true, guardian: guardian.evm as Hex, secrets };
   }
@@ -285,7 +277,7 @@ export function createProvisioner(deps: ProvisionDeps) {
       }
       const now = deps.now();
       const existing = store.get(o);
-      store.put(existing ?? { owner: o, stage: "starter", createdAt: now, lastActiveAt: now, topups: 0 });
+      store.put(existing ? { ...existing, starter: true } : { owner: o, stage: "starter", starter: true, createdAt: now, lastActiveAt: now, topups: 0 });
       log(`starter ${STARTER_OWNER_UQOR} uqor to ${o}: ${tx}`);
       return reply(200, { tx });
     },
@@ -296,6 +288,7 @@ export function createProvisioner(deps: ProvisionDeps) {
       if (!a.ok) return a.reply;
       const first = store.get(a.owner);
       if (!first) return err(404, "unknown owner");
+      if (first.starter !== true) return err(403, "no-starter");
       if (first.topups > 0) return err(409, "topup-used");
       try {
         if ((await chain.uqorBalance(a.ownerCosmos)) >= TOPUP_BELOW_UQOR) return err(409, "balance-sufficient");
@@ -306,7 +299,7 @@ export function createProvisioner(deps: ProvisionDeps) {
       }
       // Re-read after the awaits and claim the top-up before sending: a concurrent request then sees topups > 0.
       const state = store.get(a.owner);
-      if (!state || state.topups > 0) return err(409, "topup-used");
+      if (!state || state.starter !== true || state.topups > 0) return err(409, "topup-used");
       store.put({ ...state, topups: state.topups + 1, lastActiveAt: deps.now() });
       try {
         const tx = await funderSend(a.ownerCosmos, TOPUP_UQOR, "qlifeboat: owner top-up");
@@ -356,13 +349,16 @@ export function createProvisioner(deps: ProvisionDeps) {
       const state = store.get(a.owner);
       const secrets = store.readSecrets(a.owner);
       if (!state?.guardian || !secrets) return err(409, "not-provisioned");
-      let roles: { owner: Hex; guardian: Hex };
+      // Idempotent: the same vault again is a no-op (no second hand-off); another vault needs the owner to stop first.
+      if (state.stage === "active") return state.vault === v ? reply(200, { ok: true }) : err(409, "already-active");
+      let roles: { owner: Hex; guardian: Hex } | null;
       try {
         roles = await chain.readVault(v);
       } catch (e) {
-        log(`vault ${v} unreadable: ${errorText(e)}`);
-        return err(409, "vault-unreadable");
+        log(`vault ${v} read failed: ${errorText(e)}`);
+        return err(502, "chain-unavailable");
       }
+      if (!roles) return err(409, "vault-unreadable");
       if (lower(roles.owner) !== a.owner) return err(409, "vault-owner-mismatch");
       if (lower(roles.guardian) !== lower(state.guardian)) return err(409, "vault-guardian-mismatch");
       let auths: AuthenticatorView[];
@@ -378,6 +374,7 @@ export function createProvisioner(deps: ProvisionDeps) {
       if (!auths.some((k) => !k.revoked && norm(k.pubkeyHex) === want && k.expiryUnix > minExpiry)) return err(409, "agent-not-linked");
       if (!ruleIsExact(rules, v)) return err(409, "rule-not-exact");
       const fresh = store.get(a.owner) ?? state;
+      if (fresh.stage === "active") return fresh.vault === v ? reply(200, { ok: true }) : err(409, "already-active");
       store.put({ ...fresh, stage: "active", vault: v, lastActiveAt: deps.now() });
       log(`owner ${a.owner}: active with vault ${v}`);
       try {
@@ -436,11 +433,17 @@ export function productionChainDeps(): ChainDeps {
       return fetchPqcStatus({ rest: NETWORK.rest, address: cosmos });
     },
     readVault: async (vault) => {
-      const [owner, guardian] = await Promise.all([
-        publicClient.readContract({ address: vault, abi: vaultAbi, functionName: "owner" }),
-        publicClient.readContract({ address: vault, abi: vaultAbi, functionName: "guardian" }),
-      ]);
-      return { owner: owner as Hex, guardian: guardian as Hex };
+      try {
+        const [owner, guardian] = await Promise.all([
+          publicClient.readContract({ address: vault, abi: vaultAbi, functionName: "owner" }),
+          publicClient.readContract({ address: vault, abi: vaultAbi, functionName: "guardian" }),
+        ]);
+        return { owner: owner as Hex, guardian: guardian as Hex };
+      } catch (e) {
+        // The node answered: no code at the address (zero data) or the call reverted. Anything else is transport.
+        if (e instanceof BaseError && e.walk((c) => c instanceof ContractFunctionZeroDataError || c instanceof ContractFunctionRevertedError)) return null;
+        throw e;
+      }
     },
     authenticators: (c) => orEmptyIfNoAccount(fetchAuthenticators({ rest: NETWORK.rest, address: c }), c, []),
     spendingRules: (c) => orEmptyIfNoAccount(fetchSpendingRules({ rest: NETWORK.rest, address: c }), c, { rules: [], authenticatorRules: [] }),
