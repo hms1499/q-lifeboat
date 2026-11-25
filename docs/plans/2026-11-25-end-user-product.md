@@ -295,7 +295,7 @@ Test `apps/hosted/test/limits.test.ts`, `apps/hosted/test/provision.test.ts`.
 - [x] **Step 2:** `pnpm -F hosted test` → FAIL.
 - [x] **Step 3:** Implement; chain I/O through an injectable `ChainDeps` like `FreshDeps` in `apps/cli/src/fresh.ts`.
 - [x] **Step 4:** `pnpm -F hosted test` → PASS.
-- [ ] **Step 5: On-chain.** (merged into Task 9's browser run) Run the service locally against diana with the real funder; `curl` `/api/starter` for a
+- [x] **Step 5: On-chain.** (merged into Task 9's browser run) Run the service locally against diana with the real funder; `curl` `/api/starter` for a
   fresh address, then `/api/onboard` with a request signed by a Node script using Task 3. Expected: fund tx, guardian
   fund + register txs. Record the hashes in `docs/EVIDENCE.md`.
 - [x] **Step 6:** Commit `feat(hosted): starter pack, guardian provisioning and activation`.
@@ -403,19 +403,19 @@ Test `apps/hosted/test/supervisor.test.ts`, `apps/hosted/test/gateway.test.ts`.
   - The guardian's gas tank is funded by the service at provisioning (1 QOR), not by the user; the existing Overview
     "Top up" stays for later top-ups. (Plan call: one fewer tx in the journey.)
   - Landing (`#/`) when there is no seed: hero + "Get started", disabled with the reason when `status().onboarding === "paused"`.
-- [ ] **Step 1: Failing tests:**
+- [x] **Step 1: Failing tests:**
   - `nextOnboardStep`: each step from its inputs; a deployed vault with no link → `protect`, never `vault` again;
     stage `provisioned` → never `guardian` again; `uqor` undefined → stays on `starter` with "reading";
   - `withOwnerWindow arms before opening when active, not before onboarding` (fake hosted/chain; call order);
   - `withOwnerWindow sizes maxTxs to w.txs`;
   - landing: `status paused` → start disabled with the reason.
-- [ ] **Step 2:** `pnpm -F dashboard test` → FAIL.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** `pnpm -F dashboard test && pnpm -F dashboard build` → PASS.
-- [ ] **Step 5: On-chain.** Hosted service + `pnpm -F dashboard dev`, a fresh browser profile (Playwright), steps 1–7.
+- [x] **Step 2:** `pnpm -F dashboard test` → FAIL.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** `pnpm -F dashboard test && pnpm -F dashboard build` → PASS.
+- [x] **Step 5: On-chain.** Hosted service + `pnpm -F dashboard dev`, a fresh browser profile (Playwright), steps 1–7.
   Expected: register, window, deploy, mints, window+link, approvals, activate; the agent for this owner is running
   (`/api/o/<owner>/health`). Close the tab after `vault`, reopen, unlock: the journey resumes at `protect`. Record hashes.
-- [ ] **Step 6:** Commit `feat(dashboard): self-serve onboarding with the in-app wallet`.
+- [x] **Step 6:** Commit `feat(dashboard): self-serve onboarding with the in-app wallet`.
 
 ---
 

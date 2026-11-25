@@ -24,6 +24,11 @@ export function LifeboatMark({ size = 32 }: { size?: number }) {
 }
 
 const NAV_PATHS: Record<string, ReactNode> = {
+  start: (
+    <>
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </>
+  ),
   overview: (
     <>
       <path d="M3 12h4l3-7 4 14 3-7h4" />

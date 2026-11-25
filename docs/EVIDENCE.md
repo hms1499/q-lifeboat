@@ -319,3 +319,36 @@ starts the agent, then attacks.
 | First build: an on-demand agent that reports ready before checking the owner's window rescues too late | FAIL: guardian window opened at block 10703568 by the rescue itself (14400 blocks), 3 blocks after the first drain (10703565); rescue at 10703572 = 7 blocks, 70% kept | run `20261125T025302Z`, window open `80FA8B99CA0110EFE1CE839F16C5794DD100F80FD8A18CF2455297E14133F55D` |
 | Fix (`9fbfb89`): on-demand startup awaits one owner-window check before the agent is ready | guardian window opened at block **10703705** with 790 blocks (owner window + 200), BEFORE the first drain (10703710) | `BE1C047DFAE5ACA01B20349D45B10AA7095B2E7F9AD28F08740EB7F894E75EAE` |
 | Rescue with an on-demand window | PASS: rescue at block 10703711 = **1 block** after the drain, **90% kept**; forged withdraw reverts `BadSignature`; agent key `fUSD.transfer` refused | run `20261125T025624Z`, rescue `0x1ad6854853ca3edb07c5aba3c811de9c45eb80a0f4be70292b2761f110cf4ef5` |
+
+## Plan Task 6 + 9: self-serve onboarding in a fresh browser on diana (2026-11-25)
+
+`apps/hosted` run locally (`HOSTED_DATA_DIR` outside the repo, the builder's funder) with `pnpm -F dashboard dev`, driven by
+Playwright in a browser profile with no wallet extension and no QOR. Owner `0xCeb83299B636a8fBE030483483313996cF973513` /
+`qor1e6ur9xdkx650hcpsfq6gxvfejm8ewdgnf7ke3e`, guardian `0xe70B671563f56A1e71c31c3ac4096B209a7E81fC`, vault
+`0x16a63c1b090441f1ef5d35b7824e0d9d0fb45b05`. Steps 1–7 took about 2.5 minutes (11:41:33Z → 11:43:55Z). Every tx below is code 0.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| Starter pack: the service sends a new owner 2.5 QOR | balance 2.5 QOR, stage `starter` | `39F27807E05760BD936294398A1213474C9BF37BE9C276304E124A1BEBF687CA` |
+| The browser registers the recovery-code ML-DSA-87 key, classically signed | `registered: true`, possession proven | `C70298831CE6AEF56D789F097069E7DDF53A908C821F652072436474C76A5387` |
+| Guardian provisioning: the funder sends the new guardian 1 QOR, the guardian registers its own ML-DSA-87 key | stage `provisioned` | fund `58FD81D1C3F3CF28F115F4F7A8050F4AAA3A451E2C139F15389D45579731D7E6`, register `CBC191E80DC074BFE7E0AB310F2B8B711B188B59C5AB8CF3B54424B689638005` |
+| One unscoped 4-tx owner window (hybrid, from the browser), then the vault deploy and three mints in it | `GuardianVault(owner, guardian)` deployed; 100 fUSD, fETH, fBTC minted | window `D712A1689EF2978F327CDDECA81041973DFF780C960BF91E7392AFA71878497F`; deploy `0x3bd1f26059cb7acccbb47b00a2a68314d249d16d49122942a106eabdc0aa85d6`, mints `0xf1e7d41a641575aa47eecb032e452f49dc5b107ce18c2bde075d96f6e2997796`, `0xdbca9310991766c16be08106fcc2387d24096b69ee23d5840500203edd0d5f10`, `0x05ca27a5a87650244727238f3ba5b6ea178f1de7ab6f097bfa6b1f263d7a86f5` (EVM) |
+| The tab closed after the vault step: reopened, unlocked with the password, the journey resumed at step 7 (no second deploy offered) | step 7 "Turn on protection" | browser run |
+| A recovery code with one wrong character is refused before anything is signed | "recovery code checksum does not match: a character is mistyped" | browser run |
+| Window (3 txs, scoped to the three tokens) + spending rule + agent link in ONE hybrid tx, then the three approvals | code 0; `MsgOpenEVMWindow, MsgUpdateSpendingRules, MsgRegisterAuthenticator` | `E18D11E6506E9E107E3DB82F6BF87FAF3C94CC5D6C274BEF5B1D3B53E5E6684D`; approvals (native-lane wrappers) `C9CE4F877BB3CE59F3CB316523443CE9E39EBF6E761C25D8BC7E5D5BDADD60D7`, `8509EA3E76BCBE0A5D194FEE17BCCB5241CB376C8DF1B60924C582C90012B424`, `B0BC55639D22288B4D303B59C77F3B33C2F74B6AA773EAF86A8652171EB8A197` |
+| Signed `activate`: the service checks vault roles, link and exact rule on chain, then starts this owner's agent | stage `active`; agent on 127.0.0.1:9100 answers `GET /api/o/<owner>/health` through the gateway | hosted log 11:43:55Z |
+| The hosted service restarts: the active owner's agent comes back on its stored port with no user action | "started on 127.0.0.1:9100", "resumed 1 agent(s)"; no orphan agent process after the stop | hosted log 11:45:48Z |
+
+Second owner, after the Task 9 review fixes (the vault step reads the chain fresh and saves the vault right after its
+receipt; protect plans mints + approvals in one window scoped to exactly those tokens), in the same browser profile:
+owner `0x880566d1985705E76C032daf7e3D1Bb4Ea72f536` / `qor13qzkd5vc2uz7wmqr9khhu0gmkn489afkxvne8k`, guardian
+`0xaE0C0301Dce680Da9E59A5B91A61BEEEf29f5850`, vault `0x4bf8d0462d4730218cbd857fc4f86adc08369dc6`. Steps 1–7 in about 2 minutes
+(11:53:13Z → 11:55:01Z), every tx code 0.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| A wallet whose code was lost before it was confirmed (tab reloaded on step 2) is replaced by "start over", offered only while the service has handed it nothing and no key is registered | new wallet `0x8805…f536` replaces `0x8E68…203E`; nothing was sent to the old one | browser run |
+| Starter pack, key registration, guardian provisioning | stage `provisioned` | starter `491E84BA1EE9BAE9D9FC37DA0753F32DB8330B1CCF2DCC018816A0DD7CD4C3C4`, register `E54FAC6742ADB8F141A98F3C3F54473CC9756F5A476D4EE0CAA2B1AD7F759C55`, guardian fund `EE8580842E2ED72BC10B3CC22DE784C79A970204DADDA7C8D837B4210FFD57F4`, guardian key `F6839BEB6257E0614A3C502A17E229E8E0C4E4462D188A9BA8EE7D1C6C5C5F17` |
+| Vault step through `runVaultStep`: 4-tx window, deploy, three mints | vault deployed, 100 of each token | window `2F79253DE5E9B932982BDAC819CA0E413B77C684E7D9FAC6106445DD61D26916`; deploy `0xa268499e79ef2db2d755545c472c3fef95233ea1960a294b16e8cd83e923d866`, mints `0xfeb8e742f25811d4f852d90ca168a498e1d6a990fbe6a5be6d23b86b4f3eb0d2`, `0x1177999fa87b4a98aa0f974ed360b7678b8b4778a056776fba9c6a416b8ee061`, `0xdf2619915cb3f07d25c64fe584dd9ccae09ea7d0dd08d5d6fe43e078e44a1d9a` (EVM) |
+| Protect: 3-tx window + rule + link in one hybrid tx, three approvals, signed `activate` | stage `active`; `GET /api/o/<owner>/health` → 200 | `D269A03930AAC398DC826F16D35C8F9927D85476BA4EB62B3FE7DE779B03B6B7`; approvals `1254809C88CB094388E5C609DB3A6B6CDD00620B3433F477C1D510DB2FDA7CBF`, `C4B452A91001DC2911B2442C167DF39E3FA29ED9425239C5D75F0ACA1DF349FE`, `F1F3D20BAF820A58E99C08A0D117EA6270F4B7701629C5EF5EB3876787014BF2` |
+| Hosted agents keep their policy in the owner dir (`POLICY_FILE`), not in the repo's `data/` | `policy …/hosted-dev/owners/<owner>/policy.json` | hosted log 11:45:50Z |

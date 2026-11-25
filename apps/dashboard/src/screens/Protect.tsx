@@ -740,7 +740,7 @@ export function Protect() {
           </div>
         </div>
         <div className="actions">
-          <a className="btn primary" href="#/">
+          <a className="btn primary" href="#/overview">
             Go to Overview
           </a>
           <a className="btn" href="#/recover">

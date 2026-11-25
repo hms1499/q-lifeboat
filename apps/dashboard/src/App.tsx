@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { APP_NAME } from "./brand";
 import { LifeboatMark, NavIcon, ScreenBoundary } from "./components/ui";
 import { fetchHealth } from "./lib/agent";
+import { loadSeed } from "./lib/keystore";
 import { explorerAddress } from "./lib/chain";
 import { shortAddr } from "./lib/format";
 import { useHashRoute, usePoll } from "./lib/hooks";
@@ -11,13 +12,18 @@ import { Overview } from "./screens/Overview";
 import { Protect } from "./screens/Protect";
 import { Recover } from "./screens/Recover";
 import { Rules } from "./screens/Rules";
+import { Start } from "./screens/Start";
 import { useApp } from "./state";
 
 const NAV_GROUPS = [
   {
+    label: "Start",
+    items: [{ id: "start", label: "Get protected", href: "#/start" }],
+  },
+  {
     label: "Monitor",
     items: [
-      { id: "overview", label: "Overview", href: "#/" },
+      { id: "overview", label: "Overview", href: "#/overview" },
       { id: "incidents", label: "Incidents", href: "#/incidents" },
       { id: "recover", label: "Recover", href: "#/recover" },
     ],
@@ -145,17 +151,57 @@ function Banners() {
   );
 }
 
+/** Whether this browser holds an in-app wallet (an encrypted seed in IndexedDB); undefined while checking. */
+function useHasSeed(): boolean | undefined {
+  const [has, setHas] = useState<boolean | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    loadSeed()
+      .then((s) => live && setHas(!!s))
+      .catch(() => live && setHas(false));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return has;
+}
+
+const SCREENS = ["overview", "incidents", "recover", "rules", "protect", "drill", "start"] as const;
+type ScreenId = (typeof SCREENS)[number];
+
 export function App() {
   const [screen = "", id] = useHashRoute();
-  const active = screen === "incidents" || screen === "recover" || screen === "rules" || screen === "protect" || screen === "drill" ? screen : "overview";
+  const hasSeed = useHasSeed();
+  // `#/` is the landing page (Start) for a browser with no in-app wallet, Overview otherwise.
+  const active: ScreenId | null = (SCREENS as readonly string[]).includes(screen)
+    ? (screen as ScreenId)
+    : screen === "" && hasSeed === undefined
+      ? null
+      : screen === "" && hasSeed === false
+        ? "start"
+        : "overview";
   return (
     <div className="shell">
-      <Sidebar active={active} />
+      <Sidebar active={active ?? ""} />
       <div className="content">
         <main>
-          <Banners />
+          {active === "start" || active === null ? null : <Banners />}
           <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
-            {active === "incidents" ? <Incidents selected={id} /> : active === "recover" ? <Recover /> : active === "rules" ? <Rules /> : active === "protect" ? <Protect /> : active === "drill" ? <Drill /> : <Overview />}
+            {active === null ? null : active === "start" ? (
+              <Start />
+            ) : active === "incidents" ? (
+              <Incidents selected={id} />
+            ) : active === "recover" ? (
+              <Recover />
+            ) : active === "rules" ? (
+              <Rules />
+            ) : active === "protect" ? (
+              <Protect />
+            ) : active === "drill" ? (
+              <Drill />
+            ) : (
+              <Overview />
+            )}
           </ScreenBoundary>
         </main>
       </div>
