@@ -254,13 +254,13 @@ Test `packages/core/test/msgs.test.ts`, `packages/core/test/withdrawal.test.ts`.
     Writes are atomic (temp file + rename).
 - Env: `HOSTED_DATA_DIR`, `DASHBOARD_DIST`, `PORT`, `FUNDER_MNEMONIC`, `PUBLIC_ORIGIN`.
 
-- [ ] **Step 1: Failing tests:** `/qore-rest/cosmos/x` forwards to `<REST>/cosmos/x` (stub upstream); unknown path under
+- [x] **Step 1: Failing tests:** `/qore-rest/cosmos/x` forwards to `<REST>/cosmos/x` (stub upstream); unknown path under
   `/` returns `index.html`; `/api/status` shape; store round-trip; `writeSecrets` file mode is `0o600`; a crash between
   temp write and rename leaves the previous `state.json` readable.
-- [ ] **Step 2:** `pnpm -F hosted test` → FAIL.
-- [ ] **Step 3:** Implement with `node:http` and `fetch` (no framework).
-- [ ] **Step 4:** `pnpm -F hosted test` → PASS.
-- [ ] **Step 5:** Commit `feat(hosted): service skeleton, proxies and owner store`.
+- [x] **Step 2:** `pnpm -F hosted test` → FAIL.
+- [x] **Step 3:** Implement with `node:http` and `fetch` (no framework).
+- [x] **Step 4:** `pnpm -F hosted test` → PASS.
+- [x] **Step 5:** Commit `feat(hosted): service skeleton, proxies and owner store`.
 
 ---
 
