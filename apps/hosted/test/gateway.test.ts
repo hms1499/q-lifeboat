@@ -30,6 +30,8 @@ const sseClients = new Set<ServerResponse>();
 
 const running = new Map<string, number>();
 const calls: string[] = [];
+/** The owner's lastActiveAt as revive saw it. */
+const reviveSaw: number[] = [];
 const supervisor: GatewaySupervisor = {
   portOf: (o) => running.get(o.toLowerCase()),
   start: async (o) => {
@@ -44,6 +46,7 @@ const supervisor: GatewaySupervisor = {
   revive: async (o) => {
     calls.push(`revive:${o}`);
     const s = store.get(o)!;
+    reviveSaw.push(s.lastActiveAt);
     store.put({ ...s, stage: "active" });
     running.set(o.toLowerCase(), agentPort);
     return { ok: true, port: agentPort };
@@ -258,13 +261,22 @@ describe("gateway signed writes", () => {
     expect(seen).toEqual([]);
   });
 
-  it("a signed arm on a stopped owner starts it, waits for /health, then forwards", async () => {
+  it("a signed arm on a stopped owner starts it through revive (the per-owner lock), waits for /health, then forwards", async () => {
     running.clear();
     store.put({ ...store.get(O())!, stopped: true });
     const r = await call("POST", `/api/o/${O()}/arm`, sign(ownerAcc, "arm", { blocks: 600 }));
     expect(r.status).toBe(200);
-    expect(calls).toEqual([`start:${O().toLowerCase()}`]);
+    expect(calls).toEqual([`revive:${O().toLowerCase()}`]);
     expect(seen.map((s) => s.url)).toEqual(["/health", "/arm"]);
+  });
+
+  it("a signed arm marks the owner active BEFORE revive, so an hourly retireIdle cannot retire the agent just armed", async () => {
+    running.clear();
+    reviveSaw.length = 0;
+    store.put({ ...store.get(O())!, stopped: true });
+    t = T0 + 11_000;
+    expect((await call("POST", `/api/o/${O()}/arm`, sign(ownerAcc, "arm", { blocks: 600 }))).status).toBe(200);
+    expect(reviveSaw).toEqual([T0 + 11_000]);
   });
 
   it("a signed arm on a retired owner revives it (re-fund + start) and forwards", async () => {

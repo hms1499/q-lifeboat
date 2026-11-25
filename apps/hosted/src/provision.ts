@@ -39,6 +39,7 @@ import {
   type Limits,
 } from "./limits.ts";
 import { isOwnerAddress, type OwnerSecrets, type OwnerState, type Store } from "./store.ts";
+import { MAX_AGENTS } from "./supervisor.ts";
 
 export { GUARDIAN_FUND_UQOR, STARTER_OWNER_UQOR, TOPUP_UQOR } from "./limits.ts";
 export { NONCE_TTL_MS, type Reply } from "./auth.ts";
@@ -73,6 +74,8 @@ export type ProvisionDeps = {
   newAgentKey?(): string;
   /** Hand-off once an owner is active (Task 7: the supervisor starts its agent). */
   onActivated?(owner: Hex): void | Promise<void>;
+  /** Room for one more agent (the supervisor's 40 cap). Absent: always room. */
+  canStart?(): boolean;
   /** Signed-request verification; share one with the gateway so they share one replay set. Default: built from `chain`. */
   auth?: OwnerAuth;
   log?(line: string): void;
@@ -266,6 +269,9 @@ export function createProvisioner(deps: ProvisionDeps) {
       const a = await authorize(x, "onboard");
       if (!a.ok) return a.reply;
       let run = inflight.get(a.owner);
+      // At agent capacity no NEW guardian is made or funded (activate would refuse it); an owner whose guardian exists
+      // (secrets written, even half-provisioned) still resumes and gets its proof.
+      if (!run && !store.readSecrets(a.owner) && deps.canStart && !deps.canStart()) return err(503, "capacity");
       if (!run) {
         run = provisionGuardian(a.owner)
           .catch((e): Provisioned => {
@@ -320,6 +326,8 @@ export function createProvisioner(deps: ProvisionDeps) {
       if (!ruleIsExact(rules, v)) return err(409, "rule-not-exact");
       const fresh = store.get(a.owner) ?? state;
       if (fresh.stage === "active") return fresh.vault === v ? reply(200, { ok: true }) : err(409, "already-active");
+      // At capacity the owner stays provisioned (and can retry) rather than be marked active with no agent watching.
+      if (deps.canStart && !deps.canStart()) return err(503, "capacity");
       store.put({ ...fresh, stage: "active", vault: v, lastActiveAt: deps.now() });
       log(`owner ${a.owner}: active with vault ${v}`);
       try {
@@ -350,12 +358,19 @@ export function createProvisioner(deps: ProvisionDeps) {
       return tx;
     },
 
-    /** `GET /api/status`: paused below the funder floor or at the daily cap, so the landing page blocks before step 1. */
+    /** `GET /api/status`: paused at agent capacity, below the funder floor or at the daily cap, so the landing page blocks before step 1. */
     async status(): Promise<HostedStatus> {
       const now = deps.now();
       if (statusCache && now - statusCache.at < STATUS_CACHE_MS) return statusCache.value;
-      const activeGuardians = store.list().filter((o) => o.stage === "active").length;
+      const active = store.list().filter((o) => o.stage === "active");
+      const activeGuardians = active.length;
       let value: HostedStatus;
+      // A stopped owner runs no agent; the 40 cap counts the ones that do (or will on boot).
+      if (active.filter((o) => !o.stopped).length >= MAX_AGENTS) {
+        value = { onboarding: "paused", reason: "capacity", activeGuardians };
+        statusCache = { at: now, value };
+        return value;
+      }
       try {
         const funderUqor = await chain.uqorBalance(funder.cosmos);
         if (funderUqor < FUNDER_FLOOR_UQOR) value = { onboarding: "paused", reason: "funder-low", activeGuardians };

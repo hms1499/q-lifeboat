@@ -154,8 +154,11 @@ export function createGateway(deps: GatewayDeps) {
     let port = supervisor.portOf(o);
     if (route === "arm" && port === undefined) {
       if (state.stage !== "active" && state.stage !== "retired") return json(res, 409, { error: "not-active" });
-      // A stopped (or crashed past its budget) owner starts again; a retired one gets its guardian re-funded first.
-      const r = state.stage === "retired" ? await supervisor.revive(o) : await supervisor.start(o);
+      // A stopped owner starts again; a retired one gets its guardian re-funded first. Both go through revive, under
+      // the per-owner lock, so an arm never races retireIdle into a running agent on a retired row.
+      // Active now, before the (possibly slow) start: an hourly retireIdle in between must not retire this owner.
+      touch(o);
+      const r = await supervisor.revive(o);
       if (!r.ok) {
         log(`gateway: arm for ${o} could not start its agent (${r.reason})`);
         return json(res, 503, { error: r.reason });

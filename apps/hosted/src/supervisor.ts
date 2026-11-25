@@ -17,6 +17,8 @@ export const MAX_AGENTS = 40;
 export const RETIRE_AFTER_MS = 7 * 24 * 3600 * 1000;
 /** What a retired guardian keeps for the fee of its sweep (a hybrid tx costs 0.225 QOR, chain fact 21). */
 export const GUARDIAN_FEE_RESERVE_UQOR = 300_000n;
+/** Up to this much above the reserve is not worth a sweep's 0.225 QOR fee. */
+export const SWEEP_DUST_UQOR = 500_000n;
 
 const BACKOFF_FIRST_MS = 1_000;
 const BACKOFF_MAX_MS = 60_000;
@@ -110,7 +112,10 @@ export function spawnAgent(log: (line: string) => void) {
   };
 }
 
-/** A retired guardian's QOR minus `GUARDIAN_FEE_RESERVE_UQOR`, sent to the funder in a hybrid tx from the guardian. */
+/**
+ * A retired guardian's QOR minus `GUARDIAN_FEE_RESERVE_UQOR`, sent to the funder in a hybrid tx from the guardian.
+ * Nothing when the excess is dust (`SWEEP_DUST_UQOR` or less).
+ */
 export function createGuardianSweeper(deps: {
   store: Store;
   chain: Pick<ChainDeps, "uqorBalance" | "broadcast">;
@@ -129,7 +134,7 @@ export function createGuardianSweeper(deps: {
       throw new Error(`the stored GAS_MNEMONIC could not be used (${e instanceof Error ? e.name : "UnknownError"})`);
     }
     const balance = await deps.chain.uqorBalance(guardian.cosmos);
-    if (balance <= GUARDIAN_FEE_RESERVE_UQOR) return null;
+    if (balance <= GUARDIAN_FEE_RESERVE_UQOR + SWEEP_DUST_UQOR) return null;
     const msg = buildFundMsg(guardian.cosmos, deps.funderCosmos, balance - GUARDIAN_FEE_RESERVE_UQOR);
     return deps.chain.broadcast(guardian, [msg], "qlifeboat: sweep retired guardian", "hybrid");
   };
@@ -168,6 +173,10 @@ export function createSupervisor(deps: SupervisorDeps) {
     while (taken.has(p)) p++;
     return p;
   };
+
+  /** Owners other than `o` that hold an agent slot: `active` and not stopped in the store (the `canStart` rule). */
+  const slotsTakenByOthers = (o: Hex): number =>
+    store.list().filter((s) => s.stage === "active" && !s.stopped && lower(s.owner) !== o).length;
 
   const launch = (e: Entry) => {
     const s = store.get(e.owner);
@@ -272,7 +281,9 @@ export function createSupervisor(deps: SupervisorDeps) {
     const s = store.get(o);
     if (!s || s.stage !== "active" || !s.vault || !s.guardian) return { ok: false, reason: "not-active" };
     if (!store.readSecrets(o)) return { ok: false, reason: "no-secrets" };
-    if (entries.size >= MAX_AGENTS) {
+    // An active, non-stopped row already holds its slot (boot, activation); a stopped owner coming back takes a new one.
+    const holdsSlot = !s.stopped;
+    if (entries.size >= MAX_AGENTS || (!holdsSlot && slotsTakenByOthers(o) >= MAX_AGENTS)) {
       log(`agent ${o}: refused, ${MAX_AGENTS} agents already run`);
       return { ok: false, reason: "capacity" };
     }
@@ -291,11 +302,15 @@ export function createSupervisor(deps: SupervisorDeps) {
     return existsSync(f) ? Math.max(lastActiveAt, statSync(f).mtimeMs) : lastActiveAt;
   };
 
+  // Owners whose sweep is under way: a hung sweep is not queued again by every hourly pass.
+  const sweeping = new Set<Hex>();
+
   const sweepOne = async (o: Hex): Promise<void> => {
     if (!deps.sweep) {
       log(`owner ${o}: retired, no sweep path (no funder): sweep pending`);
       return;
     }
+    sweeping.add(o);
     try {
       const tx = await deps.sweep(o);
       log(`owner ${o}: guardian swept to the funder: ${tx ?? "nothing above the fee reserve"}`);
@@ -306,7 +321,59 @@ export function createSupervisor(deps: SupervisorDeps) {
       }
     } catch (err) {
       log(`owner ${o}: sweep failed, retried on the next pass: ${errorText(err)}`);
+    } finally {
+      sweeping.delete(o);
     }
+  };
+
+  /** Boot: start every active owner that was not stopped by its owner. */
+  const resumeAll = async (): Promise<void> => {
+    for (const s of store.list()) {
+      if (s.stage !== "active" || s.stopped) continue;
+      const r = await start(s.owner);
+      if (!r.ok) log(`agent ${s.owner}: not resumed (${r.reason})`);
+    }
+  };
+
+  /** Owners idle for more than 7 days (no signed write, no incident): stop the agent, mark `retired` + `sweepPending`. */
+  const markIdle = async (nowUnix: number): Promise<void> => {
+    const cutoff = nowUnix * 1000 - RETIRE_AFTER_MS;
+    for (const s of store.list()) {
+      const o = lower(s.owner);
+      // Only active owners take the lock: a retired owner's lock may be held by a hung sweep.
+      if (s.stage !== "active") continue;
+      await withLock(o, async () => {
+        const cur = store.get(o);
+        if (!cur || cur.stage !== "active" || lastActivity(o, cur.lastActiveAt) >= cutoff) return;
+        log(`owner ${o}: idle since ${new Date(cur.lastActiveAt).toISOString()}, retiring`);
+        await halt(o);
+        const { stopped: _s, ...row } = store.get(o) ?? cur;
+        store.put({ ...row, stage: "retired", sweepPending: true });
+      });
+    }
+  };
+
+  /**
+   * Sweep every retired guardian whose sweep is still pending (a failed sweep is retried on the next pass). Each from
+   * its own guardian account, so in parallel: one hung sweep never holds up the others.
+   */
+  const sweepPending = async (): Promise<void> => {
+    await Promise.all(
+      store.list().map((s) => {
+        const o = lower(s.owner);
+        if (sweeping.has(o)) return undefined;
+        return withLock(o, async () => {
+          const cur = store.get(o);
+          if (cur?.stage === "retired" && cur.sweepPending) await sweepOne(o);
+        });
+      }),
+    );
+  };
+
+  /** Retire idle owners, then sweep their guardians. */
+  const retireIdle = async (nowUnix: number): Promise<void> => {
+    await markIdle(nowUnix);
+    await sweepPending();
   };
 
   return {
@@ -321,13 +388,30 @@ export function createSupervisor(deps: SupervisorDeps) {
       log(`agent ${o}: stopped by the owner`);
     },
 
-    /** Boot: start every active owner that was not stopped by its owner. */
-    async resumeAll(): Promise<void> {
-      for (const s of store.list()) {
-        if (s.stage !== "active" || s.stopped) continue;
-        const r = await start(s.owner);
-        if (!r.ok) log(`agent ${s.owner}: not resumed (${r.reason})`);
+    resumeAll,
+    retireIdle,
+
+    /**
+     * Service boot: mark idle owners retired first (no chain I/O), so an owner idle for 7 days never gets its agent
+     * started; then resume the rest; then sweep in the background, so a slow or hung chain never delays resume.
+     */
+    async boot(nowUnix: number): Promise<void> {
+      try {
+        await markIdle(nowUnix);
+      } catch (err) {
+        log(`boot: retiring idle owners failed, resuming anyway: ${errorText(err)}`);
       }
+      await resumeAll();
+      void sweepPending().catch((err) => log(`boot: sweeps failed: ${errorText(err)}`));
+    },
+
+    /**
+     * Room for one more agent: fewer than 40 owners `active` and not stopped in the store (the same rule as
+     * `/api/status`). Counted from the store, not running processes, so a slot an owner holds while its agent is
+     * still starting (boot, a concurrent activation) is never handed to someone else.
+     */
+    canStart(): boolean {
+      return store.list().filter((s) => s.stage === "active" && !s.stopped).length < MAX_AGENTS;
     },
 
     /** Owners supervised now, including any waiting for a restart. */
@@ -341,28 +425,9 @@ export function createSupervisor(deps: SupervisorDeps) {
     },
 
     /**
-     * Owners idle for more than 7 days (no signed write, no incident): stop the agent, mark `retired` with
-     * `sweepPending`, sweep the guardian. A retired owner whose sweep failed is retried.
+     * A signed `arm` on an owner with no running agent, under the per-owner lock so it never interleaves with
+     * `retireIdle`: a retired owner gets its guardian re-funded and becomes active again; then its agent starts.
      */
-    async retireIdle(nowUnix: number): Promise<void> {
-      const cutoff = nowUnix * 1000 - RETIRE_AFTER_MS;
-      for (const s of store.list()) {
-        const o = lower(s.owner);
-        await withLock(o, async () => {
-          const cur = store.get(o);
-          if (!cur) return;
-          if (cur.stage === "retired" && cur.sweepPending) return sweepOne(o);
-          if (cur.stage !== "active" || lastActivity(o, cur.lastActiveAt) >= cutoff) return;
-          log(`owner ${o}: idle since ${new Date(cur.lastActiveAt).toISOString()}, retiring`);
-          await halt(o);
-          const { stopped: _s, ...row } = store.get(o) ?? cur;
-          store.put({ ...row, stage: "retired", sweepPending: true });
-          await sweepOne(o);
-        });
-      }
-    },
-
-    /** A signed `arm` on a retired owner: re-fund its guardian, make it active again, start its agent. */
     revive(owner: string): Promise<StartResult> {
       const o = lower(owner);
       return withLock(o, async (): Promise<StartResult> => {
@@ -370,7 +435,7 @@ export function createSupervisor(deps: SupervisorDeps) {
         if (!s) return { ok: false, reason: "not-active" };
         if (s.stage !== "retired") return start(o);
         if (!deps.refund) return { ok: false, reason: "refund-unavailable" };
-        if (entries.size >= MAX_AGENTS) return { ok: false, reason: "capacity" };
+        if (entries.size >= MAX_AGENTS || slotsTakenByOthers(o) >= MAX_AGENTS) return { ok: false, reason: "capacity" };
         try {
           await deps.refund(o);
         } catch (err) {

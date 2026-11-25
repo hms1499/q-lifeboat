@@ -304,6 +304,86 @@ describe("supervisor", () => {
     expect(await sup.revive(owner(1))).toEqual({ ok: false, reason: "refund-unavailable" });
   });
 
+  it("an arm (revive) concurrent with retireIdle never leaves a running agent on a retired row", async () => {
+    for (const reviveFirst of [false, true]) {
+      const { sup, store, seed } = setup({
+        sweep: async () => (await new Promise((r) => setTimeout(r, 5)), "TX"),
+        refund: async () => void (await new Promise((r) => setTimeout(r, 5))),
+      });
+      seed(owner(1), { lastActiveAt: T0 - 8 * DAY, stopped: true, port: 9100 });
+      const now = Math.floor(T0 / 1000);
+      const both = reviveFirst ? [sup.revive(owner(1)), sup.retireIdle(now)] : [sup.retireIdle(now), sup.revive(owner(1))];
+      await Promise.all(both);
+      const row = store.get(owner(1))!;
+      const runs = sup.portOf(owner(1)) !== undefined;
+      expect(row.stage === "retired" ? !runs : runs).toBe(true);
+    }
+  });
+
+  it("boot retires idle owners before resuming, so an idle owner's agent never starts", async () => {
+    const swept: Hex[] = [];
+    const { sup, store, children, seed } = setup({ sweep: async (o) => (swept.push(o), "TX") });
+    seed(owner(1), { lastActiveAt: T0 - 8 * DAY });
+    seed(owner(2));
+    await sup.boot(Math.floor(T0 / 1000));
+    expect(children.map((c) => c.env.OWNER_EVM_ADDRESS)).toEqual([owner(2)]);
+    expect(store.get(owner(1))?.stage).toBe("retired");
+    expect(swept).toEqual([owner(1)]);
+  });
+
+  it("boot resumes agents without waiting for sweeps; idle owners are retired (sweep pending) first", async () => {
+    let sweeps = 0;
+    const { sup, store, children, seed } = setup({ sweep: () => (sweeps++, new Promise<string | null>(() => {})) }); // a hung chain
+    seed(owner(1), { lastActiveAt: T0 - 8 * DAY });
+    seed(owner(2));
+    store.put({ ...activeRow(owner(3)), stage: "retired", sweepPending: true });
+    await sup.boot(Math.floor(T0 / 1000));
+    expect(children.map((c) => c.env.OWNER_EVM_ADDRESS)).toEqual([owner(2)]);
+    expect(store.get(owner(1))).toMatchObject({ stage: "retired", sweepPending: true });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sweeps).toBe(2); // both sweeps started in the background
+  });
+
+  it("a hung sweep is not started again by the next pass", async () => {
+    let sweeps = 0;
+    const { sup, store } = setup({ sweep: () => (sweeps++, new Promise<string | null>(() => {})) });
+    store.put({ ...activeRow(owner(1)), stage: "retired", sweepPending: true });
+    const now = Math.floor(T0 / 1000);
+    void sup.retireIdle(now);
+    await new Promise((r) => setTimeout(r, 0));
+    await sup.retireIdle(now); // resolves: the hung owner is skipped, not queued behind its lock
+    expect(sweeps).toBe(1);
+  });
+
+  it("start and revive refuse a 41st active, non-stopped owner even when one of the 40 has no running agent", async () => {
+    const { sup, store, seed } = setup({ refund: async () => {} });
+    for (let i = 1; i <= MAX_AGENTS; i++) seed(owner(i)); // 40 active rows, no agent started yet
+    seed(owner(100), { stopped: true });
+    expect(await sup.start(owner(100))).toEqual({ ok: false, reason: "capacity" });
+    seed(owner(101), { stage: "retired" });
+    expect(await sup.revive(owner(101))).toEqual({ ok: false, reason: "capacity" });
+    expect(store.get(owner(101))?.stage).toBe("retired");
+  });
+
+  it("canStart counts active, non-stopped owners in the store, even before their agents start", () => {
+    const { sup, seed } = setup();
+    for (let i = 1; i < MAX_AGENTS; i++) seed(owner(i));
+    seed(owner(100), { stopped: true });
+    seed(owner(101), { stage: "retired" });
+    expect(sup.canStart()).toBe(true);
+    seed(owner(MAX_AGENTS));
+    expect(sup.canStart()).toBe(false);
+  });
+
+  it("canStart is false at 40 supervised agents", async () => {
+    const { sup, seed } = setup();
+    for (let i = 1; i <= MAX_AGENTS; i++) seed(owner(i));
+    await sup.resumeAll();
+    expect(sup.canStart()).toBe(false);
+    await sup.stop(owner(1));
+    expect(sup.canStart()).toBe(true);
+  });
+
   it("first port is 9100", () => {
     expect(FIRST_AGENT_PORT).toBe(9100);
   });
@@ -332,6 +412,12 @@ describe("createGuardianSweeper", () => {
     ]);
     balance = 300_000n;
     expect(await sweep(owner(1))).toBeNull();
+    // 0.5 QOR above the reserve is dust: not worth a 0.225 QOR fee.
+    balance = 800_000n;
+    expect(await sweep(owner(1))).toBeNull();
+    balance = 800_001n;
+    expect(await sweep(owner(1))).toBe("SWEEP1");
+    sent.pop();
     expect(sent.length).toBe(1);
   });
 });

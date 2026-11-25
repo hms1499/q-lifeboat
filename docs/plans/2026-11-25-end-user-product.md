@@ -322,17 +322,17 @@ Test `apps/hosted/test/supervisor.test.ts`, `apps/hosted/test/gateway.test.ts`.
     forwarded to `127.0.0.1:<port>` with `Host: 127.0.0.1:<port>` and no `Origin`. Anything else → 404.
     Every forwarded write updates `lastActiveAt`.
 
-- [ ] **Step 1: Failing tests:**
+- [x] **Step 1: Failing tests:**
   - `resumeAll starts every active owner on its stored port`;
   - `a crashing agent is restarted with growing delay` (fake clock: restarts at +1 s, +2 s, +4 s);
   - `41st start is refused`;
   - `retireIdle stops and sweeps an owner idle 7 days, keeps one idle 6 days`;
   - gateway: `GET /api/o/<owner>/drill → 404`; `PUT policy with a classical-only body → 401`;
     `PUT policy signed by another account → 401`; a valid signed `arm` reaches the fake agent with Host `127.0.0.1:<port>`.
-- [ ] **Step 2:** `pnpm -F hosted test` → FAIL.
-- [ ] **Step 3:** Implement; `spawn` defaults to `child_process.spawn("node", ["--import", "tsx", "apps/agent/src/index.ts"], { env })`.
-- [ ] **Step 4:** `pnpm -F hosted test` → PASS.
-- [ ] **Step 5:** Commit `feat(hosted): per-owner agent supervisor and signed gateway`.
+- [x] **Step 2:** `pnpm -F hosted test` → FAIL.
+- [x] **Step 3:** Implement; `spawn` defaults to `child_process.spawn("node", ["--import", "tsx", "apps/agent/src/index.ts"], { env })`.
+- [x] **Step 4:** `pnpm -F hosted test` → PASS.
+- [x] **Step 5:** Commit `feat(hosted): per-owner agent supervisor and signed gateway`.
 
 ---
 

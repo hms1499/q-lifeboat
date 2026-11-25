@@ -96,7 +96,7 @@ function fakeChain(store: Store) {
 }
 
 /** `starter` (default true): the owner already took a starter pack (seeded row, no tx). */
-function setup(opts: { onActivated?: (o: Hex) => void; failBroadcast?: () => boolean; newMnemonic?: () => string; starter?: boolean } = {}) {
+function setup(opts: { onActivated?: (o: Hex) => void; failBroadcast?: () => boolean; newMnemonic?: () => string; starter?: boolean; canStart?: () => boolean } = {}) {
   const raw = createStore(mkdtempSync(join(tmpdir(), "hp-")));
   if (opts.starter !== false) raw.put({ owner: ownerAcc.evm as Hex, stage: "starter", starter: true, createdAt: T0, lastActiveAt: T0, topups: 0 });
   const order: string[] = [];
@@ -125,6 +125,7 @@ function setup(opts: { onActivated?: (o: Hex) => void; failBroadcast?: () => boo
     newMnemonic: opts.newMnemonic ?? (() => GUARD_MN),
     newAgentKey: () => AGENT_SK,
     onActivated: opts.onActivated,
+    canStart: opts.canStart,
     log: () => {},
   });
   return { prov, store, st, order, chain, setNow: (ms: number) => (t = ms) };
@@ -200,6 +201,18 @@ describe("onboard", () => {
     expect(p.possessionProof.length).toBe(64);
     expect(JSON.stringify(a.body)).not.toContain(AGENT_SK);
     expect(JSON.stringify(a.body)).not.toContain("abandon");
+  });
+
+  it("onboard at agent capacity → 503 capacity before any guardian is made or funded; a provisioned owner still gets its proof", async () => {
+    let room = false;
+    const { prov, st, store } = setup({ canStart: () => room });
+    expect(await prov.onboard(sign("onboard", {}))).toEqual({ code: 503, body: { error: "capacity" } });
+    expect(st.calls).toEqual([]);
+    expect(store.get(ownerAcc.evm)?.stage).toBe("starter");
+    room = true;
+    expect((await prov.onboard(sign("onboard", {}))).code).toBe(200);
+    room = false;
+    expect((await prov.onboard(sign("onboard", {}))).code).toBe(200);
   });
 
   it("secrets are written before the fund tx", async () => {
@@ -303,8 +316,8 @@ describe("onboard resume", () => {
 });
 
 describe("activate", () => {
-  async function provisioned(onActivated?: (o: Hex) => void) {
-    const ctx = setup({ onActivated });
+  async function provisioned(onActivated?: (o: Hex) => void, canStart?: () => boolean) {
+    const ctx = setup({ onActivated, canStart });
     const r = await ctx.prov.onboard(sign("onboard", {}));
     expect(r.code).toBe(200);
     const pk = (r.body as { linkProof: { agentPubKeyHex: string } }).linkProof.agentPubKeyHex;
@@ -317,6 +330,20 @@ describe("activate", () => {
     linkOnChain(st, pk);
     expect(await prov.activate(sign("activate", { vault: VAULT }))).toEqual({ code: 200, body: { ok: true } });
     expect(store.get(ownerAcc.evm)).toMatchObject({ stage: "active", vault: VAULT.toLowerCase(), guardian: guardianAcc.evm });
+    expect(handed).toEqual([ownerAcc.evm.toLowerCase()]);
+  });
+
+  it("activate at agent capacity → 503 capacity, the owner stays provisioned and nothing is handed off", async () => {
+    const handed: Hex[] = [];
+    let room = true; // room at onboard time, none left by activation
+    const { prov, st, store, pk } = await provisioned((o) => handed.push(o), () => room);
+    room = false;
+    linkOnChain(st, pk);
+    expect(await prov.activate(sign("activate", { vault: VAULT }))).toEqual({ code: 503, body: { error: "capacity" } });
+    expect(store.get(ownerAcc.evm)?.stage).toBe("provisioned");
+    expect(handed).toEqual([]);
+    room = true;
+    expect((await prov.activate(sign("activate", { vault: VAULT }))).code).toBe(200);
     expect(handed).toEqual([ownerAcc.evm.toLowerCase()]);
   });
 
@@ -546,5 +573,20 @@ describe("refundGuardian", () => {
     st.balances.set(guardianAcc.cosmos, 0n);
     st.balances.set(funder.cosmos, 1_000_000n);
     await expect(prov.refundGuardian(ownerAcc.evm as Hex)).rejects.toThrow(/funder-low/);
+  });
+});
+
+describe("status at capacity", () => {
+  it("pauses onboarding with reason capacity once 40 owners are active and not stopped", async () => {
+    const { prov, store, setNow } = setup();
+    const seed = (i: number, over: Record<string, unknown> = {}) =>
+      store.put({ owner: `0x${i.toString(16).padStart(40, "0")}` as Hex, stage: "active", createdAt: T0, lastActiveAt: T0, topups: 0, ...over });
+    for (let i = 1; i <= 39; i++) seed(i);
+    seed(100, { stopped: true }); // a stopped owner runs no agent
+    seed(101, { stage: "retired" });
+    expect(await prov.status()).toMatchObject({ onboarding: "open" });
+    seed(40);
+    setNow(T0 + 11_000); // past the 10 s status cache
+    expect(await prov.status()).toEqual({ onboarding: "paused", reason: "capacity", activeGuardians: 41 });
   });
 });

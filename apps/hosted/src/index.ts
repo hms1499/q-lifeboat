@@ -37,7 +37,7 @@ const supervisor = createSupervisor({
   refund: funder ? (o) => provision!.refundGuardian(o) : undefined,
 });
 provision = funder
-  ? createProvisioner({ store, chain, funder, limits, auth, now: Date.now, log, onActivated: async (o) => {
+  ? createProvisioner({ store, chain, funder, limits, auth, now: Date.now, log, canStart: () => supervisor.canStart(), onActivated: async (o) => {
         const r = await supervisor.start(o);
         if (!r.ok) log(`owner ${o}: active, but its agent did not start (${r.reason})`);
       } })
@@ -66,8 +66,8 @@ const server = createHostedServer({
 });
 server.listen(port, () => log(`hosted listening on :${port} (data ${dataDir}, dist ${distDir}${funder ? `, funder ${funder.evm}` : ""})`));
 
-await supervisor.resumeAll();
+// Idle owners are retired before the rest resume, so an owner idle for 7 days never gets its agent started.
+await supervisor.boot(Math.floor(Date.now() / 1000));
 log(`resumed ${supervisor.running()} agent(s)`);
 const retire = () => void supervisor.retireIdle(Math.floor(Date.now() / 1000)).catch((e) => log(`retireIdle failed: ${e instanceof Error ? e.message : String(e)}`));
-retire();
 setInterval(retire, RETIRE_CHECK_MS).unref();
