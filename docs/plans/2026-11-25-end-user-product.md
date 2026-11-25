@@ -151,16 +151,16 @@ Test `packages/core/test/msgs.test.ts`, `packages/core/test/withdrawal.test.ts`.
   `buildGuardianLinkMsgs(owner, vault, agent, existing, now)` becomes a wrapper that signs the proof and calls it.
 - All of `msgs.ts` and `withdrawal.ts` must import nothing from `node:*` (browser bundle).
 
-- [ ] **Step 1: Failing tests:**
+- [x] **Step 1: Failing tests:**
   - `buildGuardianLinkMsgsFromProof equals buildGuardianLinkMsgs for the same key`: deep-equal messages for a fixed key
     and `nowUnix`.
   - The withdrawal vector test from `apps/cli` (same inputs, same `sig` verifies with `pqcVerify` over
     `withdrawalMessage`) now imports from `@qday/core`.
-- [ ] **Step 2:** `pnpm -F core test` → FAIL (modules missing).
-- [ ] **Step 3:** Move the code; CLI files re-export from core.
-- [ ] **Step 4:** `pnpm -F core test && pnpm -F cli test && pnpm -F agent test && (cd contracts && forge test)` → PASS,
+- [x] **Step 2:** `pnpm -F core test` → FAIL (modules missing).
+- [x] **Step 3:** Move the code; CLI files re-export from core.
+- [x] **Step 4:** `pnpm -F core test && pnpm -F cli test && pnpm -F agent test && (cd contracts && forge test)` → PASS,
   CLI test count unchanged. `pnpm -F dashboard build` still passes after `forge build`.
-- [ ] **Step 5:** Commit `refactor: move tx builders and the withdrawal signer into @qday/core`.
+- [x] **Step 5:** Commit `refactor: move tx builders and the withdrawal signer into @qday/core`.
 
 ---
 
