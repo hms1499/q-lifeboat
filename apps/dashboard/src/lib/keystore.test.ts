@@ -32,13 +32,15 @@ describe("keystore", () => {
   });
 
   it("exports and imports the encrypted file, rejecting bad shapes", async () => {
-    const e = await encryptSeed(seed(), "pw", 1000);
+    const e = { ...(await encryptSeed(seed(), "pw", 1000)), iter: 100_000 };
     const text = await exportSeedFile(e).text();
     expect(importSeedFile(text)).toEqual(e);
     expect(text).not.toContain("QRC1");
     expect(() => importSeedFile("{}")).toThrow();
     expect(() => importSeedFile("not json")).toThrow();
     expect(() => importSeedFile(JSON.stringify({ ...e, v: 2 }))).toThrow();
+    expect(() => importSeedFile(JSON.stringify({ ...e, iter: 99_999 }))).toThrow();
+    expect(() => importSeedFile(JSON.stringify({ ...e, iter: 10_000_001 }))).toThrow();
   });
 });
 

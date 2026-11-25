@@ -113,7 +113,7 @@ export function importSeedFile(text: string): EncryptedSeed {
   }
   const str = (x: unknown) => typeof x === "string" && x.length > 0;
   if (
-    !o || o.v !== 1 || o.kdf !== "pbkdf2-sha256" || !Number.isSafeInteger(o.iter) || o.iter < 1 ||
+    !o || o.v !== 1 || o.kdf !== "pbkdf2-sha256" || !Number.isSafeInteger(o.iter) || o.iter < 100_000 || o.iter > 10_000_000 ||
     !str(o.salt) || !str(o.iv) || !str(o.ct) || typeof o.evm !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(o.evm)
   ) {
     throw new Error("not a wallet file");

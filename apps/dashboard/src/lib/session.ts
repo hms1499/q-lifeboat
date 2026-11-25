@@ -7,6 +7,7 @@ import {
   type UnifiedAccount,
 } from "@qorechain/sdk";
 import { bytesToHex, type Hex } from "viem";
+import { privateKeyToAddress } from "viem/accounts";
 import { decryptSeed, DEFAULT_ITERATIONS, encryptSeed, indexedDbStore, type KvStore } from "./keystore";
 
 const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -23,12 +24,14 @@ export function createSession(opts: SessionOptions = {}) {
   const clear = () => {
     seed?.fill(0);
     seed = null;
+    acct?.pqc.secretKey.fill(0);
     acct = null;
   };
 
   return {
     /** New seed + recovery code. The code is returned once; neither it nor the PQ key is kept or stored. */
-    async create(password: string): Promise<{ evm: Hex; code: string }> {
+    async create(password: string, o: { replace?: boolean } = {}): Promise<{ evm: Hex; code: string }> {
+      if (!o.replace && (await store.get())) throw new Error("a wallet already exists in this browser");
       clear();
       const s = crypto.getRandomValues(new Uint8Array(32));
       const code = generatePqcRecoveryCode();
@@ -43,18 +46,29 @@ export function createSession(opts: SessionOptions = {}) {
       const e = await store.get();
       if (!e) throw new Error("no wallet on this device");
       const s = await decryptSeed(e, password);
+      let ok = false;
+      try {
+        ok = s.length === 32 && privateKeyToAddress(bytesToHex(s)).toLowerCase() === e.evm.toLowerCase();
+      } catch {
+        ok = false;
+      }
+      if (!ok) {
+        s.fill(0);
+        throw new Error("this wallet file is damaged");
+      }
       clear();
       seed = s;
     },
 
     /** Derive the ML-DSA key from the code. Nothing is derived when the code is bad or the account differs. */
-    providePqc(code: string, registered: PqcStatus | null): void {
+    providePqc(code: string, registered: PqcStatus): void {
       if (!seed) throw new Error("wallet is locked");
       normalizeRecoveryCode(code); // early, readable error on a malformed code
       const a = unifiedAccountFromSeed(seed, { recoveryCode: code }); // throws on a checksum mismatch
-      if (registered?.registered) {
+      if (registered.registered) {
         const onChain = pqcStatusPublicKey(registered);
-        if (!onChain || !sameBytes(onChain, a.pqc.publicKey)) {
+        if (!onChain) throw new Error("could not read the account's registered post-quantum key");
+        if (!sameBytes(onChain, a.pqc.publicKey)) {
           throw new Error("this recovery code does not belong to this account");
         }
       }
@@ -66,16 +80,11 @@ export function createSession(opts: SessionOptions = {}) {
     classical(): { evm: Hex; privateKey: Hex } | null {
       if (!seed) return null;
       const privateKey = bytesToHex(seed);
-      return { evm: (acct?.evm as Hex | undefined) ?? deriveEvm(seed), privateKey };
+      return { evm: privateKeyToAddress(privateKey), privateKey };
     },
 
     lock: clear,
   };
-}
-
-function deriveEvm(seed: Uint8Array): Hex {
-  // The address depends on the seed only; a throwaway PQ secret is enough to build the account and is not kept.
-  return unifiedAccountFromSeed(seed, { recoveryCode: generatePqcRecoveryCode() }).evm as Hex;
 }
 
 export type Session = ReturnType<typeof createSession>;
