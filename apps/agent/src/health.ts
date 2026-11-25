@@ -20,6 +20,11 @@ export type HealthOptions = {
   log: (line: string) => void;
   now?: () => Date;
   startedAt?: string;
+  /**
+   * Whether the guardian window must be usable for the agent to be healthy. Default: always (the root agent). An
+   * on-demand guardian needs it only while the owner's window is open, or while that is unknown.
+   */
+  windowRequired?: () => boolean;
 };
 
 export type HealthSnapshot = {
@@ -32,6 +37,8 @@ export type HealthSnapshot = {
   alerts: { telegram: boolean; webhook: boolean };
   /** The last 10 notices the agent raised on its own (newest first), for the dashboard. `at` is unix seconds. */
   recentAlerts: { at: number; message: string }[];
+  /** False for an on-demand guardian while the owner's window is closed: no window is then the expected state. */
+  windowRequired: boolean;
 };
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -88,9 +95,11 @@ export function createHealth(opts: HealthOptions) {
       const window = w ? { live: w.live, remainingBlocks: w.remainingBlocks, remainingTxs: w.remainingTxs, remainingValue: w.remainingValue } : null;
       const low = balance !== null && balance < opts.gasLowWei;
       const tipFresh = lastBlockAt !== null && now().getTime() - lastBlockAt.getTime() <= TIP_STALE_MS;
+      const windowRequired = opts.windowRequired ? opts.windowRequired() : true;
+      // Usable as the rescue path sees it: live, scoped to this vault, enough blocks, txs and value left.
+      const windowOk = !windowRequired || (!!w && !needsWindow(w, opts.vault));
       return {
-        // Usable as the rescue path sees it: live, scoped to this vault, enough blocks, txs and value left.
-        ok: tipFresh && !!w && !needsWindow(w, opts.vault) && balance !== null && !low,
+        ok: tipFresh && windowOk && balance !== null && !low,
         startedAt,
         lastBlock,
         lastBlockAt: lastBlockAt ? lastBlockAt.toISOString() : null,
@@ -98,6 +107,7 @@ export function createHealth(opts: HealthOptions) {
         gas: { guardian: opts.guardian, balance, threshold: opts.gasLowWei, low },
         alerts: { ...opts.channels },
         recentAlerts: [...recent],
+        windowRequired,
       };
     },
   };

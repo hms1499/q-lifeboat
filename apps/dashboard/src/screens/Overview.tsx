@@ -384,8 +384,14 @@ function GuardianHealth({ cfg, win, health }: { cfg: AgentConfig; win: Polled<Ev
           <div>
             <dt>Guardian window</dt>
             <dd>
-              {!h?.window ? "Unknown" : h.window.live ? `${fmtInt(h.window.remainingBlocks)} blocks left` : "Closed"}
-              {h?.window?.live ? <small>{fmtInt(h.window.remainingTxs)} txs left, the agent renews it</small> : null}
+              {!h?.window ? (h?.windowRequired === false ? "Closed, on demand" : "Unknown") : h.window.live ? `${fmtInt(h.window.remainingBlocks)} blocks left` : "Closed"}
+              {h?.window?.live ? (
+                <small>
+                  {fmtInt(h.window.remainingTxs)} txs left
+                </small>
+              ) : h?.windowRequired === false ? (
+                <small>It opens just before yours, so the Guardian costs nothing while your account is closed</small>
+              ) : null}
             </dd>
           </div>
           <div>

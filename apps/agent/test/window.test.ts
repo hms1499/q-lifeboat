@@ -280,6 +280,38 @@ describe("createOnDemandWatcher", () => {
     return { w, ensure, peek, alert, state, advance: (ms: number) => (t += ms) };
   }
 
+  it("ownerLive: unknown until the first read, then the last owner window state", async () => {
+    const owner = { ...OWNER_IDLE };
+    const { w } = setup(owner);
+    expect(w.ownerLive()).toBeUndefined();
+    await w.tick();
+    expect(w.ownerLive()).toBe(false);
+    owner.live = true;
+    owner.remainingBlocks = 600n;
+    await w.tick();
+    expect(w.ownerLive()).toBe(true);
+  });
+
+  it("ownerLive: a failed owner-window read makes it unknown again (health then requires a window)", async () => {
+    let fail = false;
+    const owner = { ...OWNER_IDLE };
+    const keeper = { peek: vi.fn(), needsOpen: () => false, ensure: vi.fn(), lastOpen: () => null };
+    const w = createOnDemandWatcher({
+      readOwnerWindow: async () => {
+        if (fail) throw new Error("REST down");
+        return owner;
+      },
+      keeper: keeper as never,
+      alert: vi.fn(),
+      log: vi.fn(),
+    });
+    await w.tick();
+    expect(w.ownerLive()).toBe(false);
+    fail = true;
+    await expect(w.tick()).rejects.toThrow(/REST down/);
+    expect(w.ownerLive()).toBeUndefined();
+  });
+
   it("idle owner: no window is opened", async () => {
     const { w, ensure, peek, alert } = setup(OWNER_IDLE);
     for (let i = 0; i < 3; i++) await w.tick();

@@ -113,6 +113,8 @@ async function main() {
     notify: notifier.notify,
     log,
     startedAt,
+    // On-demand: no guardian window is the normal state while the owner's window is closed.
+    windowRequired: watcher ? () => watcher!.ownerLive() !== false : undefined,
   });
   notifyAlert = (m) => {
     health.recordAlert(m);

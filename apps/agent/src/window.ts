@@ -190,6 +190,7 @@ export function createOnDemandWatcher(deps: OnDemandDeps) {
   const now = deps.now ?? Date.now;
   let armedAt = -Infinity;
   let backoffUntil = -Infinity;
+  let ownerLive: boolean | undefined;
   const open = async (opts: { blocks: number; minRemaining?: bigint }, backoff = true): Promise<boolean> => {
     try {
       return await deps.keeper.ensure(opts);
@@ -199,7 +200,10 @@ export function createOnDemandWatcher(deps: OnDemandDeps) {
     }
   };
   async function check(backoff: boolean): Promise<void> {
+    // Unknown until this read succeeds: a failed read must not leave an old "closed" standing.
+    ownerLive = undefined;
     const owner = await deps.readOwnerWindow();
+    ownerLive = owner.live;
     if (!owner.live || now() < backoffUntil) return;
     if (!deps.keeper.needsOpen(await deps.keeper.peek())) return;
     const opened = await open({ blocks: guardianBlocksFor(owner.remainingBlocks) }, backoff);
@@ -209,6 +213,8 @@ export function createOnDemandWatcher(deps: OnDemandDeps) {
   }
   return {
     tick: () => check(true),
+    /** The owner's window at the last read: undefined before the first one (and the health check then requires a window). */
+    ownerLive: (): boolean | undefined => ownerLive,
     /**
      * One awaited check before the agent reports ready: an owner window that is already live gets its guardian window
      * now. Never throws (the rescue's last-resort ensure remains) and sets no backoff, so the next tick retries.
