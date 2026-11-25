@@ -481,17 +481,9 @@ Test `apps/dashboard/src/lib/attack.test.ts`, extend `withdrawal.test.ts`.
 
 ---
 
-## Schedule and cuts
+## Order and cuts
 
-| Date | Tasks |
-|---|---|
-| 11-25 | 0 (gate), 1, 2 |
-| 11-26 | 3, 4 |
-| 11-27 | 5, 6 |
-| 11-28 | 7, 8 |
-| 11-29 | 9, 10 |
-| 11-30 | 11, 12 (freeze) |
-
-Cut in this order if late: Task 11's policy editing (ship a read-only default list) → session unlock for returning
+Tasks run in order, as fast as each one's verify allows; Task 0 gates everything after it. Cut in this order if the
+freeze (2026-11-30) gets close: Task 11's policy editing (ship a read-only default list) → session unlock for returning
 users (re-enter the code each visit) → `retireIdle` (run it by hand). Never cut: Task 0's gate, the recovery-code split,
 Task 4, steps 1–6, the signature gate on writes.
