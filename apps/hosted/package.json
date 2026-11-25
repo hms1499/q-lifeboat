@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@qday/core": "workspace:*",
+    "@qorechain/sdk": "0.14.0",
     "viem": "^2.21.0"
   },
   "devDependencies": {

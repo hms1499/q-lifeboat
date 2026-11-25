@@ -2,6 +2,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, sep } from "node:path";
 import type { HostedStatus, OwnerPublicState } from "@qday/core";
+import type { Provisioner } from "./provision.ts";
 import { isOwnerAddress, type Store } from "./store.ts";
 
 export type HostedDeps = {
@@ -14,7 +15,41 @@ export type HostedDeps = {
   /** Injectable so later tasks can add the funder floor check. */
   status: () => HostedStatus | Promise<HostedStatus>;
   fetchImpl?: typeof fetch;
+  /** Starter pack, top-up, onboard and activate. Absent (no FUNDER_MNEMONIC): those routes answer 503. */
+  provision?: Pick<Provisioner, "starter" | "topup" | "onboard" | "activate">;
+  /** TRUST_PROXY=1: the client IP is the first X-Forwarded-For entry instead of the socket address. */
+  trustProxy?: boolean;
 };
+
+/** Largest JSON body a provisioning route reads (an ML-DSA-87 signature is ~9.3 KB as hex). */
+export const MAX_JSON_BODY = 64 * 1024;
+
+export function clientIp(req: IncomingMessage, trustProxy: boolean): string {
+  if (trustProxy) {
+    const xff = req.headers["x-forwarded-for"];
+    const first = (Array.isArray(xff) ? xff[0] : xff)?.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return req.socket.remoteAddress ?? "unknown";
+}
+
+/** Read a JSON body of at most MAX_JSON_BODY bytes. Past the cap it drains without buffering. */
+async function readJson(req: IncomingMessage): Promise<{ ok: true; value: unknown } | { ok: false; code: 400 | 413 }> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const c of req) {
+    size += (c as Buffer).length;
+    if (size <= MAX_JSON_BODY) chunks.push(c as Buffer);
+  }
+  if (size > MAX_JSON_BODY) return { ok: false, code: 413 };
+  try {
+    return { ok: true, value: JSON.parse(Buffer.concat(chunks).toString("utf8")) };
+  } catch {
+    return { ok: false, code: 400 };
+  }
+}
+
+const PROVISION_ROUTES = new Set(["/api/starter", "/api/topup", "/api/onboard", "/api/activate"]);
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
@@ -86,6 +121,18 @@ export function createHostedServer(deps: HostedDeps): Server {
       if (isUnder(url, "/qore-rest")) return void (await proxy(deps, deps.restUrl, stripPrefix("/qore-rest", url), req, res));
       if (isUnder(url, "/qore-rpc")) return void (await proxy(deps, deps.rpcUrl, stripPrefix("/qore-rpc", url), req, res));
       if (pathname === "/api/status" && req.method === "GET") return json(res, 200, await deps.status());
+      if (PROVISION_ROUTES.has(pathname) && req.method === "POST") {
+        const p = deps.provision;
+        if (!p) return json(res, 503, { error: "onboarding unavailable" });
+        const body = await readJson(req);
+        if (!body.ok) return json(res, body.code, { error: body.code === 413 ? "body too large" : "invalid json" });
+        const r =
+          pathname === "/api/starter" ? await p.starter(clientIp(req, deps.trustProxy === true), body.value)
+          : pathname === "/api/topup" ? await p.topup(body.value)
+          : pathname === "/api/onboard" ? await p.onboard(body.value)
+          : await p.activate(body.value);
+        return json(res, r.code, r.body);
+      }
       const m = /^\/api\/owner\/([^/]+)$/.exec(pathname);
       if (m && req.method === "GET") {
         if (!isOwnerAddress(m[1]!)) return json(res, 400, { error: "invalid owner address" });
