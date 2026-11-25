@@ -220,20 +220,20 @@ Test `packages/core/test/msgs.test.ts`, `packages/core/test/withdrawal.test.ts`.
   - In `on-demand` mode, `index.ts` skips the startup `ensure` and the periodic renewal; it runs `watcher.tick` every
     5 s. `rescue` still calls `ensure()` first, as today (last-resort path).
 
-- [ ] **Step 1: Failing tests:**
+- [x] **Step 1: Failing tests:**
   - `idle owner: no window is opened` (owner `live:false`; fake keeper's `open` never called over 3 ticks);
   - `owner window live, guardian none: opens once with blocks = remaining + 200` (two ticks → one open);
   - `arm opens before the owner window and suppresses the alert`;
   - `guardianBlocksFor caps at 14400`;
   - `POST /arm from a non-loopback peer → 403`; `blocks: 0` and `blocks: 14401` → 400; `windowMode always` → 404.
-- [ ] **Step 2:** `pnpm -F agent test` → FAIL.
-- [ ] **Step 3:** Implement as specified.
-- [ ] **Step 4:** `pnpm -F agent test` → PASS; `bash scripts/test-demo.sh` → PASS (always mode untouched).
-- [ ] **Step 5: On-chain.** Run the agent for a fresh demo owner with `GUARDIAN_WINDOW_MODE=on-demand` (`./demo.sh` run
+- [x] **Step 2:** `pnpm -F agent test` → FAIL.
+- [x] **Step 3:** Implement as specified.
+- [x] **Step 4:** `pnpm -F agent test` → PASS; `bash scripts/test-demo.sh` → PASS (always mode untouched).
+- [x] **Step 5: On-chain.** Run the agent for a fresh demo owner with `GUARDIAN_WINDOW_MODE=on-demand` (`./demo.sh` run
   env), confirm no guardian window tx while idle for 10 min, then `curl -X POST 127.0.0.1:8787/arm -d '{"blocks":600}' -H 'content-type: application/json'`,
   then open the owner window and drain with `pnpm cli attack`. Expected: rescue ≤ 3 blocks after the drain. Record the
   hashes in `docs/EVIDENCE.md`.
-- [ ] **Step 6:** Commit `feat(agent): on-demand guardian windows (arm + owner-window fallback)`.
+- [x] **Step 6:** Commit `feat(agent): on-demand guardian windows (arm + owner-window fallback)`.
 
 ---
 

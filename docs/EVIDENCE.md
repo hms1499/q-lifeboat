@@ -308,3 +308,14 @@ recovery code, not from the classical key. REST and the Tendermint RPC go throug
 | One hybrid tx from the browser: `MsgOpenEVMWindow` (1 tx, fUSD only) + `MsgUpdateSpendingRules` + `MsgRegisterAuthenticator` | code 0; ed25519 key linked (`revoked: false`) | `27B2E8FC6554BD60A710B522373D94E3722F7CCDBF94470387508482587B2EB9` |
 | An EVM tx signed in the browser with the account's classical key (viem local account) lands in that window | `approve` status success | `0xdb84d4e8a7211e62438280e8e2954985ee1ac6e48fb2f451ddc9fe1b5ef90a76` (EVM) |
 | A window sized to exactly its txs closes itself once used | after the 1 tx: `live: false`, `usedTxs 1/1`, 283 blocks still left | `evmWindowStatus` read right after |
+
+## Task 9 / plan Task 4: Guardian windows on demand (2026-11-25)
+
+`GUARDIAN_WINDOW_MODE=on-demand ./demo.sh` (root guardian `qor1l7pv44…m0pt`). demo.sh opens the owner's window (`setup`) before it
+starts the agent, then attacks.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| First build: an on-demand agent that reports ready before checking the owner's window rescues too late | FAIL: guardian window opened at block 10703568 by the rescue itself (14400 blocks), 3 blocks after the first drain (10703565); rescue at 10703572 = 7 blocks, 70% kept | run `20261125T025302Z`, window open `80FA8B99CA0110EFE1CE839F16C5794DD100F80FD8A18CF2455297E14133F55D` |
+| Fix (`9fbfb89`): on-demand startup awaits one owner-window check before the agent is ready | guardian window opened at block **10703705** with 790 blocks (owner window + 200), BEFORE the first drain (10703710) | `BE1C047DFAE5ACA01B20349D45B10AA7095B2E7F9AD28F08740EB7F894E75EAE` |
+| Rescue with an on-demand window | PASS: rescue at block 10703711 = **1 block** after the drain, **90% kept**; forged withdraw reverts `BadSignature`; agent key `fUSD.transfer` refused | run `20261125T025624Z`, rescue `0x1ad6854853ca3edb07c5aba3c811de9c45eb80a0f4be70292b2761f110cf4ef5` |
