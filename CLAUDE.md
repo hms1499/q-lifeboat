@@ -195,6 +195,13 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `unifiedAccountFromSeed`, `gene
 - One drill costs the funder ~1.5 QOR + fees and the drill guardian ~0.47 QOR (2026-11-24, run `20261124T081242Z`). The drill's
   incidents live in its run dir, never in `data/incidents.jsonl`; `GET /drill/runs` reads `verdict.json` only.
 
+- Hosted service locally (end-user plan): `cd apps/hosted && set -a && . ../../.env && set +a && HOSTED_DATA_DIR="$HOME/.config/qday/hosted-dev"
+  PORT=8080 DASHBOARD_DIST=../dashboard/dist pnpm start`, plus `pnpm -F dashboard dev` (proxies `/api` to :8080). Per-owner agents run on
+  127.0.0.1:9100+ and stop with the service. The Task 9 browser-run owners (passwords, testnet recovery codes, owner 1's encrypted seed) are
+  in `~/.config/qday/browser-run-task9*`; owner 2 (`0x8805…f536`) is the wallet in the Playwright profile.
+- Playwright: `browser_navigate` to the same URL with only a different hash does NOT reload the page; go to `about:blank` first (or
+  change the query string) after wiping IndexedDB/localStorage.
+
 ## Hard rules
 - Testnet only. Never commit mnemonics, private keys or `.env`. Keys live in `spike/.keys/` or
   `~/.config/qday/`, never in the repo.
