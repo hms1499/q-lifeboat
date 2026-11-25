@@ -199,6 +199,10 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `unifiedAccountFromSeed`, `gene
   PORT=8080 DASHBOARD_DIST=../dashboard/dist pnpm start`, plus `pnpm -F dashboard dev` (proxies `/api` to :8080). Per-owner agents run on
   127.0.0.1:9100+ and stop with the service. The Task 9 browser-run owners (passwords, testnet recovery codes, owner 1's encrypted seed) are
   in `~/.config/qday/browser-run-task9*`; owner 2 (`0x8805…f536`) is the wallet in the Playwright profile.
+- Hosted build of the dashboard: `VITE_HOSTED=1 pnpm -F dashboard build` (the Dockerfile does it). Without the flag a visitor
+  with no wallet reads the local agent on 127.0.0.1:8787. Each hosted agent takes ~130 MB RSS, the service ~140 MB (2026-11-25):
+  size the host's RAM to the agent cap. A hosted guardian spends ~0.225 QOR per arm (window) + rescue gas; a signed arm refills it
+  (< 0.5 → 1 QOR, 3/owner and 30 overall per UTC day). Deploy host not chosen yet (builder: free option = Oracle Always Free).
 - Playwright: `browser_navigate` to the same URL with only a different hash does NOT reload the page; go to `about:blank` first (or
   change the query string) after wiping IndexedDB/localStorage.
 
