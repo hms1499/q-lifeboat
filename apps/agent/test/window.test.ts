@@ -338,6 +338,30 @@ describe("createOnDemandWatcher", () => {
     expect(ensure).toHaveBeenCalledTimes(2);
   });
 
+  it("startup(): owner window live opens the guardian window (remaining + 200) and awaits it", async () => {
+    const { w, ensure, alert } = setup(OWNER_LIVE);
+    await w.startup();
+    expect(ensure).toHaveBeenCalledWith({ blocks: 800 });
+    expect(alert).toHaveBeenCalledTimes(1);
+  });
+
+  it("startup(): owner window closed sends no tx and reads no guardian status", async () => {
+    const { w, ensure, peek } = setup(OWNER_IDLE);
+    await w.startup();
+    expect(ensure).not.toHaveBeenCalled();
+    expect(peek).not.toHaveBeenCalled();
+  });
+
+  it("startup(): a throwing open is logged, does not throw and sets no backoff for the next tick", async () => {
+    const { w, ensure, state } = setup(OWNER_LIVE);
+    state.failOpen = true;
+    await expect(w.startup()).resolves.toBeUndefined();
+    expect(ensure).toHaveBeenCalledTimes(1);
+    state.failOpen = false;
+    await w.tick(); // no time advanced: a backoff would block this
+    expect(ensure).toHaveBeenCalledTimes(2);
+  });
+
   it("arm during an in-flight tick does not raise the outside-the-app alert", async () => {
     const { w, ensure, alert } = setup(OWNER_LIVE);
     let release!: () => void;

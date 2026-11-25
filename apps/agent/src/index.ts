@@ -79,6 +79,7 @@ async function main() {
       alert: (m) => notifyAlert(m),
       log,
     });
+    await watcher.startup(); // an owner window that is already live gets its guardian window before the agent is ready
     const onDemandTick = skipWhileBusy(() => watcher!.tick());
     setInterval(() => void onDemandTick().catch((e) => log(`on-demand window error: ${errorText(e)}`)), ON_DEMAND_TICK_MS);
   }

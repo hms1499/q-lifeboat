@@ -190,23 +190,35 @@ export function createOnDemandWatcher(deps: OnDemandDeps) {
   const now = deps.now ?? Date.now;
   let armedAt = -Infinity;
   let backoffUntil = -Infinity;
-  const open = async (opts: { blocks: number; minRemaining?: bigint } | { blocks: number }): Promise<boolean> => {
+  const open = async (opts: { blocks: number; minRemaining?: bigint }, backoff = true): Promise<boolean> => {
     try {
       return await deps.keeper.ensure(opts);
     } catch (e) {
-      backoffUntil = now() + OPEN_BACKOFF_MS;
+      if (backoff) backoffUntil = now() + OPEN_BACKOFF_MS;
       throw e;
     }
   };
+  async function check(backoff: boolean): Promise<void> {
+    const owner = await deps.readOwnerWindow();
+    if (!owner.live || now() < backoffUntil) return;
+    if (!deps.keeper.needsOpen(await deps.keeper.peek())) return;
+    const opened = await open({ blocks: guardianBlocksFor(owner.remainingBlocks) }, backoff);
+    if (!opened) return;
+    deps.log(`owner window live: guardian window opened (${deps.keeper.lastOpen()})`);
+    if (now() - armedAt > ARM_ALERT_SUPPRESS_MS) deps.alert("owner window opened outside the app; guardian window opened");
+  }
   return {
-    async tick(): Promise<void> {
-      const owner = await deps.readOwnerWindow();
-      if (!owner.live || now() < backoffUntil) return;
-      if (!deps.keeper.needsOpen(await deps.keeper.peek())) return;
-      const opened = await open({ blocks: guardianBlocksFor(owner.remainingBlocks) });
-      if (!opened) return;
-      deps.log(`owner window live: guardian window opened (${deps.keeper.lastOpen()})`);
-      if (now() - armedAt > ARM_ALERT_SUPPRESS_MS) deps.alert("owner window opened outside the app; guardian window opened");
+    tick: () => check(true),
+    /**
+     * One awaited check before the agent reports ready: an owner window that is already live gets its guardian window
+     * now. Never throws (the rescue's last-resort ensure remains) and sets no backoff, so the next tick retries.
+     */
+    async startup(): Promise<void> {
+      try {
+        await check(false);
+      } catch (e) {
+        deps.log(`startup window check failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
     },
     /**
      * Open a guardian window sized to cover an owner window of `blocks` (blocks + 200, capped). An existing usable
