@@ -1,4 +1,4 @@
-import { NETWORK, RESCUE_SELECTOR } from "@qday/core";
+import { NETWORK, ruleIsExact } from "@qday/core";
 import { evmWindowCost } from "@qorechain/evm/window";
 import type { AuthenticatorView, PqcStatus, SpendingRules } from "@qorechain/sdk";
 import { maxUint256, type Hex } from "viem";
@@ -133,12 +133,7 @@ export const onboardingWindowOpen = (w: WindowView | undefined): boolean => !!w 
 /** The env a CLI command that signs for the owner needs: tsx --env-file would otherwise fill in the root .env's vault. */
 export const ownerEnvNote = (vault: string): string => `Load this owner's run.env (OWNER_MNEMONIC) and export VAULT_ADDRESS=${vault}`;
 
-/** The agent key's rule is exactly `vault.rescue` + `uqor`: the first enabled rule applies (chain fact 8). */
-export function ruleIsExact(rules: SpendingRules, vault: string): boolean {
-  const r = rules.rules.find((x) => x.enabled);
-  if (!r) return false;
-  return r.allowedEvmCalls.length === 1 && same(r.allowedEvmCalls[0], `${vault}/${RESCUE_SELECTOR}`) && r.allowedDenoms.length === 1 && r.allowedDenoms[0] === "uqor";
-}
+export { ruleIsExact };
 
 /** An agent key that is linked, not revoked and not about to expire (same margin as `setup`). */
 export const hasLiveAuthenticator = (list: Pick<AuthenticatorView, "revoked" | "expiryUnix">[], nowUnix: number): boolean =>
