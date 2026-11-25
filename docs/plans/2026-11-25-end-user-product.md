@@ -286,19 +286,19 @@ Test `apps/hosted/test/limits.test.ts`, `apps/hosted/test/provision.test.ts`.
     supervisor (Task 7).
   - Nonces: each signed route refuses a `(owner, nonce)` seen in the last 10 min (in-memory set + expiry).
 
-- [ ] **Step 1: Failing tests:**
+- [x] **Step 1: Failing tests:**
   - limits: 4th request from one IP within 24 h → `ip-limit`; 31st of the day → `daily-cap`; funder at 19.9 QOR →
     `funder-low`; same owner twice → `owner-used`; `/api/status` says `paused` with `funder-low`;
   - `onboard twice returns the same guardian` (fake chain deps; `fund` called once);
   - `onboard with an expired request → 401`; `same nonce twice → 409`; `activate with a vault whose guardian() differs → 409`;
   - `secrets are written before the fund tx` (call order on fakes).
-- [ ] **Step 2:** `pnpm -F hosted test` → FAIL.
-- [ ] **Step 3:** Implement; chain I/O through an injectable `ChainDeps` like `FreshDeps` in `apps/cli/src/fresh.ts`.
-- [ ] **Step 4:** `pnpm -F hosted test` → PASS.
-- [ ] **Step 5: On-chain.** Run the service locally against diana with the real funder; `curl` `/api/starter` for a
+- [x] **Step 2:** `pnpm -F hosted test` → FAIL.
+- [x] **Step 3:** Implement; chain I/O through an injectable `ChainDeps` like `FreshDeps` in `apps/cli/src/fresh.ts`.
+- [x] **Step 4:** `pnpm -F hosted test` → PASS.
+- [ ] **Step 5: On-chain.** (merged into Task 9's browser run) Run the service locally against diana with the real funder; `curl` `/api/starter` for a
   fresh address, then `/api/onboard` with a request signed by a Node script using Task 3. Expected: fund tx, guardian
   fund + register txs. Record the hashes in `docs/EVIDENCE.md`.
-- [ ] **Step 6:** Commit `feat(hosted): starter pack, guardian provisioning and activation`.
+- [x] **Step 6:** Commit `feat(hosted): starter pack, guardian provisioning and activation`.
 
 ---
 
