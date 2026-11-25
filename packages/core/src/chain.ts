@@ -15,8 +15,22 @@ export const publicClient = createPublicClient({ chain, transport: http() });
 /** JSON.stringify replacer that renders bigint as a decimal string. */
 export const bigintReplacer = (_: string, v: unknown) => (typeof v === "bigint" ? v.toString() : v);
 
+let current = { rest: NETWORK.rest as string, rpc: NETWORK.rpc as string };
+
+/**
+ * Override the REST and Tendermint RPC bases (browser code points them at same-origin proxies).
+ * Each call replaces the whole setting: an omitted field falls back to the NETWORK default.
+ */
+export function configureEndpoints(e: { rest?: string; rpc?: string }): void {
+  current = { rest: e.rest ?? NETWORK.rest, rpc: e.rpc ?? NETWORK.rpc };
+}
+
+export function endpoints(): { rest: string; rpc: string } {
+  return { ...current };
+}
+
 export async function getJson(path: string): Promise<any | null> {
-  const r = await fetch(`${NETWORK.rest}${path}`);
+  const r = await fetch(`${current.rest}${path}`);
   return r.status === 200 ? r.json() : null;
 }
 
@@ -56,8 +70,8 @@ export async function broadcastTx(
   if (!base || base.account_number === undefined || base.sequence === undefined) {
     throw new Error(`could not read account number/sequence for ${acc.cosmos} (is the account funded?)`);
   }
-  const signer = new EthNativeSigner(acc, { signMode: opts.signMode ?? "hybrid", rest: NETWORK.rest });
-  const transport = await StargateClient.connect(NETWORK.rpc);
+  const signer = new EthNativeSigner(acc, { signMode: opts.signMode ?? "hybrid", rest: current.rest });
+  const transport = await StargateClient.connect(current.rpc);
   const req = {
     chainId: NETWORK.chainId,
     accountNumber: BigInt(base.account_number),
