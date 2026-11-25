@@ -1,9 +1,10 @@
 import { APPROVE_GAS, buildGuardianLinkMsgsFromProof, buildRegisterMsg, DEPLOY_GAS, MINT_AMOUNT, MINT_GAS, NETWORK, ruleIsExact, type TokenSymbol } from "@qday/core";
 import { broadcastTx, uqorBalance } from "@qday/core/chain";
-import { clearPqcStatusCache, normalizeRecoveryCode, type PqcStatus } from "@qorechain/sdk";
+import { clearPqcStatusCache, normalizeRecoveryCode } from "@qorechain/sdk";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { bytesToHex, erc20Abi, maxUint256, parseAbi, type Hex } from "viem";
-import { TxHash } from "../components/ui";
+import { CodeEntry, Hint, IDLE, NeedKeys, RunView, track, UnlockForm, type Run } from "../components/Keys";
+import { hostedAgentUrl, setAgentBase } from "../lib/agent";
 import { appSession, DIANA_TOKENS, hosted, ownerTx, readVaultRoles } from "../lib/appWallet";
 import { publicClient, qorAddress, readAuthenticators, readFees, readPqcStatus, readSpendingRules } from "../lib/chain";
 import { errorText, fmtUqor, shortAddr } from "../lib/format";
@@ -40,51 +41,6 @@ const TITLES: Record<OnboardStep, string> = {
 /** The recovery code just created: memory only, shown once, dropped as soon as it is confirmed. Never stored. */
 let freshCode: string | null = null;
 
-/** One action: idle, busy with its current step, or finished with the tx hashes it sent. */
-type Run =
-  | { state: "idle" }
-  | { state: "busy"; step: string; hashes: string[] }
-  | { state: "done"; message: string; hashes: string[] }
-  | { state: "error"; message: string; hashes: string[] };
-const IDLE: Run = { state: "idle" };
-
-function RunView({ run }: { run: Run }) {
-  if (run.state === "idle") return null;
-  return (
-    <div style={{ marginTop: 10 }}>
-      {run.state === "error" ? <div className="err">{run.message}</div> : null}
-      {run.state === "done" ? <div className="ok-note">{run.message}</div> : null}
-      {run.state === "busy" ? (
-        <div style={{ fontSize: 13, color: "var(--muted)" }} role="status">
-          {run.step}
-        </div>
-      ) : null}
-      {run.hashes.map((h) => (
-        <div key={h} style={{ fontSize: 12, color: "var(--harbour-2)", marginTop: 4 }}>
-          tx <TxHash hash={h} full />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Hint({ children }: { children: ReactNode }) {
-  return <p style={{ margin: "6px 0 12px", fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>{children}</p>;
-}
-
-/** Run `f`, tracking progress in `set`; `f` reports steps and hashes through `busy`. */
-async function track(set: (r: Run) => void, f: (busy: (step: string) => void, hashes: string[]) => Promise<string>) {
-  const hashes: string[] = [];
-  const busy = (step: string) => set({ state: "busy", step, hashes: [...hashes] });
-  try {
-    busy("Starting…");
-    const message = await f(busy, hashes);
-    set({ state: "done", message, hashes: [...hashes] });
-  } catch (e) {
-    set({ state: "error", message: errorText(e), hashes: [...hashes] });
-  }
-}
-
 /** The owner's three token allowances to the vault. */
 async function readAllowances(owner: Hex, vault: Hex): Promise<Record<TokenSymbol, bigint>> {
   const [fUSD, fETH, fBTC] = await Promise.all(
@@ -99,81 +55,6 @@ async function readBalances(owner: Hex, vault: Hex): Promise<{ owned: Record<Tok
     Promise.all(SYMBOLS.map((s) => publicClient.readContract({ address: DIANA_TOKENS[s], abi: erc20Abi, functionName: "balanceOf", args: [who] })));
   const [o, v] = await Promise.all([read(owner), read(vault)]);
   return { owned: { fUSD: o[0]!, fETH: o[1]!, fBTC: o[2]! }, inVault: { fUSD: v[0]!, fETH: v[1]!, fBTC: v[2]! } };
-}
-
-/** Password form: unlock the wallet stored in this browser. */
-function UnlockForm({ onDone }: { onDone: () => void }) {
-  const [pw, setPw] = useState("");
-  const [run, setRun] = useState<Run>(IDLE);
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    await track(setRun, async (busy) => {
-      busy("Unlocking…");
-      await appSession.unlock(pw);
-      setPw("");
-      onDone();
-      return "Unlocked.";
-    });
-  }
-  return (
-    <form className="form" onSubmit={(e) => void submit(e)} style={{ marginTop: 12 }}>
-      <Hint>Your wallet is locked. Enter the password you chose when you created it.</Hint>
-      <label>
-        Password
-        <input className="input" type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} />
-      </label>
-      <div className="actions">
-        <button type="submit" className="btn primary" disabled={!pw || run.state === "busy"}>
-          Unlock
-        </button>
-      </div>
-      <RunView run={run} />
-    </form>
-  );
-}
-
-/** Recovery code form: derive the post-quantum key for this session, checked against the key on chain. */
-function CodeEntry({ pqc, onDone, why, extra }: { pqc: PqcStatus | undefined; onDone: () => void; why: string; extra?: ReactNode }) {
-  const [code, setCode] = useState("");
-  const [err, setErr] = useState<string | null>(null);
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    if (!pqc) return;
-    try {
-      // Refuses a mistyped code, or one whose key differs from the one registered on chain, before anything is signed.
-      appSession.providePqc(code, pqc);
-      setCode("");
-      setErr(null);
-      onDone();
-    } catch (x) {
-      setErr(errorText(x));
-    }
-  }
-  return (
-    <form className="form" onSubmit={submit} style={{ marginTop: 12 }}>
-      <Hint>{why}</Hint>
-      <label>
-        Recovery code
-        <input className="input mono" autoComplete="off" spellCheck={false} placeholder="QRC1-…" value={code} onChange={(e) => setCode(e.target.value)} />
-      </label>
-      <div className="actions">
-        <button type="submit" className="btn primary" disabled={!code.trim() || !pqc}>
-          {pqc ? "Use this code" : "Reading your key on chain…"}
-        </button>
-      </div>
-      {err ? <div className="err">{err}</div> : null}
-      {extra}
-    </form>
-  );
-}
-
-/** Signing steps need the unlocked wallet AND the post-quantum key from the recovery code. */
-function NeedKeys({ pqc, onChange, children }: { pqc: PqcStatus | undefined; onChange: () => void; children: ReactNode }) {
-  if (!appSession.classical()) return <UnlockForm onDone={onChange} />;
-  if (!appSession.account()) {
-    return <CodeEntry pqc={pqc} onDone={onChange} why="This step is signed with your post-quantum key. Type your recovery code: it stays in this tab's memory and is never stored." />;
-  }
-  return <>{children}</>;
 }
 
 function CodeGroups({ code }: { code: string }) {
@@ -318,7 +199,9 @@ export function Start() {
         const [st, key] = await Promise.all([hosted.owner(owner), readPqcStatus(owner)]);
         if (!canStartOver(st, key)) throw new Error("this wallet already received a starter pack or registered a key: it can't be replaced");
       }
-      const { code } = await appSession.create(pw, { replace: restarting });
+      const { evm, code } = await appSession.create(pw, { replace: restarting });
+      // Overview, Incidents and Recover now read this owner's hosted Guardian.
+      setAgentBase(hostedAgentUrl(evm), evm);
       setRestarting(false);
       freshCode = code;
       setPw("");
@@ -814,6 +697,16 @@ export function Start() {
                     ? `Vault ${vault ?? ""} holds what your Guardian ${guardian ?? ""} rescues. Your account's EVM window stays closed until the app opens a short one for you.`
                     : "Every step turns ✓ only when the chain or the service confirms it. Finish the open steps."}
                 </div>
+                {current === "finished" ? (
+                  <div className="actions">
+                    <a className="btn primary" href="#/attack">
+                      Try an attack
+                    </a>
+                    <a className="btn" href="#/overview">
+                      Go to Overview
+                    </a>
+                  </div>
+                ) : null}
               </div>
             </div>
           )}

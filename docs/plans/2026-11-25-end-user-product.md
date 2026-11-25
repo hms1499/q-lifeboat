@@ -435,15 +435,15 @@ Test `apps/dashboard/src/lib/attack.test.ts`, extend `withdrawal.test.ts`.
     (= `buildWithdrawal(p, acc.pqc.secretKey)` after `assertRegisteredKey`). Recover asks for the recovery code if the
     session has no PQ key, runs the existing `checkWithdrawal` list, then submits `vault.withdraw` with
     `withOwnerWindow([vault], txs: 1)`, `WITHDRAW_GAS`.
-- [ ] **Step 1: Failing tests:** `attackTarget` differs per call and is not in a given trusted list;
+- [x] **Step 1: Failing tests:** `attackTarget` differs per call and is not in a given trusted list;
   `signWithdrawalInBrowser` output passes `checkWithdrawal` with fake chain reads (key/signature/message/nonce ✓);
   a session whose PQ key differs from the registered one throws before signing.
-- [ ] **Step 2:** `pnpm -F dashboard test` → FAIL.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** `pnpm -F dashboard test && pnpm -F dashboard build` → PASS.
-- [ ] **Step 5: On-chain.** Continue the Task 9 account: attack → rescue ≤ 3 blocks after the transfer, ≥ 80 % kept;
+- [x] **Step 2:** `pnpm -F dashboard test` → FAIL.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** `pnpm -F dashboard test && pnpm -F dashboard build` → PASS.
+- [x] **Step 5: On-chain.** Continue the Task 9 account: attack → rescue ≤ 3 blocks after the transfer, ≥ 80 % kept;
   withdraw 50 fUSD to a fresh address → balance arrives. Record hashes.
-- [ ] **Step 6:** Commit `feat(dashboard): try-an-attack and in-browser withdrawals`.
+- [x] **Step 6:** Commit `feat(dashboard): try-an-attack and in-browser withdrawals`.
 
 ---
 

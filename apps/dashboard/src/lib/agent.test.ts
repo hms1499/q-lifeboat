@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AGENT_URL, putPolicy, type Policy } from "./agent";
+import { AGENT_URL, agentBase, fetchHealth, onAgentBaseChange, putPolicy, resetAgentBase, setAgentBase, type Policy } from "./agent";
 
 const policy: Policy = { trusted: [{ label: "Alice", address: "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01", kind: "wallet" }], maxOutbound: "0" };
 
@@ -41,5 +41,29 @@ describe("putPolicy", () => {
   it("refuses a 2xx body that is not a policy", async () => {
     stubFetch(200, { ok: true });
     await expect(putPolicy(policy)).rejects.toThrow(/unexpected body/);
+  });
+});
+
+describe("agent base (hosted: /api/o/<owner>)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetAgentBase();
+  });
+
+  it("defaults to AGENT_URL with no expected owner", () => {
+    expect(agentBase()).toEqual({ url: AGENT_URL, owner: null });
+  });
+
+  it("setAgentBase points every read at the new base, names its owner and tells listeners", async () => {
+    const seen: string[] = [];
+    const off = onAgentBaseChange((b) => seen.push(b.url));
+    setAgentBase("http://h.test/api/o/0xabc/", "0xABC");
+    expect(agentBase()).toEqual({ url: "http://h.test/api/o/0xabc", owner: "0xabc" });
+    const f = stubFetch(200, { ok: true });
+    await fetchHealth();
+    expect((f.mock.calls[0] as unknown as [string])[0]).toBe("http://h.test/api/o/0xabc/health");
+    off();
+    setAgentBase("http://h.test/api/o/0xdef", "0xdef");
+    expect(seen).toEqual(["http://h.test/api/o/0xabc"]);
   });
 });

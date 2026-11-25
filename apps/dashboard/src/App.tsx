@@ -13,6 +13,7 @@ import { Protect } from "./screens/Protect";
 import { Recover } from "./screens/Recover";
 import { Rules } from "./screens/Rules";
 import { Start } from "./screens/Start";
+import { Attack } from "./screens/Attack";
 import { useApp } from "./state";
 
 const NAV_GROUPS = [
@@ -26,6 +27,7 @@ const NAV_GROUPS = [
       { id: "overview", label: "Overview", href: "#/overview" },
       { id: "incidents", label: "Incidents", href: "#/incidents" },
       { id: "recover", label: "Recover", href: "#/recover" },
+      { id: "attack", label: "Try an attack", href: "#/attack" },
     ],
   },
   {
@@ -166,7 +168,7 @@ function useHasSeed(): boolean | undefined {
   return has;
 }
 
-const SCREENS = ["overview", "incidents", "recover", "rules", "protect", "drill", "start"] as const;
+const SCREENS = ["overview", "incidents", "recover", "rules", "protect", "drill", "start", "attack"] as const;
 type ScreenId = (typeof SCREENS)[number];
 
 export function App() {
@@ -189,6 +191,8 @@ export function App() {
           <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
             {active === null ? null : active === "start" ? (
               <Start />
+            ) : active === "attack" ? (
+              <Attack />
             ) : active === "incidents" ? (
               <Incidents selected={id} />
             ) : active === "recover" ? (

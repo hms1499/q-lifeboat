@@ -2,7 +2,7 @@ import { withdrawalMessage } from "@qday/core";
 import { generatePqcKeypair, ML_DSA_87_SIGNATURE_LENGTH, pqcSign, type PqcStatus } from "@qorechain/sdk";
 import { bytesToHex, type Hex } from "viem";
 import { describe, expect, it } from "vitest";
-import { checkWithdrawal, parseWithdrawalJson, type ParsedWithdrawal, type WithdrawalDeps } from "./withdrawal";
+import { checkWithdrawal, parseWithdrawalJson, signWithdrawalInBrowser, type ParsedWithdrawal, type WithdrawalDeps } from "./withdrawal";
 
 const VAULT = "0x17d867860a0A0Ff528dF655439ff59176b061B3C" as Hex;
 const TO = "0x9858EfFD232B4033E47d90003D41EC34EcaEda94" as Hex;
@@ -141,5 +141,29 @@ describe("parseWithdrawalJson recipient", () => {
   it("test_refusesZeroAddressRecipient: paying to 0x0 would burn the funds", () => {
     const f = signed().file;
     expect(() => parse({ ...f, to: QOR })).toThrow(/zero address/);
+  });
+});
+
+describe("signWithdrawalInBrowser", () => {
+  const acc = { pqc: { publicKey: kp.publicKey, secretKey: kp.secretKey } } as unknown as import("@qorechain/sdk").UnifiedAccount;
+  const p = { vault: VAULT, to: TO, token: FUSD, amount: 10n ** 18n, nonce: 2n };
+
+  it("signs with the session's PQ key; the result passes every check", async () => {
+    const w = signWithdrawalInBrowser(acc, p, status());
+    expect(w).toMatchObject({ vault: VAULT, to: TO, token: FUSD, amount: 10n ** 18n, nonce: 2n });
+    const cs = await checkWithdrawal(w, deps());
+    expect(cs.map((c) => [c.id, c.status])).toEqual([
+      ["vault", "pass"],
+      ["key", "pass"],
+      ["signature", "pass"],
+      ["message", "pass"],
+      ["nonce", "pass"],
+      ["balance", "pass"],
+    ]);
+  });
+
+  it("a session key that differs from the registered one throws before signing", () => {
+    expect(() => signWithdrawalInBrowser(acc, p, status({ pubkey: other.publicKey }))).toThrow(/differs/);
+    expect(() => signWithdrawalInBrowser(acc, p, status({ registered: false }))).toThrow(/no PQC key/);
   });
 });
