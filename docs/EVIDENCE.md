@@ -292,3 +292,19 @@ spliced ML-DSA part. Then the agent co-signs every report (branch `task-8-submis
 | The same report with one word added to `summary` (the `/incidents` response changed in the browser) | ✗ ed25519 "does not match the report body" and ✗ co-signature `CLASSICAL_SIGNATURE_INVALID` | same browser session |
 | Older reports (no `guardianSig`) | co-signature check n/a, report still ✓ on the ed25519 checks | root owner's 5 reports |
 
+
+## Task 9 spike: hybrid txs from a browser page, recovery-code PQ key (2026-11-25)
+
+Throwaway page (`spike/browser-hybrid/`, Vite on 127.0.0.1:5174, driven by Playwright). The account is
+`unifiedAccountFromSeed(random 32 bytes, { recoveryCode: generatePqcRecoveryCode() })`: its ML-DSA-87 key comes from the
+recovery code, not from the classical key. REST and the Tendermint RPC go through same-origin proxies `/qore-rest` and
+`/qore-rpc`. Account `0x0698A02Ea2d4cE6A064Bf9a61b5C6f8dd0879557` / `qor1q6v2qt4z6n8x5pjtlxnpkhr03hgg092hjgtnek`.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| diana's Tendermint RPC sends no CORS headers (like REST, chain fact 18) | `OPTIONS` and `POST` from Origin `https://example.org`: no `Access-Control-Allow-Origin` | `curl` 2026-11-25 02:36Z |
+| Funder sends the new account 1.5 QOR | OK | `FC190BE2A938958F215D91DD1DCAB440904B827D067B12414D3E2C56B54028B1` |
+| The browser registers the recovery-code ML-DSA-87 key with a classically signed `MsgRegisterPQCKeyV2` | `registered: true`, `possessionProven: true`, on-chain pubkey = the recovery-code key | `A99A99324EC450487AA25B2AF07DAF37232E09C3B8B4E04A9D66E43609DA66BE` |
+| One hybrid tx from the browser: `MsgOpenEVMWindow` (1 tx, fUSD only) + `MsgUpdateSpendingRules` + `MsgRegisterAuthenticator` | code 0; ed25519 key linked (`revoked: false`) | `27B2E8FC6554BD60A710B522373D94E3722F7CCDBF94470387508482587B2EB9` |
+| An EVM tx signed in the browser with the account's classical key (viem local account) lands in that window | `approve` status success | `0xdb84d4e8a7211e62438280e8e2954985ee1ac6e48fb2f451ddc9fe1b5ef90a76` (EVM) |
+| A window sized to exactly its txs closes itself once used | after the 1 tx: `live: false`, `usedTxs 1/1`, 283 blocks still left | `evmWindowStatus` read right after |

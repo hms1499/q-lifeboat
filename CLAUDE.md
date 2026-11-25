@@ -151,7 +151,15 @@ checkboxes and the docs below are the handoff state, not the chat history.
     the SAME account is accepted and makes it live again with a new expiry (tx `D06BA5BD…`, 2026-11-24), so turning protection back
     on needs no new agent key. A hybrid tx costs the signer 0.225 QOR of fees: a demo owner that spent its funding cannot send one.
 
-SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSign`, `EthNativeSigner`,
+22. diana's Tendermint RPC (`rpc-testnet.qore.host`) sends NO CORS headers either (2026-11-25): browser code broadcasts through a
+    same-origin `/qore-rpc` proxy, like `/qore-rest`.
+23. A browser page can run the whole hybrid flow (Task 9 spike, 2026-11-25): `unifiedAccountFromSeed(seed, { recoveryCode })` gives an
+    account whose ML-DSA-87 key comes from a `QRC1-…` code, independent of the classical key; it registers with a classical
+    `MsgRegisterPQCKeyV2` (`A99A9932…`, possession proven), then window + link go in ONE hybrid tx (`27B2E8FC…`), and a viem
+    local-account EVM tx lands in that window. A window sized to exactly its txs shows `live: false` once they are used.
+
+SDK names that exist in `@qorechain/sdk@0.14.0`: `unifiedAccountFromSeed`, `generatePqcRecoveryCode`, `pqcKeyFromRecoveryCode`,
+`normalizeRecoveryCode`, `pqcVerify`, `generatePqcKeypair`, `signProofOfPossession`, `buildRegisterPqcKeyMsg`, `deriveUnifiedAccount`, `pqcSign`, `EthNativeSigner`,
 `linkAuthenticatorMsgs`, `signAuthenticatorLinkEd25519`, `revokeAuthenticatorMsg`,
 `buildPhantomExecuteEvm`, `fetchAuthNonce`, `fetchSpendingRules`, `fetchAuthenticators`,
 `decodeAuthenticatorExecutions`, `resolveEvmAuthDigestVersion`, `openEvmWindowMsg`,
@@ -169,7 +177,7 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSig
   reads (the agent's watcher) pass `cacheTime: 0` and batch tip + logs in one request (`apps/agent/src/rpc.ts`).
 - Owner windows of 600 blocks last ~14 min (1.4 s blocks): when the builder clicks MetaMask txs by hand, open
   1800 blocks (`pnpm cli window open` defaults to 1800 blocks, 5 txs).
-- `FUNDER_MNEMONIC` in root `.env` is the builder's 175-QOR wallet (`qor14zxae5…`, `0xa88D…`): its SDK-derived ML-DSA
+- `FUNDER_MNEMONIC` in root `.env` is the builder's wallet (82.9 QOR on 2026-11-25) (`qor14zxae5…`, `0xa88D…`): its SDK-derived ML-DSA
   key matches the registered one, so the CLI signs hybrid for it. `spike/probe/fund.mjs check|send` moves QOR.
 - `./demo.sh --runs 3` needs ~2 QOR per run in the funder (root `OWNER_MNEMONIC`) and ~0.25 QOR per run in the
   guardian (`GAS_MNEMONIC`). `./demo.sh --resume <run.env>` finishes a funded run whose later step failed.

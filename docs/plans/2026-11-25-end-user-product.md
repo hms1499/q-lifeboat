@@ -97,20 +97,20 @@ apps/dashboard/src/
 
 **Files:** `spike/browser-hybrid/` only (gitignored). Never imported by product code.
 
-- [ ] **Step 1:** Check CORS on diana's Tendermint RPC:
+- [x] **Step 1:** Check CORS on diana's Tendermint RPC:
   `curl -si -X OPTIONS https://rpc-testnet.qore.host -H 'Origin: https://example.org' -H 'Access-Control-Request-Method: POST' | head -20`.
   Record whether `Access-Control-Allow-Origin` is present (decides whether Task 1 needs `/qore-rpc`).
-- [ ] **Step 2:** A Vite page with the dashboard's `/qore-rest` proxy (+ `/qore-rpc` if Step 1 says so). It generates
+- [x] **Step 2:** A Vite page with the dashboard's `/qore-rest` proxy (+ `/qore-rpc` if Step 1 says so). It generates
   `seed = crypto.getRandomValues(32)` and `code = generatePqcRecoveryCode()`, builds
   `acc = unifiedAccountFromSeed(seed, { recoveryCode: code })`, and prints `acc.evm`, `acc.cosmos`.
-- [ ] **Step 3:** Fund `acc.cosmos` with 1.5 QOR: `cd spike/probe && node fund.mjs send <qor1…> 1.5`.
-- [ ] **Step 4:** From the page: classical `MsgRegisterPQCKeyV2` (`buildRegisterMsg`), then a hybrid
+- [x] **Step 3:** Fund `acc.cosmos` with 1.5 QOR: `cd spike/probe && node fund.mjs send <qor1…> 1.5`.
+- [x] **Step 4:** From the page: classical `MsgRegisterPQCKeyV2` (`buildRegisterMsg`), then a hybrid
   `openEvmWindowMsg` (scoped, 2 txs), then a hybrid link of a throwaway ed25519 key (`linkAuthenticatorMsgs`), each
   through `broadcastTx` with REST/RPC through the proxy. Then one EVM tx from `acc` inside the window with viem's local
   account (a 0-value `approve`).
-- [ ] **Step 5:** Expected: four tx hashes, `fetchPqcStatus` shows `registered: true, possessionProven: true` with the
+- [x] **Step 5:** Expected: four tx hashes, `fetchPqcStatus` shows `registered: true, possessionProven: true` with the
   recovery-code pubkey. Record the hashes and the CORS result in `docs/EVIDENCE.md` ("Task 9 spike").
-- [ ] **Step 6: Gate.** If any step fails, stop and report to the builder with what was tried. Nothing else starts.
+- [x] **Step 6: Gate.** If any step fails, stop and report to the builder with what was tried. Nothing else starts.
 
 ---
 
