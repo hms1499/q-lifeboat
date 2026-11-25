@@ -20,6 +20,8 @@ export type OwnerState = {
   createdAt: number;
   lastActiveAt: number;
   topups: number;
+  /** Arm refills of the guardian's gas on UTC day `day` (days since the epoch). */
+  refills?: { day: number; n: number };
 };
 
 export type OwnerSecrets = { GAS_MNEMONIC: string; AGENT_ED25519_SK: string };

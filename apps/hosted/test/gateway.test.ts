@@ -32,6 +32,9 @@ const running = new Map<string, number>();
 const calls: string[] = [];
 /** The owner's lastActiveAt as revive saw it. */
 const reviveSaw: number[] = [];
+/** Owners refilled, in call order, with what the agent had seen by then. */
+const refills: string[] = [];
+let refillFails = false;
 const supervisor: GatewaySupervisor = {
   portOf: (o) => running.get(o.toLowerCase()),
   start: async (o) => {
@@ -122,7 +125,20 @@ beforeEach(async () => {
     [otherAcc.cosmos, { registered: true, possessionProven: true, pubkey: otherAcc.pqc.publicKey }],
   ]);
   const auth = createOwnerAuth({ pqcStatus: async (c) => pqc.get(c) ?? { registered: false }, now: () => t });
-  const gateway = createGateway({ store, supervisor, auth, now: () => t, sleep: async () => {}, readyTimeoutMs: 2000 });
+  refills.length = 0;
+  refillFails = false;
+  const gateway = createGateway({
+    store,
+    supervisor,
+    auth,
+    now: () => t,
+    sleep: async () => {},
+    readyTimeoutMs: 2000,
+    refill: async (o) => {
+      refills.push(`${o}:${seen.map((x) => x.url).join(",")}`);
+      if (refillFails) throw new Error("funder RPC down");
+    },
+  });
   hosted = createHostedServer({ distDir: mkdtempSync(join(tmpdir(), "d-")), restUrl: "http://x", rpcUrl: "http://x", store, status: () => ({ onboarding: "open", activeGuardians: 0 }), gateway });
   base = `http://127.0.0.1:${await listen(hosted)}`;
 });
@@ -277,6 +293,35 @@ describe("gateway signed writes", () => {
     t = T0 + 11_000;
     expect((await call("POST", `/api/o/${O()}/arm`, sign(ownerAcc, "arm", { blocks: 600 }))).status).toBe(200);
     expect(reviveSaw).toEqual([T0 + 11_000]);
+  });
+
+  it("a signed arm refills the guardian's gas BEFORE the agent opens its window", async () => {
+    const r = await call("POST", `/api/o/${O()}/arm`, sign(ownerAcc, "arm", { blocks: 600 }));
+    expect(r.status).toBe(200);
+    expect(refills).toEqual([`${O().toLowerCase()}:`]);
+    expect(seen.map((x) => x.url)).toEqual(["/arm"]);
+  });
+
+  it("an arm asking for more than 1800 blocks, or a non-integer, is refused before any refill or forward", async () => {
+    for (const blocks of [1801, 14_400, 0, 1.5, "600"]) {
+      const r = await call("POST", `/api/o/${O()}/arm`, sign(ownerAcc, "arm", { blocks }));
+      expect(r.status).toBe(400);
+    }
+    expect(refills).toEqual([]);
+    expect(seen).toEqual([]);
+  });
+
+  it("a failed refill does not block the arm (the guardian may still hold enough)", async () => {
+    refillFails = true;
+    expect((await call("POST", `/api/o/${O()}/arm`, sign(ownerAcc, "arm", { blocks: 600 }))).status).toBe(200);
+    expect(seen.map((x) => x.url)).toEqual(["/arm"]);
+  });
+
+  it("no refill for an unsigned arm, a policy write or a stop", async () => {
+    await call("POST", `/api/o/${O()}/arm`, { blocks: 600 });
+    await call("PUT", `/api/o/${O()}/policy`, sign(ownerAcc, "policy", { trusted: [], maxOutbound: "0" }));
+    await call("POST", `/api/o/${O()}/stop`, sign(ownerAcc, "stop", {}));
+    expect(refills).toEqual([]);
   });
 
   it("a signed arm on a retired owner revives it (re-fund + start) and forwards", async () => {

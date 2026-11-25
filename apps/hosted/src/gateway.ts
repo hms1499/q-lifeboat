@@ -25,6 +25,8 @@ export type GatewayDeps = {
   sleep?(ms: number): Promise<void>;
   /** How long a signed `arm` waits for a just-started agent to answer /health. */
   readyTimeoutMs?: number;
+  /** Top the owner's guardian up before a signed `arm` reaches its agent (the provisioner's `refillOnArm`). */
+  refill?(owner: Hex): Promise<unknown>;
 };
 
 /** Reads proxied as is. `/policy` is read by the dashboard's Rules page (spec §6.3); `/drill*` never (spec §6.8). */
@@ -37,6 +39,11 @@ const WRITES: Record<string, { method: string; purpose: OwnerPurpose }> = {
 };
 
 const READ_TIMEOUT_MS = 15_000;
+/**
+ * The app arms for 600 blocks. A bound on what an owner can ask the agent for; it does NOT stop repeated arms from
+ * reopening 0.225 QOR windows: the refill caps (per owner and overall, per day) are what bound the funder's spend.
+ */
+export const MAX_ARM_BLOCKS = 1800;
 /** `/arm` opens the guardian window and waits until it is live: a few blocks plus REST lag. */
 const WRITE_TIMEOUT_MS = 120_000;
 const READY_POLL_MS = 500;
@@ -143,6 +150,12 @@ export function createGateway(deps: GatewayDeps) {
 
     const state = store.get(o);
     if (!state) return json(res, 404, { error: "unknown owner" });
+    if (route === "arm") {
+      const blocks = (a.body as { blocks?: unknown } | null)?.blocks;
+      if (typeof blocks !== "number" || !Number.isInteger(blocks) || blocks < 1 || blocks > MAX_ARM_BLOCKS) {
+        return json(res, 400, { error: `blocks must be a whole number from 1 to ${MAX_ARM_BLOCKS}` });
+      }
+    }
 
     if (route === "stop") {
       if (state.stage !== "active" && state.stage !== "retired") return json(res, 409, { error: "not-active" });
@@ -168,6 +181,15 @@ export function createGateway(deps: GatewayDeps) {
     }
     if (port === undefined) return json(res, 503, { error: "agent-not-running" });
     touch(o);
+    // The agent opens its window right after this: its gas must be there first. A failed refill is logged, not fatal
+    // (the guardian may still hold enough for one window).
+    if (route === "arm" && deps.refill) {
+      try {
+        await deps.refill(o);
+      } catch (e) {
+        log(`gateway: refill for ${o} failed: ${errorText(e)}`);
+      }
+    }
     // Only the signed inner body reaches the agent, never the signature wrapper.
     await forward(port, WRITES[route]!.method, `/${route}`, JSON.stringify(a.body ?? null), WRITE_TIMEOUT_MS, res);
   }

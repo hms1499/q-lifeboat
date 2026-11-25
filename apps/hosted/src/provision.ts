@@ -32,6 +32,9 @@ import {
   FUNDER_FEE_RESERVE_UQOR,
   FUNDER_FLOOR_UQOR,
   GUARDIAN_FUND_UQOR,
+  REFILL_BELOW_UQOR,
+  REFILLS_GLOBAL_PER_DAY,
+  REFILLS_PER_DAY,
   STARTER_OWNER_UQOR,
   TOPUP_BELOW_UQOR,
   TOPUP_UQOR,
@@ -82,6 +85,7 @@ export type ProvisionDeps = {
 };
 
 const STATUS_CACHE_MS = 10_000;
+const DAY_MS = 24 * 3600 * 1000;
 const EXPIRY_MARGIN_SECONDS = 60;
 const POLL_TRIES = 20;
 const POLL_DELAY_MS = 1_500;
@@ -196,6 +200,8 @@ export function createProvisioner(deps: ProvisionDeps) {
   }
 
   let statusCache: { at: number; value: HostedStatus } | null = null;
+  // One refill per owner at a time (two arms at once share it).
+  const refilling = new Map<Hex, Promise<{ tx: string } | { skipped: "enough" | "daily-cap" | "funder-low" | "not-provisioned" }>>();
 
   return {
     /** `POST /api/starter` `{ owner }`: unsigned (the account has no key yet), capped by `limits`. */
@@ -356,6 +362,44 @@ export function createProvisioner(deps: ProvisionDeps) {
       log(`owner ${o}: re-fund guardian ${amount} uqor: ${tx}`);
       await waitFor(() => chain.uqorBalance(guardian.cosmos), (b) => b >= GUARDIAN_FUND_UQOR, "the guardian's balance");
       return tx;
+    },
+
+    /**
+     * Before a signed `arm` reaches the agent: an on-demand guardian spends ~0.225 QOR per owner session (its window)
+     * plus rescue gas, so below `REFILL_BELOW_UQOR` it is topped back up to `GUARDIAN_FUND_UQOR` from the funder. At most
+     * `REFILLS_PER_DAY` per owner and `REFILLS_GLOBAL_PER_DAY` overall per UTC day, never below the funder floor (starter packs keep priority). Concurrent
+     * calls for one owner share one refill. Never throws for a skip; a failed send throws.
+     */
+    refillOnArm(owner: Hex): Promise<{ tx: string } | { skipped: "enough" | "daily-cap" | "funder-low" | "not-provisioned" }> {
+      const o = lower(owner);
+      const running = refilling.get(o);
+      if (running) return running;
+      const run = (async (): Promise<{ tx: string } | { skipped: "enough" | "daily-cap" | "funder-low" | "not-provisioned" }> => {
+        const secrets = store.readSecrets(o);
+        if (!store.get(o)?.guardian || !secrets) return { skipped: "not-provisioned" };
+        const guardian = await deriveSecret(secrets.GAS_MNEMONIC, "the stored GAS_MNEMONIC");
+        const balance = await chain.uqorBalance(guardian.cosmos);
+        if (balance >= REFILL_BELOW_UQOR) return { skipped: "enough" };
+        const day = Math.floor(deps.now() / DAY_MS);
+        const s = store.get(o)!;
+        const used = s.refills?.day === day ? s.refills.n : 0;
+        if (used >= REFILLS_PER_DAY) return { skipped: "daily-cap" };
+        const today = () => store.list().reduce((sum, r) => sum + (r.refills?.day === day ? r.refills.n : 0), 0);
+        if (today() >= REFILLS_GLOBAL_PER_DAY) return { skipped: "daily-cap" };
+        const amount = GUARDIAN_FUND_UQOR - balance;
+        // Starter packs keep priority: the refill must leave the funder at or above its floor.
+        if ((await chain.uqorBalance(funder.cosmos)) < FUNDER_FLOOR_UQOR + amount + FUNDER_FEE_RESERVE_UQOR) return { skipped: "funder-low" };
+        // Counted again after the funder read (another owner may have refilled meanwhile), then recorded before the send
+        // (a send that fails still uses one of the day's refills): retries cannot bypass either cap.
+        if (today() >= REFILLS_GLOBAL_PER_DAY) return { skipped: "daily-cap" };
+        store.put({ ...(store.get(o) ?? s), refills: { day, n: used + 1 } });
+        const tx = await funderSend(guardian.cosmos, amount, "qlifeboat: refill guardian");
+        log(`owner ${o}: refill guardian ${amount} uqor (${used + 1}/${REFILLS_PER_DAY} today): ${tx}`);
+        await waitFor(() => chain.uqorBalance(guardian.cosmos), (b) => b >= GUARDIAN_FUND_UQOR, "the guardian's balance");
+        return { tx };
+      })().finally(() => refilling.delete(o));
+      refilling.set(o, run);
+      return run;
     },
 
     /** `GET /api/status`: paused at agent capacity, below the funder floor or at the daily cap, so the landing page blocks before step 1. */

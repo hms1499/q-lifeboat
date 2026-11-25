@@ -53,7 +53,14 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   });
 }
 
-const gateway = createGateway({ store, supervisor, auth, now: Date.now, log });
+const gateway = createGateway({
+  store,
+  supervisor,
+  auth,
+  now: Date.now,
+  log,
+  refill: provision ? (o) => provision!.refillOnArm(o).then((r) => ("skipped" in r && r.skipped !== "enough" ? log(`owner ${o}: no refill (${r.skipped})`) : undefined)) : undefined,
+});
 const server = createHostedServer({
   distDir,
   restUrl: NETWORK.rest,

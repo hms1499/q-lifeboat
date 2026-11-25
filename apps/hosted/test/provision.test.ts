@@ -10,6 +10,7 @@ import { deriveUnifiedAccount, type AuthenticatorView, type PqcStatus, type Spen
 import { createLimits } from "../src/limits.ts";
 import { decodeLinkProof } from "@qday/core";
 import { createProvisioner, GUARDIAN_FUND_UQOR, STARTER_OWNER_UQOR, TOPUP_UQOR, type ChainDeps } from "../src/provision.ts";
+import { REFILLS_GLOBAL_PER_DAY } from "../src/limits.ts";
 import { clientIp, createHostedServer } from "../src/server.ts";
 import { createStore, type Store } from "../src/store.ts";
 
@@ -573,6 +574,81 @@ describe("refundGuardian", () => {
     st.balances.set(guardianAcc.cosmos, 0n);
     st.balances.set(funder.cosmos, 1_000_000n);
     await expect(prov.refundGuardian(ownerAcc.evm as Hex)).rejects.toThrow(/funder-low/);
+  });
+});
+
+describe("refillOnArm (on-demand guardians spend ~0.225 QOR per session)", () => {
+  async function provisioned() {
+    const ctx = setup();
+    expect((await ctx.prov.onboard(sign("onboard", {}))).code).toBe(200);
+    return ctx;
+  }
+
+  it("below 0.5 QOR: tops the guardian back up to 1 QOR from the funder", async () => {
+    const { prov, st } = await provisioned();
+    st.balances.set(guardianAcc.cosmos, 291_400n);
+    const r = await prov.refillOnArm(ownerAcc.evm as Hex);
+    expect(r).toMatchObject({ tx: expect.stringMatching(/^TX/) });
+    expect(st.balances.get(guardianAcc.cosmos)).toBe(GUARDIAN_FUND_UQOR);
+    expect(st.calls.at(-1)).toBe("broadcast:funder:hybrid:qlifeboat: refill guardian");
+  });
+
+  it("at or above 0.5 QOR: nothing sent", async () => {
+    const { prov, st } = await provisioned();
+    st.balances.set(guardianAcc.cosmos, 500_000n);
+    const before = st.calls.length;
+    expect(await prov.refillOnArm(ownerAcc.evm as Hex)).toEqual({ skipped: "enough" });
+    expect(st.calls.length).toBe(before);
+  });
+
+  it("at most 3 refills per owner per UTC day; the next day allows more", async () => {
+    const { prov, st, setNow } = await provisioned();
+    for (let i = 0; i < 3; i++) {
+      st.balances.set(guardianAcc.cosmos, 100_000n);
+      expect(await prov.refillOnArm(ownerAcc.evm as Hex)).toMatchObject({ tx: expect.any(String) });
+    }
+    st.balances.set(guardianAcc.cosmos, 100_000n);
+    expect(await prov.refillOnArm(ownerAcc.evm as Hex)).toEqual({ skipped: "daily-cap" });
+    setNow(T0 + 24 * 3600 * 1000);
+    expect(await prov.refillOnArm(ownerAcc.evm as Hex)).toMatchObject({ tx: expect.any(String) });
+  });
+
+  it("not below the funder floor (20 QOR): the starter packs keep priority", async () => {
+    const { prov, st } = await provisioned();
+    st.balances.set(guardianAcc.cosmos, 100_000n);
+    st.balances.set(funder.cosmos, 19_999_999n);
+    expect(await prov.refillOnArm(ownerAcc.evm as Hex)).toEqual({ skipped: "funder-low" });
+  });
+
+  it("a refill never takes the funder below its floor (amount and fee reserve counted)", async () => {
+    const { prov, st } = await provisioned();
+    st.balances.set(guardianAcc.cosmos, 100_000n);
+    st.balances.set(funder.cosmos, 20_400_000n); // above the floor, but not by the 0.9 QOR refill + fee reserve
+    expect(await prov.refillOnArm(ownerAcc.evm as Hex)).toEqual({ skipped: "funder-low" });
+  });
+
+  it("all owners together get at most REFILLS_GLOBAL_PER_DAY refills per UTC day", async () => {
+    const { prov, st, store } = await provisioned();
+    const day = Math.floor(T0 / (24 * 3600 * 1000));
+    // Other owners already used the day's budget.
+    for (let i = 1; i <= REFILLS_GLOBAL_PER_DAY; i++) {
+      store.put({ owner: `0x${i.toString(16).padStart(40, "0")}` as Hex, stage: "active", createdAt: T0, lastActiveAt: T0, topups: 0, refills: { day, n: 1 } });
+    }
+    st.balances.set(guardianAcc.cosmos, 100_000n);
+    expect(await prov.refillOnArm(ownerAcc.evm as Hex)).toEqual({ skipped: "daily-cap" });
+  });
+
+  it("two arms at once refill once", async () => {
+    const { prov, st } = await provisioned();
+    st.balances.set(guardianAcc.cosmos, 100_000n);
+    const before = st.calls.filter((c) => c.includes("refill guardian")).length;
+    await Promise.all([prov.refillOnArm(ownerAcc.evm as Hex), prov.refillOnArm(ownerAcc.evm as Hex)]);
+    expect(st.calls.filter((c) => c.includes("refill guardian")).length).toBe(before + 1);
+  });
+
+  it("an owner with no guardian is skipped", async () => {
+    const { prov } = setup();
+    expect(await prov.refillOnArm(ownerAcc.evm as Hex)).toEqual({ skipped: "not-provisioned" });
   });
 });
 

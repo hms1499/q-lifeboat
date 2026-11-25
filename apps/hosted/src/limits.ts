@@ -7,6 +7,12 @@ export const TOPUP_UQOR = 1_000_000n;
 export const TOPUP_BELOW_UQOR = 500_000n;
 /** What a new guardian account gets at provisioning: 1 QOR (its register fee, then on-demand windows). */
 export const GUARDIAN_FUND_UQOR = 1_000_000n;
+/** A signed `arm` refills the guardian back to `GUARDIAN_FUND_UQOR` when it holds less than this (one window is 0.225 QOR). */
+export const REFILL_BELOW_UQOR = 500_000n;
+/** At most this many arm refills per owner per UTC day. */
+export const REFILLS_PER_DAY = 3;
+/** All owners together: at most this many arm refills per UTC day (about 27 QOR at most), so sybil owners cannot drain the funder. */
+export const REFILLS_GLOBAL_PER_DAY = 30;
 /** Below 20 QOR the funder hands out no more starter packs and `/api/status` says onboarding is paused. */
 export const FUNDER_FLOOR_UQOR = 20_000_000n;
 /** What the funder keeps for its own fees on top of a send it makes past the floor (guardian fund, top-up). */
