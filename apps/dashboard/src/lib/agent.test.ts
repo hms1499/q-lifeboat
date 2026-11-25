@@ -67,3 +67,16 @@ describe("agent base (hosted: /api/o/<owner>)", () => {
     expect(seen).toEqual(["http://h.test/api/o/0xabc"]);
   });
 });
+
+describe("putPolicy through the hosted gateway", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("with a signer, sends { request, sig } with purpose policy and the policy as body", async () => {
+    const f = stubFetch(200, policy);
+    const sign = vi.fn((p: Policy) => ({ request: { owner: "0xabc", purpose: "policy", body: p, nonce: "n", expiresAt: 1 }, sig: "0x01" }));
+    expect(await putPolicy(policy, sign)).toEqual(policy);
+    expect(sign).toHaveBeenCalledWith(policy);
+    const body = JSON.parse((f.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body).toEqual({ request: { owner: "0xabc", purpose: "policy", body: policy, nonce: "n", expiresAt: 1 }, sig: "0x01" });
+  });
+});

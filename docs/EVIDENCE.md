@@ -367,3 +367,12 @@ Playwright profile, hosted service local. The dashboard now reads this owner's a
 | Withdraw in the browser: the recovery-code key signs, all six vault checks pass, `vault.withdraw` goes in a 1-tx window scoped to the vault | 50 fUSD arrive at the fresh address `0x95459db24bf28a4878a7441ddc7d53a746edb39b` (`balanceOf` = 50), vault 180 → 130 fUSD, nonce 0 → 1 | window `B9240A4E8B40300AC9011005A6F578ADCC35150DD6569F61C8DD08C3961D982D`, withdraw `0x4563563a956b61d71a528177c82953f8a02f05494f0cf9ee98714be61a783ebe` |
 | After the Task 10 review fixes (Recover reads the vault from chain, not the agent; recipients equal to the owner or the vault refused): 5 fETH withdrawn in the browser | a withdraw to the owner's own address is blocked in the form; 5 fETH arrive at `0x95459db2…b39b` (`balanceOf` = 5), vault nonce 1 → 2 | window `776C1D669162B305376789E9F8FAB9B0DFE0D44DD2A97DB342EBCCBDB67B18F2`, withdraw `0xa61f335c0a98b091f957727764ade3664a65d5b7a562f2ab2932ae9c7a0c5e68` |
 | Hosted agents report healthy while the owner's window is closed (on-demand: `windowRequired: false`), so Overview no longer shows "Guardian degraded" between sessions | both hosted agents: `ok: true`, `window: null`, `windowRequired: false` | `GET /api/o/<owner>/health`, 12:10Z |
+
+## Plan Task 11: hosted navigation and ML-DSA-signed policy edits (2026-11-25)
+
+| Claim | Result | Evidence |
+|---|---|---|
+| Hosted navigation has no Protect (MetaMask) or Fire drill; a Lock wallet button | nav: Get protected, Overview, Incidents, Recover, Try an attack, Rules | browser run, owner `0x8805…f536` |
+| A trusted-list edit from Rules goes through the gateway signed with the recovery-code key (purpose `policy`) and the agent saves it in the owner dir | `GET /api/o/<owner>/policy` → 1 trusted (`Cold wallet 0x9545…b39b`); agent log "policy updated: 1 trusted" | hosted log 12:17:16Z |
+| The same write without a signature is refused | `PUT /api/o/<owner>/policy` unsigned → HTTP 401 | `curl` 12:17Z |
+| Overview's guardian gas warning is real: after three sessions (attack, attack, withdraws) the guardian holds 0.29 QOR of its 1 QOR (each arm opens a 0.225 QOR window) | `health.ok: false`, `gas.low: true` | `GET /api/o/<owner>/health` 12:16Z |

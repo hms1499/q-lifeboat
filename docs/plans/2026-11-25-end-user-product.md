@@ -457,10 +457,10 @@ Test `apps/dashboard/src/lib/attack.test.ts`, extend `withdrawal.test.ts`.
   (code kept, routes still reachable for local mode). A lock button clears the session.
 - Policy writes go through `hosted.policy(owner, signed("policy", policy))`; the editor asks for the recovery code when
   the session has no PQ key.
-- [ ] **Step 1: Failing tests:** `putPolicy sends { request, sig } with purpose policy and the policy as body`;
+- [x] **Step 1: Failing tests:** `putPolicy sends { request, sig } with purpose policy and the policy as body`;
   nav has no `protect` or `drill` entry.
-- [ ] **Step 2–4:** FAIL → implement → `pnpm -F dashboard test && pnpm -F dashboard build` PASS.
-- [ ] **Step 5:** Commit `feat(dashboard): hosted navigation and ML-DSA-signed policy edits`.
+- [x] **Step 2–4:** FAIL → implement → `pnpm -F dashboard test && pnpm -F dashboard build` PASS.
+- [x] **Step 5:** Commit `feat(dashboard): hosted navigation and ML-DSA-signed policy edits`.
 
 ---
 

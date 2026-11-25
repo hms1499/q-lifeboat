@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { AGENT_URL, fetchPolicy, putPolicy, type Policy } from "../lib/agent";
+import { agentBase, AGENT_URL, fetchPolicy, putPolicy, type Policy } from "../lib/agent";
 import { explorerAddress } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { errorText } from "../lib/format";
@@ -30,7 +30,7 @@ function FixedRow({ label, address, note }: { label: string; address: string; no
  * during a PUT never replaces the PUT's answer (each write replaces the whole policy: building on an older read would
  * drop the previous edit).
  */
-export function usePolicyEditor(online: boolean) {
+export function usePolicyEditor(online: boolean, sign?: (p: Policy) => unknown) {
   const gen = useRef(0);
   const policy = usePoll(async (): Promise<PolicyAt> => {
     const g = gen.current;
@@ -50,7 +50,7 @@ export function usePolicyEditor(online: boolean) {
     setError(null);
     setNotice(null);
     try {
-      const p = await putPolicy(next);
+      const p = await putPolicy(next, sign);
       gen.current += 1;
       setSaved({ p, gen: gen.current });
       setNotice(what);
@@ -112,8 +112,15 @@ export function TrustedEditor({ cfg, editor }: { cfg: Pick<AgentConfig, "owner" 
     <section className="card">
       <h2>Trusted wallets and apps</h2>
       <p style={{ margin: "6px 0 12px", fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-        Transfers (up to the threshold) and approvals to these never trigger a rescue. Add a recipient or dApp before you use it. Edits go to the agent
-        at <span className="mono">{AGENT_URL}</span>, which accepts them only from this machine (loopback, this dashboard's origin).
+        Transfers (up to the threshold) and approvals to these never trigger a rescue. Add a recipient or dApp before you use it.{" "}
+        {agentBase().owner ? (
+          <>Each change is signed with your post-quantum key: the service passes it to your Guardian only with that signature.</>
+        ) : (
+          <>
+            Edits go to the agent at <span className="mono">{AGENT_URL}</span>, which accepts them only from this machine (loopback, this dashboard's
+            origin).
+          </>
+        )}
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {current?.trusted.map((t) => (

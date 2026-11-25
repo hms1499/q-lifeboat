@@ -70,14 +70,16 @@ export async function fetchPolicy(): Promise<Policy> {
 }
 
 /**
- * PUT /policy with the whole edited policy. The agent is the authority (`parsePolicy`); its refusal, e.g. "origin not
+ * PUT /policy with the whole edited policy (signed with `sign` for the hosted gateway). The agent is the authority (`parsePolicy`); its refusal, e.g. "origin not
  * allowed", is thrown verbatim. Returns the policy the agent saved.
  */
-export async function putPolicy(policy: Policy, timeoutMs = 5000): Promise<Policy> {
+export async function putPolicy(policy: Policy, sign?: (p: Policy) => unknown, timeoutMs = 5000): Promise<Policy> {
+  // The hosted gateway forwards a policy write only with the owner's ML-DSA signature over it (purpose "policy").
+  const payload = sign ? sign(policy) : policy;
   const r = await fetch(`${base.url}/policy`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(policy),
+    body: JSON.stringify(payload),
     signal: AbortSignal.timeout(timeoutMs),
   });
   let body: unknown = null;

@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { APP_NAME } from "./brand";
 import { LifeboatMark, NavIcon, ScreenBoundary } from "./components/ui";
-import { fetchHealth } from "./lib/agent";
+import { agentBase, fetchHealth } from "./lib/agent";
+import { appSession } from "./lib/appWallet";
+import { navGroups, navMode } from "./lib/nav";
 import { loadSeed } from "./lib/keystore";
 import { explorerAddress } from "./lib/chain";
 import { shortAddr } from "./lib/format";
@@ -16,30 +18,6 @@ import { Start } from "./screens/Start";
 import { Attack } from "./screens/Attack";
 import { useApp } from "./state";
 
-const NAV_GROUPS = [
-  {
-    label: "Start",
-    items: [{ id: "start", label: "Get protected", href: "#/start" }],
-  },
-  {
-    label: "Monitor",
-    items: [
-      { id: "overview", label: "Overview", href: "#/overview" },
-      { id: "incidents", label: "Incidents", href: "#/incidents" },
-      { id: "recover", label: "Recover", href: "#/recover" },
-      { id: "attack", label: "Try an attack", href: "#/attack" },
-    ],
-  },
-  {
-    label: "Set up",
-    items: [
-      { id: "protect", label: "Protect", href: "#/protect" },
-      { id: "rules", label: "Rules", href: "#/rules" },
-      { id: "drill", label: "Fire drill", href: "#/drill" },
-    ],
-  },
-] as const;
-
 /** The Guardian's state for the shell: from /config reachability and /health (polled only while the agent answers). */
 function useGuardianStatus(): { dot: string; text: string } {
   const { config } = useApp();
@@ -51,9 +29,10 @@ function useGuardianStatus(): { dot: string; text: string } {
   return { dot: "", text: "Guardian online" };
 }
 
-function Sidebar({ active }: { active: string }) {
+function Sidebar({ active, hasSeed }: { active: string; hasSeed: boolean | undefined }) {
   const { config, wallet } = useApp();
   const { cfg, source, agentOnline } = config;
+  const groups = navGroups(navMode({ hasSeed, localAgent: !!cfg && agentBase().owner === null }));
   const status = useGuardianStatus();
   const [open, setOpen] = useState(false);
   const walletDiffers = !!wallet && !!cfg && wallet.account.toLowerCase() !== cfg.owner.toLowerCase();
@@ -86,7 +65,7 @@ function Sidebar({ active }: { active: string }) {
       </div>
       <div className="sb-panel" id="sb-panel">
         <nav className="nav" aria-label="Main">
-          {NAV_GROUPS.map((g) => (
+          {groups.map((g) => (
             <div key={g.label} className="nav-group">
               <span className="nav-label" id={`nav-${g.label.replace(/\s+/g, "-").toLowerCase()}`}>
                 {g.label}
@@ -120,6 +99,19 @@ function Sidebar({ active }: { active: string }) {
             <div className="sb-warn" title={`The connected wallet ${wallet!.account} is not the watched owner ${cfg!.owner}`}>
               Connected wallet <span className="mono">{shortAddr(wallet!.account)}</span> is not the owner
             </div>
+          ) : null}
+          {hasSeed ? (
+            <button
+              type="button"
+              className="btn small"
+              title="Forget the unlocked keys in this tab (the encrypted wallet stays in this browser)"
+              onClick={() => {
+                appSession.lock();
+                window.location.reload();
+              }}
+            >
+              Lock wallet
+            </button>
           ) : null}
           <div>diana testnet</div>
         </div>
@@ -184,7 +176,7 @@ export function App() {
         : "overview";
   return (
     <div className="shell">
-      <Sidebar active={active ?? ""} />
+      <Sidebar active={active ?? ""} hasSeed={hasSeed} />
       <div className="content">
         <main>
           {active === "start" || active === null ? null : <Banners />}
