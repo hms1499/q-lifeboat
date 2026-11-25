@@ -127,6 +127,7 @@ describe("supervisor", () => {
       AGENT_ED25519_SK: "22".repeat(32),
       AGENT_PORT: "9100",
       INCIDENTS_FILE: join(dir, "owners", owner(1), "incidents.jsonl"),
+      POLICY_FILE: join(dir, "owners", owner(1), "policy.json"),
       POLL_MS: "1000",
       GUARDIAN_WINDOW_MODE: "on-demand",
       DRILL: "1",

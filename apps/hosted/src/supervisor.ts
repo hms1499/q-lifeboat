@@ -195,6 +195,8 @@ export function createSupervisor(deps: SupervisorDeps) {
       AGENT_ED25519_SK: secrets.AGENT_ED25519_SK,
       AGENT_PORT: String(e.port),
       INCIDENTS_FILE: join(store.dir(e.owner), "incidents.jsonl"),
+      // Per-owner state stays in the owner dir (the persistent volume), never in the repo's data/.
+      POLICY_FILE: join(store.dir(e.owner), "policy.json"),
       POLL_MS: "1000",
       GUARDIAN_WINDOW_MODE: "on-demand",
       // No fire-drill runner inside a hosted agent: a drill runs demo.sh, which reads the root .env (the funder).

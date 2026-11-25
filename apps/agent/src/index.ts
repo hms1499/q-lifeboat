@@ -7,12 +7,12 @@ import { vaultAbi } from "@qday/core";
 import { endpoints, publicClient } from "@qday/core/chain";
 import { evmWindowStatus } from "@qorechain/evm";
 import type { Hex } from "viem";
-import { checkVaultGuardian, DATA_DIR, loadAgentConfig, publicConfig } from "./config";
+import { checkVaultGuardian, loadAgentConfig, publicConfig } from "./config";
 import { createDrillRunner } from "./drill";
 import { createGuardian } from "./guardian";
 import { createHealth } from "./health";
 import { createNotifier } from "./notify";
-import { createPolicyStore, policyFilePath, seedPolicy, toRulesPolicy } from "./policy";
+import { createPolicyStore, seedPolicy, toRulesPolicy } from "./policy";
 import { guardianCoSigner } from "./cosign";
 import { anthropicLlm, signAndRecord } from "./report";
 import { productionDeps, rescueAll } from "./rescue";
@@ -98,7 +98,7 @@ async function main() {
 
   // The owner's trusted list, one file per owner. ALLOWLIST / MAX_OUTBOUND only seed a missing file; an invalid
   // file stops the agent here. Edits (by hand or PUT /policy) apply to the next trigger, no restart.
-  const policyFile = policyFilePath(DATA_DIR, cfg.owner);
+  const policyFile = cfg.policyFile;
   const policyStore = createPolicyStore({ file: policyFile, seed: seedPolicy(cfg.allowlist, cfg.maxOutbound), log });
 
   // Alerts and health are off the rescue path: nothing below is awaited by the guardian's single-flight loop.
