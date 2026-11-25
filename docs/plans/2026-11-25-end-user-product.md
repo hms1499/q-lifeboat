@@ -123,13 +123,13 @@ apps/dashboard/src/
   `getJson`, `uqorBalance`, `broadcastTx` (account read, `StargateClient.connect`, `EthNativeSigner`'s `rest`) use
   `endpoints()`. Defaults stay `NETWORK.rest` / `NETWORK.rpc`, so the CLI and agent are unchanged.
 
-- [ ] **Step 1: Failing test** `getJson uses the configured REST base`: stub `fetch`, call
+- [x] **Step 1: Failing test** `getJson uses the configured REST base`: stub `fetch`, call
   `configureEndpoints({ rest: "/qore-rest" })`, `await getJson("/x")`, assert the URL was `"/qore-rest/x"`; a second test
   asserts the default is `NETWORK.rest` after `configureEndpoints({})`.
-- [ ] **Step 2:** `pnpm -F core test` → FAIL (`configureEndpoints` not exported).
-- [ ] **Step 3:** Implement with a module-level `let current = { rest: NETWORK.rest, rpc: NETWORK.rpc }`.
-- [ ] **Step 4:** `pnpm -F core test && pnpm -F cli test && pnpm -F agent test` → all PASS.
-- [ ] **Step 5:** Commit `feat(core): configurable REST/RPC endpoints for browser use`.
+- [x] **Step 2:** `pnpm -F core test` → FAIL (`configureEndpoints` not exported).
+- [x] **Step 3:** Implement with a module-level `let current = { rest: NETWORK.rest, rpc: NETWORK.rpc }`.
+- [x] **Step 4:** `pnpm -F core test && pnpm -F cli test && pnpm -F agent test` → all PASS.
+- [x] **Step 5:** Commit `feat(core): configurable REST/RPC endpoints for browser use`.
 
 ---
 
