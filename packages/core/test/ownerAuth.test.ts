@@ -84,4 +84,26 @@ describe("verifyOwnerRequest", () => {
     const s = signOwnerRequest(req(), kp.secretKey);
     expect(verifyOwnerRequest({ ...s, sig: "0x1234" }, reg(), NOW)).toEqual({ ok: false, reason: "bad-signature" });
   });
+  it.each([
+    ["purpose", { purpose: "stop" as const }],
+    ["owner", { owner: "0x0000000000000000000000000000000000000001" as const }],
+    ["nonce", { nonce: "n-2" }],
+    ["expiresAt", { expiresAt: NOW + 61 }],
+  ])("rejects a changed %s after signing", (_name, change) => {
+    const s = signOwnerRequest(req(), kp.secretKey);
+    const tampered = { ...s, request: { ...s.request, ...change } };
+    expect(verifyOwnerRequest(tampered, reg(), NOW)).toEqual({ ok: false, reason: "bad-signature" });
+  });
+  it("refuses a non-integer expiresAt as expired", () => {
+    const s = signOwnerRequest(req(), kp.secretKey);
+    for (const bad of [NaN, "123", 1.5, Infinity]) {
+      const m = { ...s, request: { ...s.request, expiresAt: bad as unknown as number } };
+      expect(verifyOwnerRequest(m, reg(), NOW)).toEqual({ ok: false, reason: "expired" });
+    }
+  });
+  it("returns bad-signature, never throws, for a malformed owner", () => {
+    const s = signOwnerRequest(req(), kp.secretKey);
+    const m = { ...s, request: { ...s.request, owner: 42 as unknown as `0x${string}` } };
+    expect(verifyOwnerRequest(m, reg(), NOW)).toEqual({ ok: false, reason: "bad-signature" });
+  });
 });

@@ -47,12 +47,18 @@ export function signOwnerRequest(r: OwnerRequest, pqcSecretKey: Uint8Array): Sig
   return { request: r, sig: bytesToHex(pqcSign(pqcSecretKey, ownerRequestBytes(r))) };
 }
 
+/**
+ * Verify a signed owner request. Never throws: malformed input is refused.
+ * The caller MUST pass the PqcStatus fetched for `signed.request.owner`; this function
+ * does not bind the owner address to the key, it only checks the signature against `registered`.
+ */
 export function verifyOwnerRequest(
   signed: SignedOwnerRequest,
   registered: PqcStatus,
   nowUnix: number,
 ): VerifyOwnerResult {
   const { request, sig } = signed;
+  if (!Number.isSafeInteger(request?.expiresAt)) return { ok: false, reason: "expired" };
   if (request.expiresAt < nowUnix) return { ok: false, reason: "expired" };
   if (request.expiresAt > nowUnix + OWNER_REQUEST_MAX_TTL) return { ok: false, reason: "too-far" };
   if (!registered.registered) return { ok: false, reason: "not-registered" };
