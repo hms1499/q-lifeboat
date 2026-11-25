@@ -183,18 +183,18 @@ Test `packages/core/test/msgs.test.ts`, `packages/core/test/withdrawal.test.ts`.
     `type OwnerPublicState = { stage: OwnerStage | "none"; guardian?: Hex; vault?: Hex }`,
     `type HostedStatus = { onboarding: "open" | "paused"; reason?: string; activeGuardians: number }`.
 
-- [ ] **Step 1: Failing tests** (fixed keypair from `generatePqcKeypair(seed)`):
+- [x] **Step 1: Failing tests** (fixed keypair from `generatePqcKeypair(seed)`):
   - valid request → `{ ok: true }`;
   - body changed after signing → `bad-signature`;
   - signed by another keypair → `bad-signature`;
   - `expiresAt = now - 1` → `expired`; `expiresAt = now + 301` → `too-far`;
   - `registered: false` → `not-registered`; `possessionProven: false` → `not-proven`;
   - `canonicalJson({b:1,a:{d:2,c:3}}) === '{"a":{"c":3,"d":2},"b":1}'`.
-- [ ] **Step 2:** `pnpm -F core test` → FAIL.
-- [ ] **Step 3:** Implement with `pqcSign` / `pqcVerify` and `@noble/hashes/sha256`; the registered pubkey may be hex or
+- [x] **Step 2:** `pnpm -F core test` → FAIL.
+- [x] **Step 3:** Implement with `pqcSign` / `pqcVerify` and `@noble/hashes/sha256`; the registered pubkey may be hex or
   bytes (`PqcStatus.pubkey`).
-- [ ] **Step 4:** `pnpm -F core test` → PASS.
-- [ ] **Step 5:** Commit `feat(core): ML-DSA-signed owner requests`.
+- [x] **Step 4:** `pnpm -F core test` → PASS.
+- [x] **Step 5:** Commit `feat(core): ML-DSA-signed owner requests`.
 
 ---
 
