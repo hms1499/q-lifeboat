@@ -357,14 +357,14 @@ Test `apps/hosted/test/supervisor.test.ts`, `apps/hosted/test/gateway.test.ts`.
   - `confirmPicks(code: string): number[]` (three distinct group indexes 1–14) and
     `checkConfirm(code, picks, typed: string[]): boolean` (case-insensitive, Crockford O→0, I/L→1 via `normalizeRecoveryCode`).
 
-- [ ] **Step 1: Failing tests:** encrypt/decrypt round-trip; wrong password throws `wrong password`; `providePqc` with a
+- [x] **Step 1: Failing tests:** encrypt/decrypt round-trip; wrong password throws `wrong password`; `providePqc` with a
   mistyped code throws (checksum) and nothing is derived; with another account's code against a registered pubkey throws
   `this recovery code does not belong to this account`; `lock()` clears `account()` and `classical()`; `checkConfirm`
   accepts lowercase and `O` for `0`. (Tests use `iter: 1000` and an in-memory IndexedDB stub.)
-- [ ] **Step 2:** `pnpm -F dashboard test` → FAIL.
-- [ ] **Step 3:** Implement with WebCrypto (`crypto.subtle`), no new dependency.
-- [ ] **Step 4:** `pnpm -F dashboard test` → PASS.
-- [ ] **Step 5:** Commit `feat(dashboard): in-app wallet with an unstored recovery code`.
+- [x] **Step 2:** `pnpm -F dashboard test` → FAIL.
+- [x] **Step 3:** Implement with WebCrypto (`crypto.subtle`), no new dependency.
+- [x] **Step 4:** `pnpm -F dashboard test` → PASS.
+- [x] **Step 5:** Commit `feat(dashboard): in-app wallet with an unstored recovery code`.
 
 ---
 
