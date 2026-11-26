@@ -24,6 +24,7 @@ import { browserStorage } from "./lib/storage";
 import type { OwnerStage } from "@qday/core";
 import type { Hex } from "viem";
 import { useApp } from "./state";
+import { KeysProvider } from "./components/KeysProvider";
 
 /** Which product this browser sees: a visitor, the hosted product, or the builder's local agent. */
 function useNavMode(hasSeed: boolean | undefined): NavMode {
@@ -241,8 +242,16 @@ function NoWallet() {
 }
 
 export function App() {
-  const [screen = "", id] = useHashRoute();
   const owner = useStoredOwner();
+  return (
+    <KeysProvider owner={owner ?? null}>
+      <Routes owner={owner} />
+    </KeysProvider>
+  );
+}
+
+function Routes({ owner }: { owner: Hex | null | undefined }) {
+  const [screen = "", id] = useHashRoute();
   const hasSeed = owner === undefined ? undefined : !!owner;
   const mode = useNavMode(hasSeed);
   const stage = useStage(owner);

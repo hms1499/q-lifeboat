@@ -634,3 +634,12 @@ dl.kv dd small { display: block; color: var(--muted); font-weight: 400; font-siz
   .hm-tl li + li::before { left: 91px; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+/* Unlock dialog (KeysProvider): one per app, opened by any action that signs */
+.unlock-dialog { border: 0; border-radius: 14px; padding: 0; width: min(440px, calc(100vw - 32px)); box-shadow: 0 24px 60px rgba(15, 34, 54, 0.3); color: var(--harbour); }
+.unlock-dialog::backdrop { background: rgba(15, 34, 54, 0.55); }
+.unlock-form { display: flex; flex-direction: column; gap: 12px; padding: 22px; }
+.unlock-form h2 { margin: 0; font-size: 19px; }
+.unlock-form .hint { margin: 0; font-size: 13px; line-height: 19px; color: var(--muted); }
+.unlock-form .field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; color: var(--muted); }
+.unlock-form .actions { margin-top: 4px; justify-content: flex-end; }
