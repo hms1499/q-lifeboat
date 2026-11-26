@@ -763,3 +763,14 @@ a.act-row:hover { background: var(--well); color: var(--harbour); }
 .act-main b { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .act-main small { font-size: 12px; color: var(--muted); }
 .act-go { color: var(--muted); font-size: 18px; }
+
+/* Vault (hosted) */
+.vault-card { display: flex; flex-direction: column; gap: 14px; }
+.vault-card h2 { margin: 0; }
+.vault-steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 14px; font-size: 13px; color: var(--muted); }
+.vault-steps .on { color: var(--harbour); font-weight: 700; }
+.vault-steps .done { color: var(--safe); }
+.vault-tokens { display: flex; gap: 8px; flex-wrap: wrap; }
+.vault-amount { display: flex; gap: 8px; }
+.vault-amount .input { flex: 1; }
+.vault-review { margin: 0; background: var(--well); border-radius: 10px; padding: 12px 14px; }

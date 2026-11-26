@@ -18,6 +18,7 @@ import { Rules } from "./screens/Rules";
 import { Setup } from "./screens/Setup";
 import { Dashboard } from "./screens/Dashboard";
 import { Activity } from "./screens/Activity";
+import { Vault } from "./screens/Vault";
 import { Attack } from "./screens/Attack";
 import { Home } from "./screens/Home";
 import { appStage, ownerStageFor, resolveRoute, type Stage } from "./lib/appState";
@@ -277,7 +278,7 @@ function Routes({ owner }: { owner: Hex | null | undefined }) {
       <AppShell active={active} owner={owner}>
         {active === "dashboard" ? null : <Banners mode={mode} />}
         <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
-          {active === "activity" ? <Activity owner={owner} selected={id} /> : active === "vault" ? <Recover /> : active === "settings" ? <Rules /> : <Dashboard owner={owner} />}
+          {active === "activity" ? <Activity owner={owner} selected={id} /> : active === "vault" ? <Vault owner={owner} /> : active === "settings" ? <Rules /> : <Dashboard owner={owner} />}
         </ScreenBoundary>
       </AppShell>
     );
