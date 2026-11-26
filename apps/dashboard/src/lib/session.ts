@@ -106,11 +106,11 @@ export function createSession(opts: SessionOptions = {}) {
 export type Session = ReturnType<typeof createSession>;
 
 /** Three distinct group numbers (1-14) the user must re-type to prove they saved the code. */
-export function confirmPicks(code: string): number[] {
+export function confirmPicks(code: string, n = 3): number[] {
   normalizeRecoveryCode(code);
   const picks = new Set<number>();
   const buf = new Uint32Array(1);
-  while (picks.size < 3) {
+  while (picks.size < n) {
     crypto.getRandomValues(buf);
     picks.add((buf[0] % 14) + 1);
   }

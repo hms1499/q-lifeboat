@@ -15,7 +15,7 @@ import { Overview } from "./screens/Overview";
 import { Protect } from "./screens/Protect";
 import { Recover } from "./screens/Recover";
 import { Rules } from "./screens/Rules";
-import { Start } from "./screens/Start";
+import { Setup } from "./screens/Setup";
 import { Attack } from "./screens/Attack";
 import { Home } from "./screens/Home";
 import { appStage, ownerStageFor, resolveRoute, type Stage } from "./lib/appState";
@@ -265,7 +265,7 @@ function Routes({ owner }: { owner: Hex | null | undefined }) {
     return (
       <FocusShell>
         <ScreenBoundary resetKey="setup">
-          <Start />
+          <Setup />
         </ScreenBoundary>
       </FocusShell>
     );
