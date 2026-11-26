@@ -212,6 +212,9 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `unifiedAccountFromSeed`, `gene
   in the image). If `fly deploy` fails "ensure depot builder failed (401)", add `--depot=false`.
 - Task 12 browser-run owners (testnet; passwords `t12-ownerN-lifeboat`): `0xd23f…313a`, `0x7f4f…8d99`, `0x337a…56b6` on the Fly
   service. A non-200 `/events` answer closes an EventSource for good: the dashboard reopens it (lib/agent.ts).
+- Homepage (2026-11-26): `#/` is the full-width `Home` screen for a browser with no wallet (`#/home` always), Overview with one
+  (`lib/home.ts` `resolveScreen`). `fly deploy` prints "app is not listening on 0.0.0.0:8080" and one failed health check while the
+  service resumes its agents (~7 s): harmless if the logs then show "resumed N agent(s)" and "hosted listening on :8080".
 - Playwright: `browser_navigate` to the same URL with only a different hash does NOT reload the page; go to `about:blank` first (or
   change the query string) after wiping IndexedDB/localStorage.
 
