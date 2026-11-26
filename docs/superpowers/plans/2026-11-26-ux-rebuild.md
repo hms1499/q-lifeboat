@@ -81,7 +81,7 @@ false on cancel); `<KeysProvider owner={Hex | null}>`.
 `useSetup()` returning `{ owner, pos, phase, gate, uqor, run, createWallet(pw), confirmCode(typed), takeStarter(), turnOn(), autoRunning }`.
 
 - [x] Tests: `phaseOf` (account, code → 1; starter → 2; register, guardian, vault, protect → 3; attack, withdraw, done → done);
-      `recoveryFile` contains `QRC1-…` normalised, the account, and the line "Anyone with this code and your wallet password can sign withdrawals";
+      `recoveryFile` contains `QRC1-…` normalised, the account, and the line "Anyone with this code can withdraw everything in your vault. Keep this file private." (corrected in the final-review fix wave: the code alone withdraws);
       `confirmPicks(code, 2)` returns 2 distinct sorted groups in 1..14.
 - [x] `useSetup`: Start's reads and actions moved as they are; `turnOn()` sets auto-run: while the step is register,
       guardian, vault or protect and nothing is busy, run that step's action; stop on the first error (shown, with Retry).

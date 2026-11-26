@@ -57,8 +57,10 @@ withdraw form, jargon in the main call to action, a rescue that drops off Overvi
 - **B (picked). Rebuild all hosted screens on a branch, one deploy.**
 
 ## Security note
-Copy/Download puts the recovery code in the clipboard or a file. With the browser's encrypted wallet and password, it
-signs withdrawals. `docs/THREAT_MODEL.md` gets a row; the file and the screen say so.
+Copy/Download puts the recovery code in the clipboard or a file. The code alone signs withdrawals: the ML-DSA-87 key
+comes from it and anyone may send `withdraw`, so whoever holds it can withdraw everything in the vault to any address.
+`docs/THREAT_MODEL.md` T27 says so; the file and the screen say "Anyone with this code can withdraw everything in your
+vault".
 
 ## Left to the builder
 File layout under `src/screens/` and `src/components/`, which legacy screens/CSS become dead and are deleted, copy details
