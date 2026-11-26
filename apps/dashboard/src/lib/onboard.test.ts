@@ -88,6 +88,8 @@ describe("nextOnboardStep", () => {
 
   it("register: starter arrived, key not registered", () => {
     expect(nextOnboardStep({ ...base, state: { stage: "starter" }, uqor: STARTER_MIN_UQOR }).step).toBe("register");
+    // Shown under the main setup action: no algorithm names there.
+    expect(nextOnboardStep({ ...base, state: { stage: "starter" }, uqor: STARTER_MIN_UQOR }).detail).not.toMatch(/ML-DSA/);
   });
 
   it("register: key status still reading does not skip ahead", () => {

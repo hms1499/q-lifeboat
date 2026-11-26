@@ -56,7 +56,7 @@ export function nextOnboardStep(i: OnboardInput): OnboardPosition {
     if (i.pqc === undefined) return { step: "starter", detail: "reading whether your post-quantum key is registered" };
     if (i.uqor === undefined) return { step: "starter", detail: "reading your QOR balance" };
     if (i.uqor < STARTER_MIN_UQOR) return { step: "starter", detail: `starter pack sent, waiting for it to arrive (${fmtUqor(i.uqor)} of ${fmtUqor(STARTER_MIN_UQOR)} QOR)` };
-    return { step: "register", detail: "register your post-quantum (ML-DSA-87) key on chain" };
+    return { step: "register", detail: "register your post-quantum key on chain" };
   }
   if (i.pqc!.possessionProven !== true) {
     return { step: "register", detail: "this account's post-quantum key is registered without a proof of possession: it can't be protected" };
