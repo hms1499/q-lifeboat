@@ -396,3 +396,17 @@ Hosted service on Fly.io, https://q-lifeboat.fly.dev (one shared-cpu-1x 1 GB Mac
 | Owner 3 attack and withdraw | transfer block 10762878, rescue block 10762880 (**2 blocks**), **90 %** kept; 50 fUSD at `0x80bd4ca2a4b75836f37219a94c2a724b930a9aba` | transfer `0xcca2ea755557c02530413ba3ac02ea68d683797373a229240b5c5a9a64392704`, rescue `0x1000ba5e215f6c38ff6ce331ae48ff7c22e7d481ed2b9ab282a31e06f644d45a`, withdraw window `0B628F6F93A9BD31AA67544096366A5933CF6B801A1236901C3FABFCEF6AA1BF`, withdraw `0x5e33624814853cf451fc1fd7dea039ddb0456f8a3c901c0d311e09d3a55ff6af` |
 | A service restart brings every agent back | `fly machine restart` 02:24Z → "resumed 3 agent(s)"; `/api/o/<owner>/health` live for all three (owner 1 `ok: false` only for gas: 0.30 QOR after two arms, refilled on its next signed arm) | Fly logs 2026-11-26T02:24:45Z |
 | Memory on Fly | service ~172 MB RSS, each agent ~185 MB; with 3 agents ~206 MB free of 1 GB → 512 MB swap added, cap stays 4 | `/proc/*/status` VmRSS over `fly ssh console` |
+
+## UX rebuild Task 10: setup, test and withdraw on the rebuilt public URL (2026-11-26)
+
+After the deploy of `883ce3c` (13:19Z). One fresh Playwright browser context (no extension, no QOR), owner
+`0xf1e80a3381c928710f8e1a911e67e1f12184f765`, guardian `0x4870F175C8601cD145221f01c0e6F098450c35CC`, vault
+`0x13cf4e9e80ac6f8f064b6c94171fb9de27deceb5`. Receipts read on the EVM RPC (all status 1).
+
+| Claim | Result | Evidence |
+|---|---|---|
+| Setup in three phases from the landing page | phase 1 (wallet, code, 2 groups) 7 s; starter 36 s; protected at 13:27:45Z, ~2.5 min after the landing page, with one reload | vault deploy `0x32926bb8cd3c3b16703d2ff2720994f8921ec9a32e15f985f7afa5d8006bc6b5` (block 10790775, gasUsed 725180) |
+| A reload during "Create your vault" (Review Focus 2) resumes without repeating a confirmed step | after the reload register and Guardian stayed ✓; the resumed run found the vault on chain ("Checking the chain for an existing vault…") and went on to the approvals and link. The owner created exactly one contract (CREATE addresses of nonces 0–14: only nonce 3 has code) and holds 100 of each test token (minted once) | `getContractAddress` + `eth_getCode` over the owner's 15 nonces |
+| Test your protection: 10 fUSD to an address nobody holds | transfer block 10790865; fUSD rescue block 10790866 (**1 block**), fETH and fBTC block 10790867; **90 %** of fUSD kept; the signed report verifies in the browser | arm window `6F56403169ED062B0253E2AFE1313BBBA2B62ED069E1A0E5B3E4C6ADC27B88BE`, transfer `0xf554e99d6d53ecd858fac85e20a860bfb0f9e905b2af7d7ead2e7304c5e8b945`, rescues `0x139c668f8db34e2a4c8041ed288558d5aaf3ea911ed9c868378ea22b28df82d7`, `0xb41dfb3ea9be7cdf64996141ad09613072366f097c9d228c91becd5014ae9445`, `0x297876e19c6a9c2e163dc673bd40422b76b7aff420193d362413e5910ecc4a8a` |
+| Vault withdrawal in 3 steps (What → Where → Review → unlock dialog → sign) | 50 fUSD to the fresh address `0x94554dd644b09ed4b873bb35dc7afa4b061e689c` 13 s after "Sign and withdraw"; vault fUSD 90 → 40 | withdraw `0xfb4f330ab37bd4a3c809fe43fc0e911d289f931ba2a5d99557989deca92cc4ad` (block 10790901) |
+

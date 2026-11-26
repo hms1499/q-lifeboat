@@ -220,6 +220,12 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `unifiedAccountFromSeed`, `gene
   `#/vault`, `#/settings`. Aliases: overview, incidents, recover, rules, attack, start. Local mode (no wallet + local agent, not a
   hosted build) keeps the legacy screens (Overview, Incidents, Recover, Rules, Protect, Drill). Signing actions call
   `useKeys().requireKeys("pqc" | "classical")` (one dialog); never embed unlock forms in a page.
+- Starter-pack caps (`apps/hosted/src/limits.ts`): the per-IP count (3 per rolling 24 h) lives in memory and restarts EMPTY on every
+  service restart or `fly deploy`; owners used and the UTC-day total (30) survive. Check this before telling the builder to wait.
+  UX rebuild E2E owner (testnet, 2026-11-26): `0xf1e8…f765`, credentials in `~/.config/qday/browser-run-ux-e2e/owner.txt`; with it the
+  Fly service hit its 4-agent cap (`/api/status` → paused, capacity).
+- Playwright `browser_run_code_unsafe`: `globalThis` does not survive between calls, but a context opened with `browser.newContext()`
+  does; find its page again with `page.context().browser().contexts().flatMap(c => c.pages())`.
 - Playwright: `browser_navigate` to the same URL with only a different hash does NOT reload the page; go to `about:blank` first (or
   change the query string) after wiping IndexedDB/localStorage.
 

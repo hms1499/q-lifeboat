@@ -133,5 +133,5 @@ false on cancel); `<KeysProvider owner={Hex | null}>`.
 
 ### Task 10: End to end on diana, review, deploy
 
-- [ ] After 2026-11-27 02:00Z (starter cap): fresh browser on the preview against Fly: setup → test → withdraw; record hashes in EVIDENCE.
+- [x] After 2026-11-27 02:00Z (starter cap): fresh browser on the preview against Fly: setup → test → withdraw; record hashes in EVIDENCE. (Ran 2026-11-26 on the live URL: the deploy had reset the per-IP cap.)
 - [x] Whole-branch review; fixes. Ask the builder; merge, `fly deploy`, live check.
