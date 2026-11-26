@@ -28,9 +28,9 @@ function FixedRow({ label, address, note }: { label: string; address: string; no
  * The agent's policy and its writes, shared by Rules and Protect. `online`: the agent answers (editing is off otherwise).
  * Each PUT bumps `gen`; a read is tagged with the generation current when it STARTED, so a poll that was in flight
  * during a PUT never replaces the PUT's answer (each write replaces the whole policy: building on an older read would
- * drop the previous edit).
+ * drop the previous edit). `guard` runs before each write (the unlock dialog): false cancels it and nothing is sent.
  */
-export function usePolicyEditor(online: boolean, sign?: (p: Policy) => unknown) {
+export function usePolicyEditor(online: boolean, sign?: (p: Policy) => unknown, guard?: () => Promise<boolean>) {
   const gen = useRef(0);
   const policy = usePoll(async (): Promise<PolicyAt> => {
     const g = gen.current;
@@ -46,6 +46,7 @@ export function usePolicyEditor(online: boolean, sign?: (p: Policy) => unknown) 
   const canEdit = online && !!current && !busy;
 
   async function save(next: Policy, what: string): Promise<boolean> {
+    if (guard && !(await guard())) return false;
     setBusy(true);
     setError(null);
     setNotice(null);
