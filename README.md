@@ -8,6 +8,8 @@ autonomous Guardian sweeps your tokens into a vault that only your ML-DSA-87 key
 > **Status:** working prototype on the QoreChain testnet `qorechain-diana` (EVM chain id 9800). Test tokens have no value. The
 > contract went through two AI audit passes (QCAI), not a human audit. Do not use it with real funds. Two ways to use it: in a
 > browser with nothing installed (a hosted Guardian per account), or self-hosted with your own agent and keys.
+>
+> **Live (testnet): https://q-lifeboat.fly.dev**
 
 ## Why
 
@@ -89,7 +91,7 @@ Details and the full threat model: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md
 
 ## Try it in your browser
 
-No extension, no terminal and no QOR of your own. Open the app and follow **Get protected**:
+No extension, no terminal and no QOR of your own. Open **https://q-lifeboat.fly.dev** and follow **Get protected**:
 
 1. **Create your wallet.** A key is made in the browser and stored encrypted under your password.
 2. **Save your recovery code.** `QRC1-…`, shown once and never stored: it derives your ML-DSA-87 key, the only key that
@@ -104,7 +106,12 @@ No extension, no terminal and no QOR of your own. Open the app and follow **Get 
 
 Each step turns ✓ only when the chain or the service confirms it, so you can close the tab and come back. Your Guardian
 opens its own window just before yours and costs nothing while your account's window is closed. What the hosted service can
-and cannot do is in the threat model (T21–T25): it can never move tokens out of your vault.
+and cannot do is in the threat model (T21–T26): it can never move tokens out of your vault.
+
+On the public URL three fresh browsers did all six steps on 2026-11-26; the fastest went from the landing page to its
+withdrawal in 2 min 32 s ([EVIDENCE, Task 12](docs/EVIDENCE.md#plan-task-12-the-public-url-three-fresh-browsers-on-diana-2026-11-26)).
+The public service is one small machine: it watches at most 4 accounts at once and hands out 3 starter packs per IP per day.
+When it is full, the landing page says onboarding is paused; [run it yourself](#run-it-yourself) instead.
 
 ## Run it yourself
 
@@ -141,7 +148,18 @@ cd apps/hosted && set -a && . ../../.env && set +a && HOSTED_DATA_DIR=~/.config/
 # or: docker build -f apps/hosted/Dockerfile -t qlifeboat-hosted .   (see the Dockerfile for the run command)
 ```
 
-Owner state and guardian secrets live in `HOSTED_DATA_DIR` (0600), never in the repo.
+Owner state and guardian secrets live in `HOSTED_DATA_DIR` (0600), never in the repo. `HOSTED_MAX_AGENTS` caps the agents
+(default 40): on Fly each one takes ~185 MB and the service ~172 MB, so size it to the host's RAM.
+
+The public instance runs on [Fly.io](https://fly.io) from [`fly.toml`](fly.toml) (one Machine, a volume on `/data`, auto-stop
+off so the Guardians never sleep):
+
+```bash
+cd contracts && forge build && cd ..
+fly apps create <app> && fly volumes create qlifeboat_data --size 1 --region sin -a <app>
+fly secrets set FUNDER_MNEMONIC="…" -a <app> --stage      # never in fly.toml
+fly deploy -a <app> --ha=false --remote-only              # one Machine: the volume belongs to it
+```
 
 ### Run the Guardian and the dashboard (local mode)
 
@@ -224,6 +242,7 @@ Every claim about the chain is backed by a transaction on diana in [`docs/EVIDEN
 | A report co-signed with ML-DSA-87 verifies; a changed copy fails | [EVIDENCE, gap 3](docs/EVIDENCE.md#submission-gap-3-post-quantum-co-signed-incident-reports-2026-11-24) |
 | A fresh browser onboards with no extension and no QOR: register, vault, approvals, link, activate | [EVIDENCE, Tasks 6 + 9](docs/EVIDENCE.md#plan-task-6--9-self-serve-onboarding-in-a-fresh-browser-on-diana-2026-11-25) |
 | From the browser: rescue 2 blocks after the attack transfer (90% kept); 50 fUSD withdrawn with the recovery-code key | [EVIDENCE, Task 10](docs/EVIDENCE.md#plan-task-10-try-an-attack-and-withdraw-in-the-browser-on-diana-2026-11-25) |
+| On the public URL: three fresh browsers onboard, get rescued 2 blocks after the attack and withdraw; a restart brings every Guardian back | [EVIDENCE, Task 12](docs/EVIDENCE.md#plan-task-12-the-public-url-three-fresh-browsers-on-diana-2026-11-26) |
 
 The diana explorer shows Cosmos-lane transactions only. Check EVM hashes with `eth_getTransactionReceipt` on
 `https://evm-testnet.qore.host`.

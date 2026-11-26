@@ -487,8 +487,10 @@ Test `apps/dashboard/src/lib/attack.test.ts`, extend `withdrawal.test.ts`.
   90 % kept); restart → "resumed 3 agent(s)", all three `/health` live. Two bugs found and fixed (`7e84752`: incident
   stream never reopened after the pre-agent 404/503; step 7 enabled while the vault step minted). Open: the 24 h idle
   check (guardian tx counts read 2026-11-27 after 02:30Z). See `docs/EVIDENCE.md` "Plan Task 12".
-- [ ] **Step 4:** Update README (Getting started = the URL; local mode moves to "Run it yourself"), THREAT_MODEL (§7 of the
+- [x] **Step 4:** Update README (Getting started = the URL; local mode moves to "Run it yourself"), THREAT_MODEL (§7 of the
   spec), EVIDENCE (every hash above), AI_USAGE. Commit `docs: end-user product, hosted threat model, evidence`.
+  2026-11-26: README (live URL, the public instance's limits, Fly deploy), THREAT_MODEL (Fly proxy and the per-IP cap, the
+  one-Machine outage, T26 slot exhaustion), EVIDENCE "Plan Task 12", AI_USAGE.
 
 ---
 
