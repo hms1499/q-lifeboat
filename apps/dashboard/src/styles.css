@@ -712,3 +712,44 @@ dl.kv dd small { display: block; color: var(--muted); font-weight: 400; font-siz
 .setup-done h2 { color: var(--safe); }
 .setup-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--harbour); color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 13px; z-index: 30; }
 @media (max-width: 600px) { .code-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Dashboard (hosted) */
+.dash-hero { border: 1px solid var(--rope); background: var(--hull); border-radius: 16px; padding: 22px; }
+.dash-hero.safe { background: var(--safe-wash); border-color: #cfe7dd; }
+.dash-hero.alert { background: var(--rescue-wash); border-color: var(--rescue-line); }
+.dash-hero h2 { margin: 8px 0 0; font-size: 26px; line-height: 32px; }
+.dash-hero p { margin: 8px 0 0; max-width: 680px; color: var(--harbour-2); }
+.dash-hero .actions { margin-top: 16px; }
+.dash-eyebrow { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--harbour-2); }
+.dash-hero.safe .dash-eyebrow { color: var(--safe); }
+.dash-hero.alert .dash-eyebrow { color: var(--rescue-ink); }
+.dash-hint { margin: 0; font-size: 13px; line-height: 19px; color: var(--muted); }
+.dash-empty { margin: 12px 0 0; border: 1px dashed var(--rope); border-radius: 12px; padding: 16px; text-align: center; font-size: 14px; color: var(--muted); }
+.dash-tokens { list-style: none; margin: 10px 0 0; padding: 0; }
+.dash-tokens li { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto minmax(0, 1.2fr); align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--rope-soft); font-size: 14px; }
+.dash-tokens li:first-child { border-top: 0; }
+.dash-tokens .mono { white-space: nowrap; }
+.dash-tokens .safe { color: var(--safe); text-align: right; }
+.dash-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--chip); }
+.dash-bar i { display: block; height: 100%; }
+.dash-bar .a { background: var(--rescue); }
+.dash-bar .v { background: var(--safe); }
+.dash-latest { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.dash-latest a { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--rope); border-radius: 10px; color: var(--harbour); text-decoration: none; font-size: 14px; }
+.dash-latest a:hover { background: var(--well); }
+.dash-latest-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-test { display: flex; flex-direction: column; gap: 10px; }
+.dash-test .kv { margin: 0; }
+.dash-timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+.dash-timeline li { display: flex; flex-direction: column; gap: 2px; padding-left: 20px; position: relative; }
+.dash-timeline li::before { content: ""; position: absolute; left: 0; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--rope); }
+.dash-timeline li.bad::before { background: var(--rescue); }
+.dash-timeline li.good::before { background: var(--safe); }
+.dash-timeline li.pending { color: var(--muted); }
+.dash-timeline small { color: var(--muted); font-size: 12px; }
+.dash-tech summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+@media (max-width: 600px) {
+  .dash-tokens li { grid-template-columns: 50px minmax(0, 1fr) auto; }
+  .dash-tokens .dash-bar { grid-column: 1 / -1; }
+  .dash-hero h2 { font-size: 22px; line-height: 28px; }
+}

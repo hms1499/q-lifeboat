@@ -16,6 +16,7 @@ import { Protect } from "./screens/Protect";
 import { Recover } from "./screens/Recover";
 import { Rules } from "./screens/Rules";
 import { Setup } from "./screens/Setup";
+import { Dashboard } from "./screens/Dashboard";
 import { Attack } from "./screens/Attack";
 import { Home } from "./screens/Home";
 import { appStage, ownerStageFor, resolveRoute, type Stage } from "./lib/appState";
@@ -273,9 +274,9 @@ function Routes({ owner }: { owner: Hex | null | undefined }) {
   if (stage === "protected" && owner && active) {
     return (
       <AppShell active={active} owner={owner}>
-        <Banners mode={mode} />
+        {active === "dashboard" ? null : <Banners mode={mode} />}
         <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
-          {active === "activity" ? <Incidents selected={id} /> : active === "vault" ? <Recover /> : active === "settings" ? <Rules /> : <Overview />}
+          {active === "activity" ? <Incidents selected={id} /> : active === "vault" ? <Recover /> : active === "settings" ? <Rules /> : <Dashboard owner={owner} />}
         </ScreenBoundary>
       </AppShell>
     );
