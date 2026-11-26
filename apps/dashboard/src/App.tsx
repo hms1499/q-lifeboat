@@ -20,7 +20,6 @@ import { Dashboard } from "./screens/Dashboard";
 import { Activity } from "./screens/Activity";
 import { Vault } from "./screens/Vault";
 import { Settings } from "./screens/Settings";
-import { Attack } from "./screens/Attack";
 import { Home } from "./screens/Home";
 import { appStage, ownerStageFor, resolveRoute, type Stage } from "./lib/appState";
 import { hosted } from "./lib/appWallet";
@@ -227,24 +226,6 @@ function useStage(owner: Hex | null | undefined): Stage | null {
     localAgent: !!cfg && agentBase().owner === null,
     hostedBuild: HOSTED_BUILD,
   });
-}
-
-/** What a visitor sees on a screen that needs a wallet. */
-function NoWallet() {
-  return (
-    <section className="card" style={{ maxWidth: 640 }}>
-      <h1 style={{ fontSize: 28 }}>No wallet in this browser yet</h1>
-      <p className="lead" style={{ marginTop: 8 }}>
-        This page shows your Guardian, your vault and what it rescued. Set up protection first: it takes a few minutes and runs on the diana
-        testnet with free test tokens.
-      </p>
-      <div className="actions">
-        <a className="btn primary" href="#/start">
-          Get protected
-        </a>
-      </div>
-    </section>
-  );
 }
 
 export function App() {

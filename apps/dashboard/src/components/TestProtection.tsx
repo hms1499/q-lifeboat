@@ -1,11 +1,11 @@
 import { MINT_AMOUNT, MINT_GAS } from "@qday/core";
 import { useEffect, useRef, useState } from "react";
 import { erc20Abi, parseAbi, type Hex } from "viem";
-import { IDLE, RunView, track, type Run } from "../components/Keys";
+import { IDLE, RunView, track, type Run } from "../components/Run";
 import { useKeys } from "./KeysProvider";
 import { TxHash } from "./ui";
 import { fetchPolicy } from "../lib/agent";
-import { appSession, DIANA_TOKENS, hosted, ownerTx } from "../lib/appWallet";
+import { appSession, DIANA_TOKENS, ownerTx } from "../lib/appWallet";
 import { ATTACK_AMOUNT, ATTACK_GAS, attackOutcome, attackTarget, fusdRescue, incidentFor } from "../lib/attack";
 import { big } from "../lib/incidents";
 import { publicClient, readFees } from "../lib/chain";

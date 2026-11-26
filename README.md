@@ -91,24 +91,32 @@ Details and the full threat model: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md
 
 ## Try it in your browser
 
-No extension, no terminal and no QOR of your own. Open **https://q-lifeboat.fly.dev** and follow **Get protected**:
+No extension, no terminal and no QOR of your own. Open **https://q-lifeboat.fly.dev** and click **Get protected**. Setup
+runs in three phases:
 
-1. **Create your wallet.** A key is made in the browser and stored encrypted under your password.
-2. **Save your recovery code.** `QRC1-…`, shown once and never stored: it derives your ML-DSA-87 key, the only key that
-   can take tokens out of your vault. You type a few groups back to confirm it.
-3. **Starter pack.** The service sends 2.5 testnet QOR for fees.
-4. **Register your post-quantum key, get your Guardian, create your vault, turn on protection.** One click each; the vault
-   deploy and the approvals are signed in the browser inside short EVM windows sized to exactly those transactions, and the
-   Guardian's key is linked with a rule that allows only `vault.rescue`.
-5. **Try an attack.** Send 10 fUSD to an address nobody trusts, as a thief would. The Guardian moves the rest into your vault
-   a block or two later (on diana: 2 blocks, 90% kept), and its signed report shows up with every check ✓.
-6. **Withdraw.** Type your recovery code; the withdrawal is signed in the tab with ML-DSA-87 and sent to a fresh address.
+1. **Your wallet and recovery code.** A key is made in the browser and stored encrypted under your password. Then your
+   recovery code `QRC1-…`: shown once and never stored, it derives your ML-DSA-87 key, the only key that can take tokens out
+   of your vault. Write it down, or copy or download it (the file warns what it can do); type two groups back to confirm it.
+2. **Starter pack.** The service sends 2.5 testnet QOR for fees.
+3. **Turn on protection.** One click runs the rest with a live checklist: register your post-quantum key, get your Guardian,
+   create your vault, approvals and link. The vault deploy and the approvals are signed in the browser inside short EVM
+   windows sized to exactly those transactions, and the Guardian's key is linked with a rule that allows only `vault.rescue`.
 
-Each step turns ✓ only when the chain or the service confirms it, so you can close the tab and come back. Your Guardian
-opens its own window just before yours and costs nothing while your account's window is closed. What the hosted service can
-and cannot do is in the threat model (T21–T26): it can never move tokens out of your vault.
+Then the app opens on **Dashboard**, with **Activity**, **Vault** and **Settings** beside it:
 
-On the public URL three fresh browsers did all six steps on 2026-11-26; the fastest went from the landing page to its
+- **Test your protection** (Dashboard): send 10 fUSD to an address nobody trusts, as a thief would (100 test fUSD are minted
+  first when the account has too few). The Guardian moves the rest into your vault a block or two later (on diana: 2 blocks,
+  90% kept); the Dashboard turns orange and the signed report opens from **Activity** with every check ✓.
+- **Vault**: pick a token and amount, a fresh address (the leaked account and the vault itself are refused), review, sign.
+  The withdrawal is signed in the tab with ML-DSA-87.
+- **Settings**: trusted wallets and apps, and the largest trusted transfer. Each change is signed with your recovery code.
+
+Your password and recovery code are asked for once per session, only when an action needs to sign. Each setup step turns ✓
+only when the chain or the service confirms it, so you can close the tab and come back. Your Guardian opens its own window
+just before yours and costs nothing while your account's window is closed. What the hosted service can and cannot do is in
+the threat model (T21–T27): it can never move tokens out of your vault.
+
+On the public URL three fresh browsers ran setup, an attack and a withdrawal on 2026-11-26 (before the UX rebuild); the fastest went from the landing page to its
 withdrawal in 2 min 32 s ([EVIDENCE, Task 12](docs/EVIDENCE.md#plan-task-12-the-public-url-three-fresh-browsers-on-diana-2026-11-26)).
 The public service is one small machine: it watches at most 4 accounts at once and hands out 3 starter packs per IP per day.
 When it is full, the landing page says onboarding is paused; [run it yourself](#run-it-yourself) instead.

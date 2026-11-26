@@ -1,12 +1,11 @@
 import type { EvmWindow } from "@qorechain/evm/window";
 import { useEffect, useRef, useState } from "react";
-import { erc20Abi, getAbiItem, type Hex } from "viem";
 import { HowItWorks, useHowItWorks } from "../components/HowItWorks";
 import { GasTank } from "../components/GasTank";
 import { RescueNow } from "../components/RescueNow";
 import { TxHash, WindowCommand } from "../components/ui";
 import { agentBase, fetchHealth, fetchPolicy, type Health as AgentHealth } from "../lib/agent";
-import { publicClient, readSpendingRules, readWindow } from "../lib/chain";
+import { readSpendingRules, readWindow } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { ago, fmtAmount, fmtInt, shortAddr, tokenSymbol } from "../lib/format";
 import { usePoll, type Polled } from "../lib/hooks";
@@ -14,7 +13,7 @@ import { big, incidentTag, triggerKind } from "../lib/incidents";
 import { coverage, describeAgentRule, heroRescue, labelCounterparty, windowTargetsLabel } from "../lib/overview";
 import { useOwnedIncidents } from "../lib/useOwned";
 import { useApp } from "../state";
-import { ACTIVITY_BLOCKS, readActivity, readAssets, SYMBOLS, type Activity, type AssetRow } from "../lib/ownerReads";
+import { ACTIVITY_BLOCKS, readActivity, readAssets, SYMBOLS, type AssetRow } from "../lib/ownerReads";
 
 const SLOW_TEXT = "diana is slow to answer. Still trying…";
 const WINDOW_TIP = "A time-limited permission your account opens for EVM transactions; while it is closed, a leaked ECDSA key can't send anything.";

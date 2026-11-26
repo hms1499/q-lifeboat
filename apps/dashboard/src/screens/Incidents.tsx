@@ -1,14 +1,8 @@
 import type { Incident } from "@qday/core";
-import { useEffect, useState } from "react";
-import type { Hex } from "viem";
-import { CheckRow, TxHash } from "../components/ui";
-import { readReceipt } from "../lib/chain";
-import type { AgentConfig } from "../lib/config";
-import { ago, fmtAmount, fmtInt, shortAddr, shortHash, tokenSymbol, when } from "../lib/format";
+import { ago } from "../lib/format";
 import { describeIncident } from "../lib/explain";
-import { big, incidentTag, triggerKind } from "../lib/incidents";
+import { incidentTag } from "../lib/incidents";
 import { useOwnedIncidents } from "../lib/useOwned";
-import type { VerifyResult } from "../lib/verify";
 import { useApp } from "../state";
 import { IncidentReport, subtitle } from "../components/IncidentReport";
 

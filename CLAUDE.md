@@ -215,6 +215,11 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `unifiedAccountFromSeed`, `gene
 - Homepage (2026-11-26): `#/` is the full-width `Home` screen for a browser with no wallet (`#/home` always), Overview with one
   (`lib/home.ts` `resolveScreen`). `fly deploy` prints "app is not listening on 0.0.0.0:8080" and one failed health check while the
   service resumes its agents (~7 s): harmless if the logs then show "resumed N agent(s)" and "hosted listening on :8080".
+- Hosted routes (UX rebuild, 2026-11-26): `lib/appState.ts` `appStage` + `resolveRoute` pick the screen. Visitor → `#/home`;
+  onboarding (wallet, hosted stage not `active`) → `#/setup` in the focus shell; protected → `#/dashboard`, `#/activity[/<id>]`,
+  `#/vault`, `#/settings`. Aliases: overview, incidents, recover, rules, attack, start. Local mode (no wallet + local agent, not a
+  hosted build) keeps the legacy screens (Overview, Incidents, Recover, Rules, Protect, Drill). Signing actions call
+  `useKeys().requireKeys("pqc" | "classical")` (one dialog); never embed unlock forms in a page.
 - Playwright: `browser_navigate` to the same URL with only a different hash does NOT reload the page; go to `about:blank` first (or
   change the query string) after wiping IndexedDB/localStorage.
 

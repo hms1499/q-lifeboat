@@ -1,10 +1,6 @@
 import { NETWORK, vaultAbi, WITHDRAW_GAS } from "@qday/core";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { erc20Abi, zeroAddress, type Hex } from "viem";
-import { BrowserWithdraw } from "../components/BrowserWithdraw";
-import { useStoredSeed } from "../components/Keys";
-import { hosted, readVaultRoles } from "../lib/appWallet";
-import { ownerVault } from "../lib/ownerVault";
 import { CheckRow, Command, TxHash, WindowCommand } from "../components/ui";
 import { useWalletConnect, WalletConnect } from "../components/WalletConnect";
 import { withWindowHint } from "../lib/actions";
@@ -47,42 +43,8 @@ function Dot({ n, on, done }: { n: number; on: boolean; done: boolean }) {
   return <span className={`stepnum ${done ? "done" : on ? "on" : ""}`}>{n}</span>;
 }
 
-function InAppRecover({ owner }: { owner: Hex }) {
-  const vault = usePoll(
-    async () => {
-      const fromService = await hosted
-        .owner(owner)
-        .then((s) => s.vault)
-        .catch(() => undefined);
-      return ownerVault(owner, [fromService, loadProtectState(browserStorage(), owner).vault], readVaultRoles);
-    },
-    30_000,
-    owner,
-  );
-  return (
-    <>
-      <h1>Recover from your vault</h1>
-      <p className="lead">Only your ML-DSA-87 key can release funds. It comes from your recovery code and signs right here, in this tab.</p>
-      {vault.data ? (
-        <BrowserWithdraw owner={owner} vault={vault.data} />
-      ) : (
-        <section className="card roomy">
-          <p className="muted">
-            {vault.data === null
-              ? "No vault owned by this account was found on chain."
-              : vault.error
-                ? `Could not read your vault from the chain: ${vault.error}`
-                : "Looking up your vault on chain…"}
-          </p>
-        </section>
-      )}
-    </>
-  );
-}
-
 export function Recover() {
   const { config } = useApp();
-  const stored = useStoredSeed();
   const wc = useWalletConnect();
   const { wallet, chainId, error: walletError } = wc;
   const cfg = config.cfg;
@@ -165,7 +127,6 @@ export function Recover() {
 
   // The in-app wallet signs in this browser, with the vault read from the chain (not the agent: a stopped Guardian
   // must never keep an owner from their funds). The file + MetaMask flow below stays for local mode.
-  if (stored) return <InAppRecover owner={stored.evm} />;
   if (!cfg) return null;
 
   const savedRecovery = [cfg.owner, wallet?.account].map((o) => (o ? loadProtectState(browserStorage(), o).recovery : null)).find((r) => !!r) ?? null;

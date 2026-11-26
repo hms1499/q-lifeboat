@@ -4,9 +4,9 @@ import type { Hex } from "viem";
 import { CheckRow, TxHash } from "./ui";
 import { readReceipt } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
-import { ago, fmtAmount, fmtInt, shortAddr, shortHash, tokenSymbol, when } from "../lib/format";
+import { fmtAmount, fmtInt, shortAddr, shortHash, tokenSymbol, when } from "../lib/format";
 import { describeIncident } from "../lib/explain";
-import { big, incidentTag, triggerKind } from "../lib/incidents";
+import { big, triggerKind } from "../lib/incidents";
 import type { VerifyResult } from "../lib/verify";
 
 /** An incident's signed report: what happened, the timeline, and the checks run against the chain in this browser. */

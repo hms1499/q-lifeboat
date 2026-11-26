@@ -499,11 +499,6 @@ dl.kv dd small { display: block; color: var(--muted); font-weight: 400; font-siz
 /* Start: landing hero and the recovery code */
 .hero { display: flex; flex-direction: column; gap: 14px; max-width: 720px; }
 .hero h1 { margin: 0; font-size: 32px; line-height: 38px; }
-.code-groups { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
-.code-groups li { display: flex; align-items: baseline; gap: 6px; background: var(--well); border-radius: 8px; padding: 8px 10px; }
-.code-groups li .n { font-size: 11px; color: var(--muted); min-width: 14px; }
-.code-groups li .mono { font-size: 15px; font-weight: 600; letter-spacing: 0.06em; }
-.code-groups li.prefix { font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--muted); }
 
 
 /* Homepage (docs/superpowers/specs/2026-11-26-homepage-design.md): full width, outside the sidebar shell. */

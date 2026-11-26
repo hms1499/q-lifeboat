@@ -3,7 +3,7 @@ import { broadcastTx, uqorBalance } from "@qday/core/chain";
 import { clearPqcStatusCache, normalizeRecoveryCode } from "@qorechain/sdk";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { bytesToHex, erc20Abi, maxUint256, parseAbi, type Hex } from "viem";
-import { IDLE, RunView, track, type Run } from "../components/Keys";
+import { IDLE, RunView, track, type Run } from "../components/Run";
 import { useKeys } from "../components/KeysProvider";
 import { hostedAgentUrl, setAgentBase } from "../lib/agent";
 import { appSession, DIANA_TOKENS, hosted, ownerTx, readVaultRoles } from "../lib/appWallet";
@@ -30,15 +30,6 @@ const norm = (h: string) => h.replace(/^0x/i, "").toLowerCase();
 
 type OnboardStep = Exclude<JourneyStep, "attack" | "withdraw" | "done">;
 const ORDER: OnboardStep[] = ["account", "code", "starter", "register", "guardian", "vault", "protect"];
-const TITLES: Record<OnboardStep, string> = {
-  account: "Create your wallet",
-  code: "Save your recovery code",
-  starter: "Get starter QOR",
-  register: "Register your post-quantum key",
-  guardian: "Get your Guardian",
-  vault: "Create your vault",
-  protect: "Turn on protection",
-};
 
 /** The recovery code just created: memory only, shown once, dropped as soon as it is confirmed. Never stored. */
 let freshCode: string | null = null;
@@ -177,7 +168,6 @@ export function Setup() {
   const code = freshCode;
   const picks = useMemo(() => (code ? confirmPicks(code, 2) : []), [code]);
   const [typed, setTyped] = useState<string[]>(["", ""]);
-  const [wrote, setWrote] = useState(false);
   function confirmCode(e: FormEvent) {
     e.preventDefault();
     if (!freshCode || !owner) return;
