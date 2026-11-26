@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Hex } from "viem";
 import { deriveUnifiedAccount } from "@qorechain/sdk";
-import { agentBaseEnv, createGuardianSweeper, createSupervisor, GUARDIAN_FEE_RESERVE_UQOR, FIRST_AGENT_PORT, MAX_AGENTS, RETIRE_AFTER_MS, type ChildLike, type Clock } from "../src/supervisor.ts";
+import { agentBaseEnv, createGuardianSweeper, createSupervisor, GUARDIAN_FEE_RESERVE_UQOR, FIRST_AGENT_PORT, MAX_AGENTS, maxAgentsFromEnv, RETIRE_AFTER_MS, type ChildLike, type Clock } from "../src/supervisor.ts";
 import { createStore, type OwnerState, type Store } from "../src/store.ts";
 
 const DAY = 24 * 3600 * 1000;
@@ -63,7 +63,7 @@ function activeRow(o: Hex, over: Partial<OwnerState> = {}): OwnerState {
   return { owner: o, stage: "active", starter: true, guardian: GUARD, vault: VAULT, createdAt: T0, lastActiveAt: T0, topups: 0, ...over };
 }
 
-function setup(opts: { sweep?: (o: Hex) => Promise<string | null>; refund?: (o: Hex) => Promise<void> } = {}) {
+function setup(opts: { sweep?: (o: Hex) => Promise<string | null>; refund?: (o: Hex) => Promise<void>; maxAgents?: number } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sup-"));
   const store: Store = createStore(dir);
   const clock = fakeClock();
@@ -83,6 +83,7 @@ function setup(opts: { sweep?: (o: Hex) => Promise<string | null>; refund?: (o: 
     baseEnv: BASE_ENV,
     sweep: opts.sweep ? (o) => opts.sweep!(o) : undefined,
     refund: opts.refund,
+    maxAgents: opts.maxAgents,
   });
   const seed = (o: Hex, over: Partial<OwnerState> = {}) => {
     store.put(activeRow(o, over));
@@ -182,6 +183,16 @@ describe("supervisor", () => {
     children.at(-1)!.crash();
     clock.advance(1000);
     expect(children.length).toBe(10);
+  });
+
+  it("a configured cap (HOSTED_MAX_AGENTS) refuses the start past it, and canStart follows it", async () => {
+    const { sup, seed } = setup({ maxAgents: 2 });
+    for (let i = 1; i <= 3; i++) seed(owner(i));
+    expect(sup.canStart()).toBe(false); // 3 active rows already hold more than 2 slots
+    for (let i = 1; i <= 2; i++) expect((await sup.start(owner(i))).ok).toBe(true);
+    expect(await sup.start(owner(3))).toEqual({ ok: false, reason: "capacity" });
+    expect(await sup.revive(owner(4))).toEqual({ ok: false, reason: "not-active" });
+    expect(sup.running()).toBe(2);
   });
 
   it("41st start is refused", async () => {
@@ -420,5 +431,16 @@ describe("createGuardianSweeper", () => {
     expect(await sweep(owner(1))).toBe("SWEEP1");
     sent.pop();
     expect(sent.length).toBe(1);
+  });
+});
+
+describe("maxAgentsFromEnv", () => {
+  it("defaults to MAX_AGENTS and reads a positive whole number", () => {
+    expect(maxAgentsFromEnv({})).toBe(MAX_AGENTS);
+    expect(maxAgentsFromEnv({ HOSTED_MAX_AGENTS: "" })).toBe(MAX_AGENTS);
+    expect(maxAgentsFromEnv({ HOSTED_MAX_AGENTS: "4" })).toBe(4);
+  });
+  it("fails at boot on anything else", () => {
+    for (const v of ["0", "-1", "4.5", "abc", "4x"]) expect(() => maxAgentsFromEnv({ HOSTED_MAX_AGENTS: v })).toThrow(/HOSTED_MAX_AGENTS/);
   });
 });

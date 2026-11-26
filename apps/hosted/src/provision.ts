@@ -77,8 +77,10 @@ export type ProvisionDeps = {
   newAgentKey?(): string;
   /** Hand-off once an owner is active (Task 7: the supervisor starts its agent). */
   onActivated?(owner: Hex): void | Promise<void>;
-  /** Room for one more agent (the supervisor's 40 cap). Absent: always room. */
+  /** Room for one more agent (the supervisor's cap). Absent: always room. */
   canStart?(): boolean;
+  /** The supervisor's agent cap, for `/api/status` (default MAX_AGENTS). */
+  maxAgents?: number;
   /** Signed-request verification; share one with the gateway so they share one replay set. Default: built from `chain`. */
   auth?: OwnerAuth;
   log?(line: string): void;
@@ -409,8 +411,8 @@ export function createProvisioner(deps: ProvisionDeps) {
       const active = store.list().filter((o) => o.stage === "active");
       const activeGuardians = active.length;
       let value: HostedStatus;
-      // A stopped owner runs no agent; the 40 cap counts the ones that do (or will on boot).
-      if (active.filter((o) => !o.stopped).length >= MAX_AGENTS) {
+      // A stopped owner runs no agent; the cap counts the ones that do (or will on boot).
+      if (active.filter((o) => !o.stopped).length >= (deps.maxAgents ?? MAX_AGENTS)) {
         value = { onboarding: "paused", reason: "capacity", activeGuardians };
         statusCache = { at: now, value };
         return value;

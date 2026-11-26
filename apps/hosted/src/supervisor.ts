@@ -11,8 +11,16 @@ import type { Store } from "./store.ts";
 
 /** The first owner's agent listens on 127.0.0.1:9100, the next free port above for each new one. */
 export const FIRST_AGENT_PORT = 9100;
-/** Spec §6.6: at most 40 agents poll diana at once. */
+/** Spec §6.6: at most 40 agents poll diana at once. A small host sets a lower cap with HOSTED_MAX_AGENTS. */
 export const MAX_AGENTS = 40;
+
+/** The agent cap: HOSTED_MAX_AGENTS (a positive whole number), else MAX_AGENTS. Anything else fails at boot. */
+export function maxAgentsFromEnv(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.HOSTED_MAX_AGENTS?.trim();
+  if (!raw) return MAX_AGENTS;
+  if (!/^[1-9][0-9]*$/.test(raw)) throw new Error(`HOSTED_MAX_AGENTS must be a positive whole number, got "${raw}"`);
+  return Number(raw);
+}
 /** An owner with no signed write and no incident for this long is retired. */
 export const RETIRE_AFTER_MS = 7 * 24 * 3600 * 1000;
 /** What a retired guardian keeps for the fee of its sweep (a hybrid tx costs 0.225 QOR, chain fact 21). */
@@ -61,6 +69,8 @@ export type SupervisorDeps = {
   sweep?(owner: Hex): Promise<string | null>;
   /** Top a retired owner's guardian back up before it is started again. Absent: a retired owner cannot be revived. */
   refund?(owner: Hex): Promise<unknown>;
+  /** At most this many agents at once (default MAX_AGENTS). */
+  maxAgents?: number;
 };
 
 type Entry = {
@@ -147,6 +157,7 @@ export function createGuardianSweeper(deps: {
  */
 export function createSupervisor(deps: SupervisorDeps) {
   const { store, clock, log } = deps;
+  const maxAgents = deps.maxAgents ?? MAX_AGENTS;
   const entries = new Map<Hex, Entry>();
   // Agents being stopped: a new start for the same owner waits for the old process to exit (it holds the port).
   const exiting = new Map<Hex, Promise<void>>();
@@ -285,8 +296,8 @@ export function createSupervisor(deps: SupervisorDeps) {
     if (!store.readSecrets(o)) return { ok: false, reason: "no-secrets" };
     // An active, non-stopped row already holds its slot (boot, activation); a stopped owner coming back takes a new one.
     const holdsSlot = !s.stopped;
-    if (entries.size >= MAX_AGENTS || (!holdsSlot && slotsTakenByOthers(o) >= MAX_AGENTS)) {
-      log(`agent ${o}: refused, ${MAX_AGENTS} agents already run`);
+    if (entries.size >= maxAgents || (!holdsSlot && slotsTakenByOthers(o) >= maxAgents)) {
+      log(`agent ${o}: refused, ${maxAgents} agents already run`);
       return { ok: false, reason: "capacity" };
     }
     const port = portFor(o, s.port);
@@ -408,12 +419,12 @@ export function createSupervisor(deps: SupervisorDeps) {
     },
 
     /**
-     * Room for one more agent: fewer than 40 owners `active` and not stopped in the store (the same rule as
+     * Room for one more agent: fewer than `maxAgents` owners `active` and not stopped in the store (the same rule as
      * `/api/status`). Counted from the store, not running processes, so a slot an owner holds while its agent is
      * still starting (boot, a concurrent activation) is never handed to someone else.
      */
     canStart(): boolean {
-      return store.list().filter((s) => s.stage === "active" && !s.stopped).length < MAX_AGENTS;
+      return store.list().filter((s) => s.stage === "active" && !s.stopped).length < maxAgents;
     },
 
     /** Owners supervised now, including any waiting for a restart. */
@@ -437,7 +448,7 @@ export function createSupervisor(deps: SupervisorDeps) {
         if (!s) return { ok: false, reason: "not-active" };
         if (s.stage !== "retired") return start(o);
         if (!deps.refund) return { ok: false, reason: "refund-unavailable" };
-        if (entries.size >= MAX_AGENTS || slotsTakenByOthers(o) >= MAX_AGENTS) return { ok: false, reason: "capacity" };
+        if (entries.size >= maxAgents || slotsTakenByOthers(o) >= maxAgents) return { ok: false, reason: "capacity" };
         try {
           await deps.refund(o);
         } catch (err) {

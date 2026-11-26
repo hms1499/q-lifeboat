@@ -469,10 +469,17 @@ Test `apps/dashboard/src/lib/attack.test.ts`, extend `withdrawal.test.ts`.
 **Files:** `apps/hosted/Dockerfile`, `README.md`, `docs/THREAT_MODEL.md` (spec §7), `docs/EVIDENCE.md`, `AI_USAGE.md`,
 `CLAUDE.md` (new commands and chain facts), the plan checkboxes.
 
-- [ ] **Step 1:** Dockerfile: `pnpm install --frozen-lockfile`, `forge build` artifact copied in (no Foundry in the
+- [x] **Step 1:** Dockerfile: `pnpm install --frozen-lockfile`, `forge build` artifact copied in (no Foundry in the
   image: build `contracts/out` before), `pnpm -F dashboard build`, run `apps/hosted`. `docker build` passes locally.
-- [ ] **Step 2: Ask the builder** for the host and the go-ahead, then deploy with a persistent volume for
+  2026-11-26: built and run locally (no funder): `/api/status` paused "no-funder", `/` 200, `/qore-rest` + `/qore-rpc` reach
+  diana. The idle service takes ~265 MB in the container, so the agent cap is now `HOSTED_MAX_AGENTS` (default 40).
+- [x] **Step 2: Ask the builder** for the host and the go-ahead, then deploy with a persistent volume for
   `HOSTED_DATA_DIR` and the secrets as host env. Check `GET /api/status` on the public URL.
+  2026-11-26: builder chose Fly.io (one app, UI and service on one origin; Vercel dropped: diana has no CORS, and a
+  rewrite would put Vercel's IP in the per-IP starter cap). `fly.toml`: app `q-lifeboat`, `sin`, shared-cpu-1x 1 GB,
+  volume `qlifeboat_data` on `/data`, auto-stop off, `HOSTED_MAX_AGENTS=4`; `FUNDER_MNEMONIC` set by the builder as a Fly
+  secret. https://q-lifeboat.fly.dev/api/status → `{"onboarding":"open","activeGuardians":0}`, boot log
+  `funder 0xa88D…36a1, max 4 agents`.
 - [ ] **Step 3:** Three fresh browser profiles (Playwright, no extension, no QOR) complete steps 1–6 on the public URL,
   each ≤ 15 min. Then restart the service: all three agents come back (`/api/o/<owner>/health` live). An idle owner sends
   no guardian tx for 24 h (check the guardian's tx count the next day).

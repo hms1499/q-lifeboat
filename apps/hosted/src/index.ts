@@ -6,7 +6,7 @@ import { createLimits } from "./limits.ts";
 import { createProvisioner, loadFunder, productionChainDeps } from "./provision.ts";
 import { createHostedServer } from "./server.ts";
 import { createStore } from "./store.ts";
-import { agentBaseEnv, createGuardianSweeper, createSupervisor, spawnAgent, systemClock } from "./supervisor.ts";
+import { agentBaseEnv, createGuardianSweeper, createSupervisor, maxAgentsFromEnv, spawnAgent, systemClock } from "./supervisor.ts";
 
 const dataDir = process.env.HOSTED_DATA_DIR ?? join(process.cwd(), "data");
 const distDir = process.env.DASHBOARD_DIST ?? join(process.cwd(), "../dashboard/dist");
@@ -26,6 +26,8 @@ const limits = createLimits(Date.now, store.list().filter((o) => o.starter === t
 
 // Fails at boot when FUSD/FETH/FBTC_ADDRESS are missing: an agent could not start without them.
 const baseEnv = agentBaseEnv(process.env);
+// Fails at boot on a bad HOSTED_MAX_AGENTS: size it to the host's RAM (service ~265 MB + ~130 MB per agent).
+const maxAgents = maxAgentsFromEnv(process.env);
 let provision: ReturnType<typeof createProvisioner> | undefined;
 const supervisor = createSupervisor({
   spawn: spawnAgent(log),
@@ -33,11 +35,12 @@ const supervisor = createSupervisor({
   clock: systemClock,
   log,
   baseEnv,
+  maxAgents,
   sweep: funder ? createGuardianSweeper({ store, chain, funderCosmos: funder.cosmos }) : undefined,
   refund: funder ? (o) => provision!.refundGuardian(o) : undefined,
 });
 provision = funder
-  ? createProvisioner({ store, chain, funder, limits, auth, now: Date.now, log, canStart: () => supervisor.canStart(), onActivated: async (o) => {
+  ? createProvisioner({ store, chain, funder, limits, auth, now: Date.now, log, canStart: () => supervisor.canStart(), maxAgents, onActivated: async (o) => {
         const r = await supervisor.start(o);
         if (!r.ok) log(`owner ${o}: active, but its agent did not start (${r.reason})`);
       } })
@@ -71,7 +74,7 @@ const server = createHostedServer({
   trustProxy: process.env.TRUST_PROXY === "1",
   status: provision ? () => provision!.status() : () => ({ onboarding: "paused", reason: "no-funder", activeGuardians: activeGuardians() }),
 });
-server.listen(port, () => log(`hosted listening on :${port} (data ${dataDir}, dist ${distDir}${funder ? `, funder ${funder.evm}` : ""})`));
+server.listen(port, () => log(`hosted listening on :${port} (data ${dataDir}, dist ${distDir}${funder ? `, funder ${funder.evm}` : ""}, max ${maxAgents} agents)`));
 
 // Idle owners are retired before the rest resume, so an owner idle for 7 days never gets its agent started.
 await supervisor.boot(Math.floor(Date.now() / 1000));

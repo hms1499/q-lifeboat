@@ -202,7 +202,12 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `unifiedAccountFromSeed`, `gene
 - Hosted build of the dashboard: `VITE_HOSTED=1 pnpm -F dashboard build` (the Dockerfile does it). Without the flag a visitor
   with no wallet reads the local agent on 127.0.0.1:8787. Each hosted agent takes ~130 MB RSS, the service ~140 MB (2026-11-25):
   size the host's RAM to the agent cap. A hosted guardian spends ~0.225 QOR per arm (window) + rescue gas; a signed arm refills it
-  (< 0.5 → 1 QOR, 3/owner and 30 overall per UTC day). Deploy host not chosen yet (builder: free option = Oracle Always Free).
+  (< 0.5 → 1 QOR, 3/owner and 30 overall per UTC day). Deploy host: Fly.io (next note).
+- Hosted deploy (Fly.io, 2026-11-26): app `q-lifeboat` (org personal, region `sin`), https://q-lifeboat.fly.dev, `fly.toml` at the
+  repo root. Deploy: `cd contracts && forge build && cd .. && fly deploy -a q-lifeboat --ha=false --remote-only` (keep ONE Machine:
+  the volume `qlifeboat_data` belongs to it). Secrets only via `fly secrets set … --stage` run by the builder (never read `.env`).
+  The first deploy failed to allocate IPs: `fly ips allocate-v6` + `fly ips allocate-v4 --shared` fixed it. 1 GB Machine →
+  `HOSTED_MAX_AGENTS=4` (service ~265 MB idle in the container + ~130 MB per agent). Logs: `fly logs -a q-lifeboat --no-tail`.
 - Playwright: `browser_navigate` to the same URL with only a different hash does NOT reload the page; go to `about:blank` first (or
   change the query string) after wiping IndexedDB/localStorage.
 

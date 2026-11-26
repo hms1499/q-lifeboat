@@ -97,7 +97,7 @@ function fakeChain(store: Store) {
 }
 
 /** `starter` (default true): the owner already took a starter pack (seeded row, no tx). */
-function setup(opts: { onActivated?: (o: Hex) => void; failBroadcast?: () => boolean; newMnemonic?: () => string; starter?: boolean; canStart?: () => boolean } = {}) {
+function setup(opts: { onActivated?: (o: Hex) => void; failBroadcast?: () => boolean; newMnemonic?: () => string; starter?: boolean; canStart?: () => boolean; maxAgents?: number } = {}) {
   const raw = createStore(mkdtempSync(join(tmpdir(), "hp-")));
   if (opts.starter !== false) raw.put({ owner: ownerAcc.evm as Hex, stage: "starter", starter: true, createdAt: T0, lastActiveAt: T0, topups: 0 });
   const order: string[] = [];
@@ -127,6 +127,7 @@ function setup(opts: { onActivated?: (o: Hex) => void; failBroadcast?: () => boo
     newAgentKey: () => AGENT_SK,
     onActivated: opts.onActivated,
     canStart: opts.canStart,
+    maxAgents: opts.maxAgents,
     log: () => {},
   });
   return { prov, store, st, order, chain, setNow: (ms: number) => (t = ms) };
@@ -664,5 +665,11 @@ describe("status at capacity", () => {
     seed(40);
     setNow(T0 + 11_000); // past the 10 s status cache
     expect(await prov.status()).toEqual({ onboarding: "paused", reason: "capacity", activeGuardians: 41 });
+  });
+
+  it("follows a configured cap (HOSTED_MAX_AGENTS)", async () => {
+    const { prov, store } = setup({ maxAgents: 2 });
+    for (let i = 1; i <= 2; i++) store.put({ owner: `0x${i.toString(16).padStart(40, "0")}` as Hex, stage: "active", createdAt: T0, lastActiveAt: T0, topups: 0 });
+    expect(await prov.status()).toEqual({ onboarding: "paused", reason: "capacity", activeGuardians: 2 });
   });
 });
