@@ -192,3 +192,12 @@ export async function locateVault(
   }
   return null;
 }
+
+/**
+ * The action state to keep when the shown step changes. A running action is kept: the journey can move on under it
+ * (the vault shows on chain while the vault step's mints still run), and clearing it would enable the next step's
+ * button while the window and the account sequence are still in use. A finished or failed one is cleared.
+ */
+export function runOnStepChange<R extends { state: string }>(run: R, idle: R): R {
+  return run.state === "busy" ? run : idle;
+}

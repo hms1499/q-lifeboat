@@ -101,19 +101,42 @@ export async function putPolicy(policy: Policy, sign?: (p: Policy) => unknown, t
   return o as unknown as Policy;
 }
 
-/** Live incidents (SSE). `onOpen` fires on every (re)connect: the caller refetches what it may have missed. */
+/** How long a stream the browser gave up on waits before it is opened again. */
+const SSE_REOPEN_MS = 5_000;
+
+/**
+ * Live incidents (SSE). `onOpen` fires on every (re)connect: the caller refetches what it may have missed.
+ * The browser retries a dropped stream itself, but a non-200 answer (the hosted gateway's 404/503 before the owner's
+ * agent runs) closes it for good: such a stream is opened again after SSE_REOPEN_MS.
+ */
 export function subscribeIncidents(onIncident: (i: Incident) => void, onOpen: () => void, onDown: () => void): () => void {
   if (base.url === NO_AGENT) return () => {};
-  const es = new EventSource(`${base.url}/events`);
-  es.addEventListener("open", onOpen);
-  es.addEventListener("error", onDown);
-  es.addEventListener("incident", (ev) => {
-    try {
-      const [i] = parseIncidentList([JSON.parse((ev as MessageEvent<string>).data)], warnDropped);
-      if (i) onIncident(i);
-    } catch {
-      // a malformed frame is dropped; the next /incidents fetch has the truth
-    }
-  });
-  return () => es.close();
+  const url = `${base.url}/events`;
+  let es: EventSource | undefined;
+  let reopen: ReturnType<typeof setTimeout> | undefined;
+  let stopped = false;
+  const open = () => {
+    reopen = undefined;
+    const s = new EventSource(url);
+    es = s;
+    s.addEventListener("open", onOpen);
+    s.addEventListener("error", () => {
+      onDown();
+      if (!stopped && reopen === undefined && s.readyState === EventSource.CLOSED) reopen = setTimeout(open, SSE_REOPEN_MS);
+    });
+    s.addEventListener("incident", (ev) => {
+      try {
+        const [i] = parseIncidentList([JSON.parse((ev as MessageEvent<string>).data)], warnDropped);
+        if (i) onIncident(i);
+      } catch {
+        // a malformed frame is dropped; the next /incidents fetch has the truth
+      }
+    });
+  };
+  open();
+  return () => {
+    stopped = true;
+    if (reopen !== undefined) clearTimeout(reopen);
+    es?.close();
+  };
 }

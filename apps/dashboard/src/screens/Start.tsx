@@ -11,7 +11,7 @@ import { errorText, fmtUqor, shortAddr } from "../lib/format";
 import { usePoll } from "../lib/hooks";
 import { HostedError } from "../lib/hosted";
 import { loadSeed, type EncryptedSeed } from "../lib/keystore";
-import { canStartOver, landingStart, loadCodeConfirmed, locateVault, nextOnboardStep, protectWindowPlan, saveCodeConfirmed, type JourneyStep } from "../lib/onboard";
+import { canStartOver, landingStart, loadCodeConfirmed, locateVault, nextOnboardStep, protectWindowPlan, runOnStepChange, saveCodeConfirmed, type JourneyStep } from "../lib/onboard";
 import { hasLiveAuthenticator, loadProtectState, saveProtectState } from "../lib/protect";
 import { checkConfirm, confirmPicks } from "../lib/session";
 import { browserStorage } from "../lib/storage";
@@ -179,7 +179,7 @@ export function Start() {
 
   // ---------- actions ----------
   const [run, setRun] = useState<Run>(IDLE);
-  useEffect(() => setRun(IDLE), [view]);
+  useEffect(() => setRun((r) => runOnStepChange(r, IDLE)), [view]);
   const busy = run.state === "busy";
 
   // step 1 (again, when a wallet's unconfirmed code was lost and nothing was handed to it yet)

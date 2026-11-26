@@ -100,3 +100,69 @@ describe("no agent (hosted build, no wallet in this browser yet)", () => {
     expect(es).not.toHaveBeenCalled();
   });
 });
+
+describe("subscribeIncidents reconnects a closed stream", () => {
+  class FakeES {
+    static CONNECTING = 0;
+    static OPEN = 1;
+    static CLOSED = 2;
+    static made: FakeES[] = [];
+    readyState = FakeES.CONNECTING;
+    closed = false;
+    private handlers: Record<string, ((ev: unknown) => void)[]> = {};
+    constructor(public url: string) {
+      FakeES.made.push(this);
+    }
+    addEventListener(type: string, h: (ev: unknown) => void) {
+      (this.handlers[type] ??= []).push(h);
+    }
+    close() {
+      this.closed = true;
+      this.readyState = FakeES.CLOSED;
+    }
+    fire(type: string, ev: unknown = {}) {
+      for (const h of this.handlers[type] ?? []) h(ev);
+    }
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    resetAgentBase();
+    FakeES.made = [];
+  });
+
+  it("a stream the browser gave up on (a 404/503 before the owner's agent exists) is reopened, and onOpen fires on it", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("EventSource", FakeES);
+    const onOpen = vi.fn();
+    const onDown = vi.fn();
+    const stop = subscribeIncidents(() => {}, onOpen, onDown);
+    expect(FakeES.made).toHaveLength(1);
+    // A non-200 answer: the browser closes the stream for good and fires error.
+    FakeES.made[0]!.readyState = FakeES.CLOSED;
+    FakeES.made[0]!.fire("error");
+    expect(onDown).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(10_000);
+    expect(FakeES.made).toHaveLength(2);
+    expect(FakeES.made[1]!.url).toBe(FakeES.made[0]!.url);
+    FakeES.made[1]!.fire("open");
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    stop();
+    expect(FakeES.made[1]!.closed).toBe(true);
+  });
+
+  it("leaves a stream the browser is retrying itself alone, and stop() cancels a pending reopen", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("EventSource", FakeES);
+    const stop = subscribeIncidents(() => {}, () => {}, () => {});
+    FakeES.made[0]!.fire("error"); // still CONNECTING: the browser reconnects on its own
+    vi.advanceTimersByTime(60_000);
+    expect(FakeES.made).toHaveLength(1);
+    FakeES.made[0]!.readyState = FakeES.CLOSED;
+    FakeES.made[0]!.fire("error");
+    stop();
+    vi.advanceTimersByTime(60_000);
+    expect(FakeES.made).toHaveLength(1);
+  });
+});

@@ -3,6 +3,7 @@ import type { PqcStatus } from "@qorechain/sdk";
 import { getContractAddress, maxUint256, type Hex } from "viem";
 import { describe, expect, it } from "vitest";
 import {
+  runOnStepChange,
   landingStart,
   loadCodeConfirmed,
   locateVault,
@@ -310,5 +311,19 @@ describe("canStartOver", () => {
     expect(canStartOver({ stage: "none" }, REGISTERED)).toBe(false);
     expect(canStartOver(undefined, UNREGISTERED)).toBe(false);
     expect(canStartOver({ stage: "none" }, undefined)).toBe(false);
+  });
+});
+
+describe("runOnStepChange", () => {
+  type R = { state: "idle" | "busy" | "done" | "error"; step?: string; message?: string; hashes?: string[] };
+  const IDLE: R = { state: "idle" };
+  it("keeps a running action when the journey moves on under it (a vault seen on chain while its mints are still running)", () => {
+    const busy: R = { state: "busy", step: "Minting fETH…", hashes: ["0x01"] };
+    expect(runOnStepChange(busy, IDLE)).toBe(busy);
+  });
+  it("clears a finished or failed action's message when the step changes", () => {
+    expect(runOnStepChange<R>({ state: "done", message: "ok", hashes: [] }, IDLE)).toBe(IDLE);
+    expect(runOnStepChange<R>({ state: "error", message: "no", hashes: [] }, IDLE)).toBe(IDLE);
+    expect(runOnStepChange(IDLE, IDLE)).toBe(IDLE);
   });
 });
