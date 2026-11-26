@@ -5,7 +5,7 @@ import { HowItWorks, useHowItWorks } from "../components/HowItWorks";
 import { GasTank } from "../components/GasTank";
 import { RescueNow } from "../components/RescueNow";
 import { TxHash, WindowCommand } from "../components/ui";
-import { fetchHealth, fetchPolicy, type Health as AgentHealth } from "../lib/agent";
+import { agentBase, fetchHealth, fetchPolicy, type Health as AgentHealth } from "../lib/agent";
 import { publicClient, readSpendingRules, readWindow } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { ago, fmtAmount, fmtInt, shortAddr, tokenSymbol } from "../lib/format";
@@ -396,7 +396,7 @@ function GuardianHealth({ cfg, win, health }: { cfg: AgentConfig; win: Polled<Ev
           </div>
           <div>
             <dt>Alerts</dt>
-            <dd>{!h ? "—" : channels.length ? `${channels.join(", ")} on` : "None set"}</dd>
+            <dd>{!h ? "—" : channels.length ? `${channels.join(", ")} on` : agentBase().owner ? "Not available yet" : "None set"}</dd>
           </div>
           <div>
             <dt>Its permission on your account</dt>
@@ -500,7 +500,7 @@ function LowerGrid({ cfg, win, health }: { cfg: AgentConfig; win: Polled<EvmWind
             {policy.error ? <div className="empty">Trusted list unavailable: {policy.error}</div> : null}
             {policy.data ? (
               <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
-                Transfers above {fmtAmount(big(policy.data.maxOutbound))} trigger a rescue even to a trusted wallet.
+                A transfer of more than {fmtAmount(big(policy.data.maxOutbound))} fUSD, fETH or fBTC triggers a rescue even to a trusted wallet.
               </div>
             ) : null}
           </div>

@@ -20,6 +20,10 @@ export function createSession(opts: SessionOptions = {}) {
   const iter = opts.iter ?? DEFAULT_ITERATIONS;
   let seed: Uint8Array | null = null;
   let acct: UnifiedAccount | null = null;
+  const listeners = new Set<() => void>();
+  const changed = () => {
+    for (const l of [...listeners]) l();
+  };
 
   const clear = () => {
     seed?.fill(0);
@@ -39,6 +43,7 @@ export function createSession(opts: SessionOptions = {}) {
       const e = await encryptSeed(s, password, iter);
       await store.put(e);
       seed = s;
+      changed();
       return { evm: e.evm, code };
     },
 
@@ -58,6 +63,7 @@ export function createSession(opts: SessionOptions = {}) {
       }
       clear();
       seed = s;
+      changed();
     },
 
     /** Derive the ML-DSA key from the code. Nothing is derived when the code is bad or the account differs. */
@@ -73,6 +79,7 @@ export function createSession(opts: SessionOptions = {}) {
         }
       }
       acct = a;
+      changed();
     },
 
     account: (): UnifiedAccount | null => acct,
@@ -83,7 +90,16 @@ export function createSession(opts: SessionOptions = {}) {
       return { evm: privateKeyToAddress(privateKey), privateKey };
     },
 
-    lock: clear,
+    lock(): void {
+      clear();
+      changed();
+    },
+
+    /** Called after every lock, unlock, create and recovery-code entry; returns the unsubscribe. */
+    onChange(l: () => void): () => void {
+      listeners.add(l);
+      return () => void listeners.delete(l);
+    },
   };
 }
 

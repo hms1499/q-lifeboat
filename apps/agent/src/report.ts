@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { formatUnits } from "viem";
 import { bigintReplacer } from "@qday/core/chain";
 import { canonicalJson, signIncident, type GuardianCoSigner, type Incident, type IncidentBody, type OutboundTx, type RescueRecord } from "@qday/core";
 
@@ -20,11 +21,29 @@ const SYSTEM =
   "You do not decide actions; the rescue has already happened or not (an alert-only incident attempts none). " +
   "State only what the JSON says.";
 
-/** Deterministic fallback summary. */
-export function templateSummary(f: Facts): string {
+/** Token address (any case) → symbol, for the agent's configured tokens (18 decimals, like the diana test tokens). */
+export type TokenLabels = Record<string, string>;
+
+const UNLIMITED = 2n ** 255n; // an approval this large is an "approve max"
+const short = (h: string) => (h.length > 12 ? `${h.slice(0, 6)}…${h.slice(-4)}` : h);
+
+function labelFor(labels: TokenLabels | undefined, token: string): string | undefined {
+  if (!labels) return undefined;
+  const t = token.toLowerCase();
+  return Object.entries(labels).find(([a]) => a.toLowerCase() === t)?.[1];
+}
+
+/** Deterministic fallback summary. With `labels`, a known token reads "10 fUSD" with short addresses. */
+export function templateSummary(f: Facts, labels?: TokenLabels): string {
   const t = f.trigger;
-  const event =
-    t.kind === "approval"
+  const sym = labelFor(labels, t.token);
+  const event = sym
+    ? t.kind === "approval"
+      ? t.amount >= UNLIMITED
+        ? `Unlimited ${sym} approval to ${short(t.to)} in tx ${short(t.hash)}`
+        : `Approval of ${formatUnits(t.amount, 18)} ${sym} to ${short(t.to)} in tx ${short(t.hash)}`
+      : `${formatUnits(t.amount, 18)} ${sym} sent to ${short(t.to)} in tx ${short(t.hash)}`
+    : t.kind === "approval"
       ? `Approval of ${t.amount} (token ${t.token}) to spender ${t.to} in tx ${t.hash}`
       : `Outbound transfer of ${t.amount} (token ${t.token}) to ${t.to} in tx ${t.hash}`;
   if (f.alert) {
@@ -54,8 +73,9 @@ export async function summarize(
   f: Facts,
   llm?: Llm,
   log: (line: string) => void = () => {},
+  labels?: TokenLabels,
 ): Promise<{ text: string; source: "llm" | "template" }> {
-  const fallback = () => ({ text: templateSummary(f), source: "template" as const });
+  const fallback = () => ({ text: templateSummary(f, labels), source: "template" as const });
   if (!llm) return fallback();
   try {
     const r = await llm(SYSTEM, canonicalJson(llmFacts(f)));
@@ -130,11 +150,11 @@ export function readIncidents(file: string, log: (line: string) => void = () => 
 
 /** Summarize, build, sign and persist an incident. */
 export async function signAndRecord(
-  input: Facts & { sk: Uint8Array; llm?: Llm; log?: (line: string) => void; coSigner?: GuardianCoSigner },
+  input: Facts & { sk: Uint8Array; llm?: Llm; log?: (line: string) => void; coSigner?: GuardianCoSigner; labels?: TokenLabels },
   file: string,
 ): Promise<Incident> {
-  const { sk, llm, log, coSigner, ...facts } = input; // secrets and helpers never travel with the facts
-  const { text, source } = await summarize(facts, llm, log);
+  const { sk, llm, log, coSigner, labels, ...facts } = input; // secrets and helpers never travel with the facts
+  const { text, source } = await summarize(facts, llm, log, labels);
   // A co-signer failure is logged and the report still goes out (it runs after the rescue, Review Focus 8).
   const cs = coSigner && log && !coSigner.onError ? { ...coSigner, onError: (e: unknown) => log(`report co-sign failed: ${e instanceof Error ? e.message : String(e)}`) } : coSigner;
   const signed = signIncident(buildIncident({ ...facts, summary: text, summarySource: source }), sk, cs);
