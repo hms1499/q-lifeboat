@@ -148,6 +148,26 @@ describe("loadAgentConfig: incidents file (Task 6G)", () => {
   });
 });
 
+describe("loadAgentConfig: policy file (hosted agents)", () => {
+  const repoRoot = resolve(fileURLToPath(import.meta.url), "../../../..");
+
+  it("defaults to <repo>/data/policy-<owner>.json, also when POLICY_FILE is empty", async () => {
+    const cfg = await loadAgentConfig(base);
+    const want = join(repoRoot, "data", `policy-${cfg.owner.toLowerCase()}.json`);
+    expect(cfg.policyFile).toBe(want);
+    expect((await loadAgentConfig({ ...base, POLICY_FILE: "  " })).policyFile).toBe(want);
+  });
+
+  it("an absolute POLICY_FILE (a hosted owner's <owner dir>/policy.json)", async () => {
+    const file = "/srv/hosted/owners/0xabc/policy.json";
+    expect((await loadAgentConfig({ ...base, POLICY_FILE: ` ${file} ` })).policyFile).toBe(file);
+  });
+
+  it("a relative POLICY_FILE is refused", async () => {
+    await expect(loadAgentConfig({ ...base, POLICY_FILE: "data/p.json" })).rejects.toThrow(/POLICY_FILE.*absolute/);
+  });
+});
+
 describe("checkVaultGuardian", () => {
   const agent = "0x9858EfFD232B4033E47d90003D41EC34EcaEdA94";
 
@@ -176,5 +196,15 @@ describe("publicConfig (GET /config)", () => {
     const text = JSON.stringify(p);
     for (const secret of ["sk-secret", "1:abc", base.AGENT_ED25519_SK, "abandon"]) expect(text).not.toContain(secret);
     for (const v of [p.owner, p.vault, p.guardian, ...Object.values(p.tokens)]) expect(v).toMatch(/^0x[0-9a-fA-F]{40}$/);
+  });
+});
+
+describe("GUARDIAN_WINDOW_MODE", () => {
+  it("defaults to always, accepts on-demand, refuses anything else; exposes the owner's cosmos address", async () => {
+    const cfg = await loadAgentConfig(base);
+    expect(cfg.windowMode).toBe("always");
+    expect(cfg.ownerCosmos).toMatch(/^qor1/);
+    expect((await loadAgentConfig({ ...base, GUARDIAN_WINDOW_MODE: "on-demand" })).windowMode).toBe("on-demand");
+    await expect(loadAgentConfig({ ...base, GUARDIAN_WINDOW_MODE: "never" })).rejects.toThrow(/GUARDIAN_WINDOW_MODE/);
   });
 });

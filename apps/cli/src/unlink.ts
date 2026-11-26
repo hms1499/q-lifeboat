@@ -1,5 +1,4 @@
-import { loadAgentKey, loadOwner } from "@qday/core";
-import { revokeAuthenticatorMsg, type AuthenticatorView, type UnifiedAccount } from "@qorechain/sdk";
+import { buildUnlinkMsg, loadAgentKey, loadOwner } from "@qday/core";
 import { toHex } from "viem";
 import { fetchOwnerAuthenticators } from "./abstractaccount";
 import { broadcast as chainBroadcast } from "./chain";
@@ -22,24 +21,9 @@ export function parseUnlinkArgs(args: string[]): { expect?: string } {
   return { expect };
 }
 
-const norm = (hex: string) => hex.replace(/^0x/i, "").toLowerCase();
+export { buildUnlinkMsg };
 
-/**
- * The `MsgRevokeAuthenticator` that disables the Guardian's ed25519 key on the owner's account. Refuses, before anything
- * is signed, when that key is not linked there or every entry for it is already revoked. An expired entry is still
- * revoked: an expired key is not usable, but revoking it leaves no doubt.
- */
-export function buildUnlinkMsg(
-  owner: Pick<UnifiedAccount, "cosmos">,
-  agent: { pk: Uint8Array },
-  linked: Pick<AuthenticatorView, "pubkeyHex" | "revoked">[],
-) {
-  const want = norm(toHex(agent.pk));
-  const entries = linked.filter((a) => norm(a.pubkeyHex) === want);
-  if (!entries.length) throw new Error(`the Guardian's key ${want.slice(0, 8)}… is not linked to ${owner.cosmos}: nothing to unlink`);
-  if (entries.every((a) => a.revoked)) throw new Error(`the Guardian's key ${want.slice(0, 8)}… is already revoked on ${owner.cosmos}`);
-  return revokeAuthenticatorMsg({ owner: owner.cosmos, account: owner.cosmos, scheme: "ed25519", pubkey: agent.pk });
-}
+const norm = (hex: string) => hex.replace(/^0x/i, "").toLowerCase();
 
 /** Injectable I/O of `runUnlink`; defaults are the production wiring. */
 export type UnlinkDeps = {

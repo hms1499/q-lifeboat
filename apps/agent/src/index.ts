@@ -4,26 +4,28 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { vaultAbi } from "@qday/core";
-import { publicClient } from "@qday/core/chain";
+import { endpoints, publicClient } from "@qday/core/chain";
+import { evmWindowStatus } from "@qorechain/evm";
 import type { Hex } from "viem";
-import { checkVaultGuardian, DATA_DIR, loadAgentConfig, publicConfig } from "./config";
+import { checkVaultGuardian, loadAgentConfig, publicConfig } from "./config";
 import { createDrillRunner } from "./drill";
 import { createGuardian } from "./guardian";
 import { createHealth } from "./health";
 import { createNotifier } from "./notify";
-import { createPolicyStore, policyFilePath, seedPolicy, toRulesPolicy } from "./policy";
+import { createPolicyStore, seedPolicy, toRulesPolicy } from "./policy";
 import { guardianCoSigner } from "./cosign";
 import { anthropicLlm, signAndRecord } from "./report";
 import { productionDeps, rescueAll } from "./rescue";
 import { createWatchClient } from "./rpc";
 import { startServer } from "./server";
 import { watchOwner } from "./watch";
-import { createSerial, createWindowKeeper, productionWindowDeps, skipWhileBusy } from "./window";
+import { createOnDemandWatcher, createSerial, createWindowKeeper, productionWindowDeps, skipWhileBusy } from "./window";
 
 const log = (line: string) => console.log(`${new Date().toISOString()} ${line}`);
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 const WINDOW_CHECK_MS = 30_000;
+const ON_DEMAND_TICK_MS = 5_000;
 const GAS_CHECK_MS = 60_000;
 const REPO_ROOT = resolve(fileURLToPath(import.meta.url), "../../../..");
 const QDAY_DIR = join(homedir(), ".config", "qday");
@@ -53,10 +55,34 @@ async function main() {
   // Window opening and rescues both use the guardian account's nonce, so they never overlap.
   const serial = createSerial();
   const windowKeeper = createWindowKeeper(productionWindowDeps(cfg, log));
-  await serial(() => windowKeeper.ensure()); // fail loudly at startup
-  // At most one periodic check is running or queued, so a slow REST node cannot pile checks up ahead of a rescue.
-  const windowTick = skipWhileBusy(async () => void (await serial(() => windowKeeper.ensure())));
-  setInterval(() => void windowTick().catch((e) => log(`window error: ${errorText(e)}`)), WINDOW_CHECK_MS);
+  // "always" (default, the root agent and demo.sh): keep the window open. "on-demand" (hosted guardians): open it
+  // only when armed (POST /arm) or when the owner's window is live; rescue still ensures it as a last resort.
+  let watcher: ReturnType<typeof createOnDemandWatcher> | undefined;
+  let notifyAlert: (msg: string) => void = () => {};
+  if (cfg.windowMode === "always") {
+    await serial(() => windowKeeper.ensure()); // fail loudly at startup
+    // At most one periodic check is running or queued, so a slow REST node cannot pile checks up ahead of a rescue.
+    const windowTick = skipWhileBusy(async () => void (await serial(() => windowKeeper.ensure())));
+    setInterval(() => void windowTick().catch((e) => log(`window error: ${errorText(e)}`)), WINDOW_CHECK_MS);
+  } else {
+    // peek/needsOpen stay outside serial (a REST read needs no nonce); only the open is serialised.
+    const keeper = {
+      peek: windowKeeper.peek,
+      needsOpen: windowKeeper.needsOpen,
+      ensure: (o?: { blocks?: number; minRemaining?: bigint }) => serial(() => windowKeeper.ensure(o)),
+      lastOpen: windowKeeper.lastOpen,
+    };
+    watcher = createOnDemandWatcher({
+      readOwnerWindow: () =>
+        evmWindowStatus({ rest: endpoints().rest, address: cfg.ownerCosmos, fetch: (url) => fetch(url, { signal: AbortSignal.timeout(5_000) }) }),
+      keeper,
+      alert: (m) => notifyAlert(m),
+      log,
+    });
+    await watcher.startup(); // an owner window that is already live gets its guardian window before the agent is ready
+    const onDemandTick = skipWhileBusy(() => watcher!.tick());
+    setInterval(() => void onDemandTick().catch((e) => log(`on-demand window error: ${errorText(e)}`)), ON_DEMAND_TICK_MS);
+  }
 
   // Incidents: <repo>/data/incidents.jsonl, or INCIDENTS_FILE (a fire drill's own <run dir>/incidents.jsonl).
   const file = cfg.incidentsFile;
@@ -72,7 +98,7 @@ async function main() {
 
   // The owner's trusted list, one file per owner. ALLOWLIST / MAX_OUTBOUND only seed a missing file; an invalid
   // file stops the agent here. Edits (by hand or PUT /policy) apply to the next trigger, no restart.
-  const policyFile = policyFilePath(DATA_DIR, cfg.owner);
+  const policyFile = cfg.policyFile;
   const policyStore = createPolicyStore({ file: policyFile, seed: seedPolicy(cfg.allowlist, cfg.maxOutbound), log });
 
   // Alerts and health are off the rescue path: nothing below is awaited by the guardian's single-flight loop.
@@ -87,7 +113,13 @@ async function main() {
     notify: notifier.notify,
     log,
     startedAt,
+    // On-demand: no guardian window is the normal state while the owner's window is closed.
+    windowRequired: watcher ? () => watcher!.ownerLive() !== false : undefined,
   });
+  notifyAlert = (m) => {
+    health.recordAlert(m);
+    void Promise.resolve(notifier.notify({ type: "info", message: m })).catch((e) => log(`alert error: ${errorText(e)}`));
+  };
   const gasTick = () => void health.checkGas().catch((e) => log(`gas check error: ${errorText(e)}`));
   gasTick();
   setInterval(gasTick, GAS_CHECK_MS).unref();
@@ -113,6 +145,7 @@ async function main() {
     policy: policyStore,
     dashboardOrigins: cfg.dashboardOrigins,
     drill,
+    arm: watcher ? (blocks) => watcher.arm(blocks) : undefined,
     log,
   });
   const deps = productionDeps(cfg, windowKeeper, log);

@@ -1,5 +1,5 @@
-import { loadOwner, loadTokens, loadVault, NETWORK, vaultAbi } from "@qday/core";
-import { evmWindowCost, evmWindowStatus, MAX_EVM_WINDOW_BLOCKS, MAX_EVM_WINDOW_TXS } from "@qorechain/evm";
+import { buildOnboardWindowParams, buildOwnerWindowParams, loadOwner, loadTokens, loadVault, NETWORK, vaultAbi } from "@qday/core";
+import { evmWindowStatus, MAX_EVM_WINDOW_BLOCKS, MAX_EVM_WINDOW_TXS } from "@qorechain/evm";
 import { closeEvmWindowMsg, openEvmWindowMsg } from "@qorechain/sdk";
 import { formatUnits, type Hex } from "viem";
 import { broadcast as chainBroadcast, publicClient } from "./chain";
@@ -13,9 +13,8 @@ export const OWNER_WINDOW_BLOCKS = 1800;
 export const OWNER_WINDOW_TXS = 5;
 /** The onboarding window: 1 vault deploy, 3 approvals, 1 guardian top-up. */
 export const ONBOARD_WINDOW_TXS = 5;
-/** Same per-tx budget as `setup`: a 3M-gas tx at 112.5 gwei. */
-const PER_TX_GAS = 3_000_000n;
-const PER_TX_MAX_FEE = 112_500_000_000n;
+// The window builders live in @qday/core (browser-safe); these re-exports keep the CLI's import paths.
+export { buildOnboardWindowParams, buildOwnerWindowParams };
 
 /** The most `--topup` headroom one window may carry: a leaked ECDSA key can spend it while the window is open. */
 export const MAX_TOPUP_QOR = 100n;
@@ -86,48 +85,6 @@ export function checkExpectedOwner(derived: string, expect: string | undefined):
         "(set -a && . ~/.config/qday/runs/<run id>/run.env && set +a && pnpm cli window …)",
     );
   }
-}
-
-/**
- * The owner's hand-driven window: scoped to the three tokens, the vault and the guardian. A withdraw, a manual rescue
- * and an approve fit. Against a leaked ECDSA key the window budget is the only cap (chain fact 4), so by default
- * `maxValue` covers fees only. A QOR top-up of the guardian moves value, which a window counts in `maxValue` too:
- * `topupUqor` (opt-in, `--topup`) adds exactly that much value headroom, which a leaked key can also spend while the
- * window is open.
- */
-export function buildOwnerWindowParams(
-  ownerCosmos: string,
-  tokens: Tokens,
-  vault: string,
-  guardian: string,
-  size: { blocks: number; txs: number; topupUqor?: bigint },
-) {
-  const allowedTargets = [tokens.fUSD, tokens.fETH, tokens.fBTC, vault, guardian];
-  const seen = new Set(allowedTargets.map((t) => t.toLowerCase()));
-  if (seen.size !== allowedTargets.length) throw new Error(`window targets contain a duplicate address: ${allowedTargets.join(", ")}`);
-  const perTx = evmWindowCost({ gas: PER_TX_GAS, maxFeePerGas: PER_TX_MAX_FEE });
-  return {
-    sender: ownerCosmos,
-    blocks: size.blocks,
-    maxTxs: size.txs,
-    maxValue: (perTx * BigInt(size.txs) + (size.topupUqor ?? 0n)).toString(),
-    allowedTargets,
-  };
-}
-
-/**
- * The onboarding window: UNSCOPED (no `allowedTargets` key at all), because a window with targets refuses contract
- * creation and the vault is deployed from the browser wallet. Same per-tx fee budget as the scoped window, plus the
- * opt-in top-up headroom. The window budget is the only cap against a leaked ECDSA key (chain fact 4).
- */
-export function buildOnboardWindowParams(ownerCosmos: string, size: { blocks: number; txs: number; topupUqor: bigint }) {
-  const perTx = evmWindowCost({ gas: PER_TX_GAS, maxFeePerGas: PER_TX_MAX_FEE });
-  return {
-    sender: ownerCosmos,
-    blocks: size.blocks,
-    maxTxs: size.txs,
-    maxValue: (perTx * BigInt(size.txs) + size.topupUqor).toString(),
-  };
 }
 
 /** Injectable I/O of `runWindow`; defaults are the production wiring. */

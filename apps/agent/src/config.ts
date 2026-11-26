@@ -4,12 +4,15 @@ import type { Hex } from "viem";
 import type { UnifiedAccount } from "@qorechain/sdk";
 import { loadAgentKey, loadGasAccount, loadOwnerAddress, loadTokens, loadVault, NETWORK, type TokenSymbol } from "@qday/core";
 import { DEFAULT_GAS_LOW_WEI } from "./health";
+import { policyFilePath } from "./policy";
 import { DEFAULT_POLL_MS } from "./watch";
 
 type Env = Record<string, string | undefined>;
 
 export type AgentConfig = {
   owner: Hex;
+  /** The owner's native (qor1...) address, to read their EVM window from REST. */
+  ownerCosmos: string;
   vault: Hex;
   tokens: Record<TokenSymbol, Hex>;
   /** Signs incident reports. */
@@ -32,6 +35,10 @@ export type AgentConfig = {
   dashboardOrigins: string[];
   /** Where incidents are appended and served from (INCIDENTS_FILE, absolute; default <repo>/data/incidents.jsonl). */
   incidentsFile: string;
+  /** POLICY_FILE (absolute; a hosted agent keeps it in its owner dir), else `<repo>/data/policy-<owner>.json`. */
+  policyFile: string;
+  /** GUARDIAN_WINDOW_MODE: "always" keeps the guardian window open (default); "on-demand" opens it when armed or when the owner's window is live. */
+  windowMode: "always" | "on-demand";
 };
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -85,7 +92,7 @@ function loadAlertConfig(env: Env): Pick<AgentConfig, "telegram" | "webhookUrl" 
 
 /** Load the agent's configuration. Deliberately never reads OWNER_MNEMONIC. */
 export async function loadAgentConfig(env: Env = process.env): Promise<AgentConfig> {
-  const { evm: owner } = loadOwnerAddress(env);
+  const { evm: owner, cosmos: ownerCosmos } = loadOwnerAddress(env);
   const gas = await loadGasAccount(env);
   if (gas.evm.toLowerCase() === owner.toLowerCase()) {
     throw new Error("GAS_MNEMONIC must be a separate account from the owner (its address equals OWNER_EVM_ADDRESS)");
@@ -113,11 +120,18 @@ export async function loadAgentConfig(env: Env = process.env): Promise<AgentConf
   if (portRaw && !/^\d+$/.test(portRaw)) throw new Error("AGENT_PORT must be a number");
   const incidentsRaw = env.INCIDENTS_FILE?.trim();
   if (incidentsRaw && !isAbsolute(incidentsRaw)) throw new Error("INCIDENTS_FILE must be an absolute path");
+  const policyRaw = env.POLICY_FILE?.trim();
+  if (policyRaw && !isAbsolute(policyRaw)) throw new Error("POLICY_FILE must be an absolute path");
   const pollRaw = env.POLL_MS?.trim();
   if (pollRaw && (!/^\d+$/.test(pollRaw) || Number(pollRaw) <= 0)) throw new Error("POLL_MS must be a positive number of milliseconds");
 
+  const modeRaw = env.GUARDIAN_WINDOW_MODE?.trim() || "always";
+  if (modeRaw !== "always" && modeRaw !== "on-demand") throw new Error('GUARDIAN_WINDOW_MODE must be "always" or "on-demand"');
+
   return {
     owner,
+    ownerCosmos,
+    windowMode: modeRaw,
     vault: loadVault(env),
     tokens: loadTokens(env),
     agentKey: loadAgentKey(env),
@@ -129,6 +143,7 @@ export async function loadAgentConfig(env: Env = process.env): Promise<AgentConf
     anthropicApiKey: env.ANTHROPIC_API_KEY?.trim() || undefined,
     ...loadAlertConfig(env),
     incidentsFile: incidentsRaw || resolve(DATA_DIR, "incidents.jsonl"),
+    policyFile: policyRaw || policyFilePath(DATA_DIR, owner),
   };
 }
 

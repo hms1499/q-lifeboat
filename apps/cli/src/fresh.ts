@@ -1,18 +1,24 @@
-import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadAgentKey, NETWORK, vaultAbi } from "@qday/core";
+import {
+  buildFundMsg,
+  buildRegisterMsg,
+  DEPLOY_GAS,
+  loadAgentKey,
+  MINT_AMOUNT,
+  MINT_GAS,
+  NETWORK,
+  newAgentKeyHex,
+  vaultAbi,
+} from "@qday/core";
 import { evmWindowCost, evmWindowStatus } from "@qorechain/evm";
 import {
-  bank,
-  buildRegisterPqcKeyMsg,
   clearPqcStatusCache,
   deriveUnifiedAccount,
   fetchPqcStatus,
   generateMnemonic,
   openEvmWindowMsg,
-  signProofOfPossession,
   type PqcStatus,
   type UnifiedAccount,
 } from "@qorechain/sdk";
@@ -30,14 +36,12 @@ export const FRESH_FUND_UQOR_DEFAULT = 1_500_000n;
 export const FEE_RESERVE_UQOR = 500_000n;
 const DEPLOY_WINDOW_BLOCKS = 600;
 const DEPLOY_WINDOW_MAX_TXS = 3;
-/** v3 deploy used 725168 gas on diana; diana charges >= 50% of the limit, so keep it tight. */
-export const DEPLOY_GAS = 950_000n;
-/** A TestToken mint to a new holder (mint fBTC used 68292 on diana). */
-export const MINT_GAS = 100_000n;
 /** Fee cap of the deploy and the mint; the window budget is sized from it. */
 export const FRESH_MAX_FEE_PER_GAS = 150_000_000_000n;
 const FRESH_PRIORITY_FEE_PER_GAS = 10_000_000_000n;
-export const MINT_AMOUNT = 100n * 10n ** 18n;
+// The builders live in @qday/core (browser-safe); these re-exports keep the CLI's import paths.
+export { buildFundMsg, buildRegisterMsg, DEPLOY_GAS, MINT_AMOUNT, MINT_GAS, newAgentKeyHex };
+
 const POLL_TRIES = 20;
 const POLL_DELAY_MS = 1_500;
 
@@ -63,32 +67,11 @@ export function checkFunderBalance(balance: bigint, fund: bigint, recipient = "t
   }
 }
 
-export function buildFundMsg(from: string, to: string, uqor: bigint): Msg {
-  return bank.send({ fromAddress: from, toAddress: to, amount: [{ denom: "uqor", amount: uqor.toString() }] });
-}
-
-/**
- * `MsgRegisterPQCKeyV2` for the account's own ML-DSA-87 key (the one `deriveUnifiedAccount` derives from the
- * mnemonic, which is what the Guardian Signer signs with), with a proof of possession so the vault accepts it.
- */
-export function buildRegisterMsg(acc: UnifiedAccount, chainId: string): Msg {
-  const proofOfPossession = signProofOfPossession({ chainId, account: acc.cosmos, keypair: acc.pqc });
-  return buildRegisterPqcKeyMsg(acc.cosmos, { pqcKeypair: acc.pqc, proofOfPossession });
-}
-
 /** The fresh owner's deploy window: UNSCOPED (a window with targets refuses contract creation), deploy + mint. */
 export function buildDeployWindowParams(cosmos: string) {
   const budget =
     evmWindowCost({ gas: DEPLOY_GAS, maxFeePerGas: FRESH_MAX_FEE_PER_GAS }) + evmWindowCost({ gas: MINT_GAS, maxFeePerGas: FRESH_MAX_FEE_PER_GAS });
   return { sender: cosmos, blocks: DEPLOY_WINDOW_BLOCKS, maxTxs: DEPLOY_WINDOW_MAX_TXS, maxValue: budget.toString() };
-}
-
-/**
- * A fresh agent ed25519 secret key: 32 random bytes as 64 hex characters (the AGENT_ED25519_SK format
- * `loadAgentKey` reads). Each demo run needs its own: diana binds an authenticator key to ONE account.
- */
-export function newAgentKeyHex(): string {
-  return randomBytes(32).toString("hex");
 }
 
 export function checkVaultRoles(onChain: { owner: string; guardian: string }, want: { owner: string; guardian: string }): void {

@@ -20,6 +20,11 @@ export type HealthOptions = {
   log: (line: string) => void;
   now?: () => Date;
   startedAt?: string;
+  /**
+   * Whether the guardian window must be usable for the agent to be healthy. Default: always (the root agent). An
+   * on-demand guardian needs it only while the owner's window is open, or while that is unknown.
+   */
+  windowRequired?: () => boolean;
 };
 
 export type HealthSnapshot = {
@@ -30,6 +35,10 @@ export type HealthSnapshot = {
   window: { live: boolean; remainingBlocks: bigint; remainingTxs: bigint; remainingValue: bigint } | null;
   gas: { guardian: Hex; balance: bigint | null; threshold: bigint; low: boolean };
   alerts: { telegram: boolean; webhook: boolean };
+  /** The last 10 notices the agent raised on its own (newest first), for the dashboard. `at` is unix seconds. */
+  recentAlerts: { at: number; message: string }[];
+  /** False for an on-demand guardian while the owner's window is closed: no window is then the expected state. */
+  windowRequired: boolean;
 };
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -45,8 +54,13 @@ export function createHealth(opts: HealthOptions) {
   let lastBlockAt: Date | null = null;
   let balance: bigint | null = null;
   let alerted = false;
+  let recent: { at: number; message: string }[] = [];
 
   return {
+    recordAlert(message: string): void {
+      recent = [{ at: Math.floor(now().getTime() / 1000), message }, ...recent].slice(0, 10);
+    },
+
     setTip(block: bigint): void {
       lastBlock = block;
       lastBlockAt = now();
@@ -81,15 +95,19 @@ export function createHealth(opts: HealthOptions) {
       const window = w ? { live: w.live, remainingBlocks: w.remainingBlocks, remainingTxs: w.remainingTxs, remainingValue: w.remainingValue } : null;
       const low = balance !== null && balance < opts.gasLowWei;
       const tipFresh = lastBlockAt !== null && now().getTime() - lastBlockAt.getTime() <= TIP_STALE_MS;
+      const windowRequired = opts.windowRequired ? opts.windowRequired() : true;
+      // Usable as the rescue path sees it: live, scoped to this vault, enough blocks, txs and value left.
+      const windowOk = !windowRequired || (!!w && !needsWindow(w, opts.vault));
       return {
-        // Usable as the rescue path sees it: live, scoped to this vault, enough blocks, txs and value left.
-        ok: tipFresh && !!w && !needsWindow(w, opts.vault) && balance !== null && !low,
+        ok: tipFresh && windowOk && balance !== null && !low,
         startedAt,
         lastBlock,
         lastBlockAt: lastBlockAt ? lastBlockAt.toISOString() : null,
         window,
         gas: { guardian: opts.guardian, balance, threshold: opts.gasLowWei, low },
         alerts: { ...opts.channels },
+        recentAlerts: [...recent],
+        windowRequired,
       };
     },
   };

@@ -24,6 +24,11 @@ export function LifeboatMark({ size = 32 }: { size?: number }) {
 }
 
 const NAV_PATHS: Record<string, ReactNode> = {
+  start: (
+    <>
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </>
+  ),
   overview: (
     <>
       <path d="M3 12h4l3-7 4 14 3-7h4" />
@@ -48,6 +53,12 @@ const NAV_PATHS: Record<string, ReactNode> = {
   rules: (
     <>
       <path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" />
+    </>
+  ),
+  attack: (
+    <>
+      <path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7l8-4z" />
+      <path d="M12 8v5M12 16h.01" />
     </>
   ),
   drill: (

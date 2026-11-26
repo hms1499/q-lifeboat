@@ -9,7 +9,7 @@ const QOR = 10n ** 18n;
 /** Usable for needsWindow: live, scoped to VAULT, >= 100 blocks, >= 3 txs, budget for 3 rescue txs (1 QOR is plenty). */
 const live: WindowStatus = { live: true, remainingBlocks: 500n, remainingTxs: 8n, remainingValue: QOR, allowedTargets: [VAULT] };
 
-function setup(balances: (bigint | Error)[], window: WindowStatus | null = live) {
+function setup(balances: (bigint | Error)[], window: WindowStatus | null = live, windowRequired?: () => boolean) {
   const queue = [...balances];
   let t = Date.parse("2026-11-21T10:00:00.000Z");
   const notify = vi.fn((_e: AlertEvent) => {});
@@ -30,6 +30,7 @@ function setup(balances: (bigint | Error)[], window: WindowStatus | null = live)
     log: (l) => void lines.push(l),
     now: () => new Date(t),
     startedAt: "2026-11-21T09:59:00.000Z",
+    windowRequired,
   });
   return { h, notify, lines, advance: (ms: number) => void (t += ms) };
 }
@@ -77,6 +78,8 @@ describe("health", () => {
       window: { live: true, remainingBlocks: 500n, remainingTxs: 8n, remainingValue: QOR },
       gas: { guardian: GUARDIAN, balance: null, threshold: QOR / 2n, low: false },
       alerts: { telegram: true, webhook: false },
+      recentAlerts: [],
+      windowRequired: true,
     });
     h.setTip(7n);
     expect(h.snapshot().ok).toBe(false); // balance unknown
@@ -109,5 +112,38 @@ describe("health", () => {
       await s.h.checkGas();
       expect(s.h.snapshot()).toMatchObject({ ok: false, window: { live: true } });
     }
+  });
+});
+
+describe("health: on-demand guardians", () => {
+  it("no guardian window is fine while the owner's window is closed; required again once it is open (or unknown)", async () => {
+    let required = false;
+    const s = setup([QOR], null, () => required);
+    s.h.setTip(1n);
+    await s.h.checkGas();
+    expect(s.h.snapshot()).toMatchObject({ ok: true, window: null, windowRequired: false });
+    required = true;
+    expect(s.h.snapshot()).toMatchObject({ ok: false, windowRequired: true });
+  });
+
+  it("always mode (no windowRequired) still needs the window", async () => {
+    const s = setup([QOR], null);
+    s.h.setTip(1n);
+    await s.h.checkGas();
+    expect(s.h.snapshot()).toMatchObject({ ok: false, windowRequired: true });
+  });
+});
+
+describe("recent alerts", () => {
+  it("recordAlert shows up in the snapshot, newest first, capped at 10", () => {
+    const { h, advance } = setup([QOR]);
+    for (let i = 0; i < 12; i++) {
+      advance(1_000);
+      h.recordAlert(`m${i}`);
+    }
+    const r = h.snapshot().recentAlerts;
+    expect(r).toHaveLength(10);
+    expect(r[0]).toEqual({ at: Date.parse("2026-11-21T10:00:12.000Z") / 1000, message: "m11" });
+    expect(r[9].message).toBe("m2");
   });
 });

@@ -2,18 +2,29 @@ import { useState } from "react";
 import { formatUnits } from "viem";
 import { EditorMessages, TrustedEditor, usePolicyEditor } from "../components/TrustedEditor";
 import { TurnOff } from "../components/TurnOff";
-import { fetchHealth } from "../lib/agent";
-import { readSpendingRules } from "../lib/chain";
+import { CodeEntry, UnlockForm } from "../components/Keys";
+import { agentBase, fetchHealth, type Policy } from "../lib/agent";
+import { appSession, hosted } from "../lib/appWallet";
+import { readPqcStatus } from "../lib/chain";
+
 import { errorText, fmtAmount } from "../lib/format";
 import { usePoll } from "../lib/hooks";
 import { big } from "../lib/incidents";
 import { describeRuleDetail, parseQorAmount } from "../lib/rules";
+import { readSpendingRules } from "../lib/chain";
 import { useApp } from "../state";
 
 export function Rules() {
   const { config } = useApp();
   const cfg = config.cfg;
-  const editor = usePolicyEditor(config.agentOnline);
+  const hostedOwner = agentBase().owner;
+  const [, setVer] = useState(0);
+  const bump = () => setVer((v) => v + 1);
+  // Hosted: every policy write carries the owner's ML-DSA signature (the gateway refuses anything else).
+  const hostedKeys = !hostedOwner || !!appSession.account();
+  const sign = hostedOwner ? (p: Policy) => hosted.signed("policy", p) : undefined;
+  const editor = usePolicyEditor(config.agentOnline && hostedKeys, sign);
+  const pqc = usePoll(() => readPqcStatus(hostedOwner!), 60_000, hostedOwner && !appSession.account() ? hostedOwner : null);
   const { current, canEdit, busy, save, fail } = editor;
   const health = usePoll(fetchHealth, 15_000, "health");
   const rules = usePoll(() => readSpendingRules(cfg!.owner), 30_000, cfg ? cfg.owner : null);
@@ -51,6 +62,20 @@ export function Rules() {
       ) : null}
       <div className="row">
         <div className="stack grow">
+          {hostedOwner && !appSession.account() ? (
+            <section className="card">
+              <h2>Unlock to edit</h2>
+              {!appSession.classical() ? (
+                <UnlockForm onDone={bump} />
+              ) : (
+                <CodeEntry
+                  pqc={pqc.data}
+                  onDone={bump}
+                  why="Changes to your Guardian's rules are signed with your post-quantum key. Type your recovery code: it stays in this tab's memory and is never stored."
+                />
+              )}
+            </section>
+          ) : null}
           <TrustedEditor cfg={cfg} editor={editor} />
 
           <section className="card">
@@ -133,7 +158,7 @@ export function Rules() {
           </section>
         </aside>
       </div>
-      <TurnOff cfg={cfg} />
+      {hostedOwner ? null : <TurnOff cfg={cfg} />}
     </>
   );
 }

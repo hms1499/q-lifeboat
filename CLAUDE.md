@@ -151,7 +151,15 @@ checkboxes and the docs below are the handoff state, not the chat history.
     the SAME account is accepted and makes it live again with a new expiry (tx `D06BA5BD…`, 2026-11-24), so turning protection back
     on needs no new agent key. A hybrid tx costs the signer 0.225 QOR of fees: a demo owner that spent its funding cannot send one.
 
-SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSign`, `EthNativeSigner`,
+22. diana's Tendermint RPC (`rpc-testnet.qore.host`) sends NO CORS headers either (2026-11-25): browser code broadcasts through a
+    same-origin `/qore-rpc` proxy, like `/qore-rest`.
+23. A browser page can run the whole hybrid flow (Task 9 spike, 2026-11-25): `unifiedAccountFromSeed(seed, { recoveryCode })` gives an
+    account whose ML-DSA-87 key comes from a `QRC1-…` code, independent of the classical key; it registers with a classical
+    `MsgRegisterPQCKeyV2` (`A99A9932…`, possession proven), then window + link go in ONE hybrid tx (`27B2E8FC…`), and a viem
+    local-account EVM tx lands in that window. A window sized to exactly its txs shows `live: false` once they are used.
+
+SDK names that exist in `@qorechain/sdk@0.14.0`: `unifiedAccountFromSeed`, `generatePqcRecoveryCode`, `pqcKeyFromRecoveryCode`,
+`normalizeRecoveryCode`, `pqcVerify`, `generatePqcKeypair`, `signProofOfPossession`, `buildRegisterPqcKeyMsg`, `deriveUnifiedAccount`, `pqcSign`, `EthNativeSigner`,
 `linkAuthenticatorMsgs`, `signAuthenticatorLinkEd25519`, `revokeAuthenticatorMsg`,
 `buildPhantomExecuteEvm`, `fetchAuthNonce`, `fetchSpendingRules`, `fetchAuthenticators`,
 `decodeAuthenticatorExecutions`, `resolveEvmAuthDigestVersion`, `openEvmWindowMsg`,
@@ -169,7 +177,7 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSig
   reads (the agent's watcher) pass `cacheTime: 0` and batch tip + logs in one request (`apps/agent/src/rpc.ts`).
 - Owner windows of 600 blocks last ~14 min (1.4 s blocks): when the builder clicks MetaMask txs by hand, open
   1800 blocks (`pnpm cli window open` defaults to 1800 blocks, 5 txs).
-- `FUNDER_MNEMONIC` in root `.env` is the builder's 175-QOR wallet (`qor14zxae5…`, `0xa88D…`): its SDK-derived ML-DSA
+- `FUNDER_MNEMONIC` in root `.env` is the builder's wallet (82.9 QOR on 2026-11-25) (`qor14zxae5…`, `0xa88D…`): its SDK-derived ML-DSA
   key matches the registered one, so the CLI signs hybrid for it. `spike/probe/fund.mjs check|send` moves QOR.
 - `./demo.sh --runs 3` needs ~2 QOR per run in the funder (root `OWNER_MNEMONIC`) and ~0.25 QOR per run in the
   guardian (`GAS_MNEMONIC`). `./demo.sh --resume <run.env>` finishes a funded run whose later step failed.
@@ -186,6 +194,26 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `deriveUnifiedAccount`, `pqcSig
   live key: renew with `pnpm cli unlink --expect <0x>` then `pnpm cli link --expect <0x>` (chain fact 21).
 - One drill costs the funder ~1.5 QOR + fees and the drill guardian ~0.47 QOR (2026-11-24, run `20261124T081242Z`). The drill's
   incidents live in its run dir, never in `data/incidents.jsonl`; `GET /drill/runs` reads `verdict.json` only.
+
+- Hosted service locally (end-user plan): `cd apps/hosted && set -a && . ../../.env && set +a && HOSTED_DATA_DIR="$HOME/.config/qday/hosted-dev"
+  PORT=8080 DASHBOARD_DIST=../dashboard/dist pnpm start`, plus `pnpm -F dashboard dev` (proxies `/api` to :8080). Per-owner agents run on
+  127.0.0.1:9100+ and stop with the service. The Task 9 browser-run owners (passwords, testnet recovery codes, owner 1's encrypted seed) are
+  in `~/.config/qday/browser-run-task9*`; owner 2 (`0x8805…f536`) is the wallet in the Playwright profile.
+- Hosted build of the dashboard: `VITE_HOSTED=1 pnpm -F dashboard build` (the Dockerfile does it). Without the flag a visitor
+  with no wallet reads the local agent on 127.0.0.1:8787. Each hosted agent takes ~130 MB RSS, the service ~140 MB (2026-11-25):
+  size the host's RAM to the agent cap. A hosted guardian spends ~0.225 QOR per arm (window) + rescue gas; a signed arm refills it
+  (< 0.5 → 1 QOR, 3/owner and 30 overall per UTC day). Deploy host: Fly.io (next note).
+- Hosted deploy (Fly.io, 2026-11-26): app `q-lifeboat` (org personal, region `sin`), https://q-lifeboat.fly.dev, `fly.toml` at the
+  repo root. Deploy: `cd contracts && forge build && cd .. && fly deploy -a q-lifeboat --ha=false --remote-only` (keep ONE Machine:
+  the volume `qlifeboat_data` belongs to it). Secrets only via `fly secrets set … --stage` run by the builder (never read `.env`).
+  The first deploy failed to allocate IPs: `fly ips allocate-v6` + `fly ips allocate-v4 --shared` fixed it. 1 GB Machine →
+  `HOSTED_MAX_AGENTS=4` + `swap_size_mb = 512` (measured ON FLY: service ~172 MB RSS, each agent ~185 MB, not the local 130 MB).
+  Logs: `fly logs -a q-lifeboat --no-tail`; memory: `fly ssh console -a q-lifeboat -C "grep VmRSS /proc/<pid>/status"` (no ps/free
+  in the image). If `fly deploy` fails "ensure depot builder failed (401)", add `--depot=false`.
+- Task 12 browser-run owners (testnet; passwords `t12-ownerN-lifeboat`): `0xd23f…313a`, `0x7f4f…8d99`, `0x337a…56b6` on the Fly
+  service. A non-200 `/events` answer closes an EventSource for good: the dashboard reopens it (lib/agent.ts).
+- Playwright: `browser_navigate` to the same URL with only a different hash does NOT reload the page; go to `about:blank` first (or
+  change the query string) after wiping IndexedDB/localStorage.
 
 ## Hard rules
 - Testnet only. Never commit mnemonics, private keys or `.env`. Keys live in `spike/.keys/` or

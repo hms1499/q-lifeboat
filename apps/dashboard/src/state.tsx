@@ -1,7 +1,7 @@
 import { vaultAbi, type Incident } from "@qday/core";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { EIP1193Provider, Hex } from "viem";
-import { fetchConfig, fetchIncidents, subscribeIncidents } from "./lib/agent";
+import { agentBase, NO_AGENT, fetchConfig, fetchIncidents, onAgentBaseChange, subscribeIncidents } from "./lib/agent";
 import { publicClient, readAuthenticators, readReceipt, verifyGuardianSig } from "./lib/chain";
 import { checkConfigOnChain, loadCachedConfig, saveCachedConfig, type AgentConfig } from "./lib/config";
 import { errorText } from "./lib/format";
@@ -51,8 +51,31 @@ export function useApp(): AppData {
   return v;
 }
 
+/** The cached config, only when it is for the owner the current agent base serves (any owner in local mode). */
+function cachedFor(owner: string | null): AgentConfig | null {
+  if (agentBase().url === NO_AGENT) return null; // no Guardian here: never show a config cached for another one
+  const c = loadCachedConfig(storage);
+  return c && (owner === null || c.owner.toLowerCase() === owner) ? c : null;
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [cfg, setCfg] = useState<AgentConfig | null>(() => loadCachedConfig(storage));
+  // Bumped when the agent base changes (the in-app wallet's hosted gateway): config, incidents and SSE start over.
+  const [baseVersion, setBaseVersion] = useState(0);
+  useEffect(
+    () =>
+      onAgentBaseChange((b) => {
+        const c = cachedFor(b.owner);
+        setCfg(c);
+        setSource(c ? "cache" : null);
+        setAgentOnline(false);
+        setIncidents([]);
+        setIncidentsError(null);
+        setStore({});
+        setBaseVersion((v) => v + 1);
+      }),
+    [],
+  );
+  const [cfg, setCfg] = useState<AgentConfig | null>(() => cachedFor(agentBase().owner));
   const [source, setSource] = useState<ConfigState["source"]>(() => (cfg ? "cache" : null));
   const [agentOnline, setAgentOnline] = useState(false);
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -61,24 +84,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [wallet, setWallet] = useState<WalletState>(null);
 
   const refreshConfig = useCallback(async () => {
+    const b = agentBase();
     try {
+      const expected = b.owner;
       const next = await fetchConfig();
+      if (agentBase() !== b) return; // the base changed meanwhile: this answer is for another owner
+      // The gateway serves one owner: a config for any other is refused, never shown as this account's.
+      if (expected && next.owner.toLowerCase() !== expected) throw new Error(`the agent serves ${next.owner}, not ${expected}`);
       setAgentOnline(true);
       setSource("agent");
       setCfg((prev) => (prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
       saveCachedConfig(storage, next);
     } catch {
+      if (agentBase() !== b) return;
       setAgentOnline(false);
       setSource((s) => (s === "agent" || s === "cache" ? "cache" : null));
     }
   }, []);
 
   const refreshIncidents = useCallback(async () => {
+    const b = agentBase();
     try {
-      setIncidents(sortIncidents(await fetchIncidents()));
+      const list = await fetchIncidents();
+      if (agentBase() !== b) return; // stale: another owner's base
+      setIncidents(sortIncidents(list));
       setIncidentsError(null);
     } catch (e) {
-      setIncidentsError(errorText(e));
+      if (agentBase() === b) setIncidentsError(errorText(e));
     }
   }, []);
 
@@ -99,7 +131,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearInterval(t);
       stop();
     };
-  }, [refreshConfig, refreshIncidents]);
+  }, [refreshConfig, refreshIncidents, baseVersion]);
 
   // The config is the agent's word only: hold it against the vault's immutable owner and guardian. Each verdict is
   // tagged with the config it was read for, so a verdict for the previous config is never used for a new one.

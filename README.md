@@ -6,7 +6,10 @@ autonomous Guardian sweeps your tokens into a vault that only your ML-DSA-87 key
 ![Q-Lifeboat](assets/cover-16x9.png)
 
 > **Status:** working prototype on the QoreChain testnet `qorechain-diana` (EVM chain id 9800). Test tokens have no value. The
-> contract went through two AI audit passes (QCAI), not a human audit. Do not use it with real funds.
+> contract went through two AI audit passes (QCAI), not a human audit. Do not use it with real funds. Two ways to use it: in a
+> browser with nothing installed (a hosted Guardian per account), or self-hosted with your own agent and keys.
+>
+> **Live (testnet): https://q-lifeboat.fly.dev**
 
 ## Why
 
@@ -78,14 +81,39 @@ Q-Lifeboat reacts to what lands on chain. It does not see the mempool, so it nev
   A drainer that waits 2 blocks got nothing (3 of 3 runs). One that pulls the moment it sees the approval won 1 of 2, and lost
   the other only on the rescue's higher priority fee in a shared block.
 - **Revoking the vault's allowance is a race too.** The Guardian raises an alert; it cannot undo it.
-- **The agent runs on the owner's machine.** While it is stopped nothing watches. "Rescue now" in the dashboard is the manual
-  fallback.
+- **Someone has to keep the Guardian running.** In local mode it runs on the owner's machine; hosted, one service runs every
+  owner's Guardian and holds their keys (it can switch protection off or forge reports, never take vault funds). While it is
+  stopped nothing watches. "Rescue now" in the local dashboard is the manual fallback.
 - **The report's post-quantum co-signature can be missing.** Older reports, or a co-signing failure, carry only the classical
   ed25519 signature, and the dashboard says so.
 
 Details and the full threat model: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
-## Getting started
+## Try it in your browser
+
+No extension, no terminal and no QOR of your own. Open **https://q-lifeboat.fly.dev** and follow **Get protected**:
+
+1. **Create your wallet.** A key is made in the browser and stored encrypted under your password.
+2. **Save your recovery code.** `QRC1-…`, shown once and never stored: it derives your ML-DSA-87 key, the only key that
+   can take tokens out of your vault. You type a few groups back to confirm it.
+3. **Starter pack.** The service sends 2.5 testnet QOR for fees.
+4. **Register your post-quantum key, get your Guardian, create your vault, turn on protection.** One click each; the vault
+   deploy and the approvals are signed in the browser inside short EVM windows sized to exactly those transactions, and the
+   Guardian's key is linked with a rule that allows only `vault.rescue`.
+5. **Try an attack.** Send 10 fUSD to an address nobody trusts, as a thief would. The Guardian moves the rest into your vault
+   a block or two later (on diana: 2 blocks, 90% kept), and its signed report shows up with every check ✓.
+6. **Withdraw.** Type your recovery code; the withdrawal is signed in the tab with ML-DSA-87 and sent to a fresh address.
+
+Each step turns ✓ only when the chain or the service confirms it, so you can close the tab and come back. Your Guardian
+opens its own window just before yours and costs nothing while your account's window is closed. What the hosted service can
+and cannot do is in the threat model (T21–T26): it can never move tokens out of your vault.
+
+On the public URL three fresh browsers did all six steps on 2026-11-26; the fastest went from the landing page to its
+withdrawal in 2 min 32 s ([EVIDENCE, Task 12](docs/EVIDENCE.md#plan-task-12-the-public-url-three-fresh-browsers-on-diana-2026-11-26)).
+The public service is one small machine: it watches at most 4 accounts at once and hands out 3 starter packs per IP per day.
+When it is full, the landing page says onboarding is paused; [run it yourself](#run-it-yourself) instead.
+
+## Run it yourself
 
 Requirements: Node >= 22, pnpm, [Foundry](https://book.getfoundry.sh/), and MetaMask for the dashboard's wallet actions. Testnet
 QOR comes from the [faucet](https://dashboard.qorechain.io/faucet).
@@ -107,7 +135,33 @@ cp .env.example .env                                 # fill it in, never commit 
 
 Every variable is described in [`.env.example`](.env.example).
 
-### Run the Guardian and the dashboard
+### Run the hosted service
+
+The browser product above, on your machine: one service serves the dashboard, proxies diana's REST and RPC, hands out
+starter packs from `FUNDER_MNEMONIC`, and runs one unchanged agent per owner behind a gateway that forwards writes only with
+the owner's ML-DSA-87 signature.
+
+```bash
+cd contracts && forge build && cd ..
+VITE_HOSTED=1 pnpm -F dashboard build
+cd apps/hosted && set -a && . ../../.env && set +a && HOSTED_DATA_DIR=~/.config/qday/hosted PORT=8080 pnpm start
+# or: docker build -f apps/hosted/Dockerfile -t qlifeboat-hosted .   (see the Dockerfile for the run command)
+```
+
+Owner state and guardian secrets live in `HOSTED_DATA_DIR` (0600), never in the repo. `HOSTED_MAX_AGENTS` caps the agents
+(default 40): on Fly each one takes ~185 MB and the service ~172 MB, so size it to the host's RAM.
+
+The public instance runs on [Fly.io](https://fly.io) from [`fly.toml`](fly.toml) (one Machine, a volume on `/data`, auto-stop
+off so the Guardians never sleep):
+
+```bash
+cd contracts && forge build && cd ..
+fly apps create <app> && fly volumes create qlifeboat_data --size 1 --region sin -a <app>
+fly secrets set FUNDER_MNEMONIC="…" -a <app> --stage      # never in fly.toml
+fly deploy -a <app> --ha=false --remote-only              # one Machine: the volume belongs to it
+```
+
+### Run the Guardian and the dashboard (local mode)
 
 ```bash
 pnpm agent              # watches OWNER_MNEMONIC's account; local API on 127.0.0.1:8787
@@ -186,6 +240,9 @@ Every claim about the chain is backed by a transaction on diana in [`docs/EVIDEN
 | The owner links the agent with a 30-day spending rule | [`1D5FEE88…`](https://explore.qore.network/tx/1D5FEE885111FA58FB57300637A35CED7265275F4CE6E48F33539E2B8B2B2934) |
 | Approval phishing: the rescue lands before the drainer's pull | runs in [EVIDENCE, Task 7](docs/EVIDENCE.md#task-7-approval-phishing-race-on-diana-2026-11-24) |
 | A report co-signed with ML-DSA-87 verifies; a changed copy fails | [EVIDENCE, gap 3](docs/EVIDENCE.md#submission-gap-3-post-quantum-co-signed-incident-reports-2026-11-24) |
+| A fresh browser onboards with no extension and no QOR: register, vault, approvals, link, activate | [EVIDENCE, Tasks 6 + 9](docs/EVIDENCE.md#plan-task-6--9-self-serve-onboarding-in-a-fresh-browser-on-diana-2026-11-25) |
+| From the browser: rescue 2 blocks after the attack transfer (90% kept); 50 fUSD withdrawn with the recovery-code key | [EVIDENCE, Task 10](docs/EVIDENCE.md#plan-task-10-try-an-attack-and-withdraw-in-the-browser-on-diana-2026-11-25) |
+| On the public URL: three fresh browsers onboard, get rescued 2 blocks after the attack and withdraw; a restart brings every Guardian back | [EVIDENCE, Task 12](docs/EVIDENCE.md#plan-task-12-the-public-url-three-fresh-browsers-on-diana-2026-11-26) |
 
 The diana explorer shows Cosmos-lane transactions only. Check EVM hashes with `eth_getTransactionReceipt` on
 `https://evm-testnet.qore.host`.
@@ -200,7 +257,8 @@ The diana explorer shows Cosmos-lane transactions only. Check EVM hashes with `e
 | `pqcVerify` / `pqcKeyStatus` precompiles | [`contracts/src/GuardianVault.sol`](contracts/src/GuardianVault.sol) | Withdrawals need the owner's registered and proven ML-DSA-87 key |
 | ML-DSA-87 signing (Guardian Signer) | [`apps/cli/src/signer.ts`](apps/cli/src/signer.ts) | The withdrawal signature, made offline |
 | Authenticated messaging (QoreSign, secp256k1 + ML-DSA-87) | [`apps/agent/src/cosign.ts`](apps/agent/src/cosign.ts), [`apps/dashboard/src/lib/verify.ts`](apps/dashboard/src/lib/verify.ts) | Incident reports co-signed by the vault's guardian and verified against its on-chain key |
-| Classical bootstrap of an ML-DSA-87 key (`MsgRegisterPQCKeyV2`) | [`apps/cli/src/fresh.ts`](apps/cli/src/fresh.ts) | A brand-new account registers its post-quantum key |
+| Classical bootstrap of an ML-DSA-87 key (`MsgRegisterPQCKeyV2`) | [`apps/cli/src/fresh.ts`](apps/cli/src/fresh.ts), [`apps/dashboard/src/screens/Start.tsx`](apps/dashboard/src/screens/Start.tsx) | A brand-new account registers its post-quantum key |
+| Recovery-code ML-DSA-87 keys (`generatePqcRecoveryCode`, `unifiedAccountFromSeed`) and hybrid txs from a browser | [`apps/dashboard/src/lib/session.ts`](apps/dashboard/src/lib/session.ts), [`ownerTx.ts`](apps/dashboard/src/lib/ownerTx.ts) | The post-quantum key is split from the classical one and never stored; windows and links are signed in the tab |
 
 ### Why rescues don't go through the agent's linked key
 
@@ -222,7 +280,8 @@ contracts/          GuardianVault.sol, Foundry tests, deploy scripts
 packages/core/      shared config, accounts, the withdrawal message (byte-identical to Solidity) and incident format
 apps/agent/         watch → rules → rescue → report (+ co-sign), alerts, local API
 apps/cli/           setup, link/unlink, windows, Guardian Signer, withdraw, demo tooling
-apps/dashboard/     Vite + React dashboard
+apps/dashboard/     Vite + React dashboard, with the in-app wallet for the hosted product
+apps/hosted/        hosted service: dashboard, REST/RPC proxies, starter packs, per-owner agents, signed gateway
 docs/               threat model, audit, evidence, specs and plans
 demo.sh             end-to-end demo on diana
 ```
@@ -235,6 +294,7 @@ pnpm -F core test                    # TS ↔ Solidity message vector, incident 
 pnpm -F agent test
 pnpm -F cli test
 pnpm -F dashboard test               # needs `forge build` first (it imports the contract artifact)
+pnpm -F hosted test
 bash scripts/test-demo.sh
 ```
 
@@ -252,7 +312,7 @@ Every change is test-first. A claim about the chain counts only with a real tran
 ## Roadmap
 
 - Watch the mempool and front-run drains where the chain exposes pending transactions.
-- A hosted Guardian with uptime guarantees, so protection does not depend on the owner's machine.
+- Run the hosted service on more than one machine, so one outage does not leave every owner unwatched.
 - A withdrawal timelock on the vault: a delay the owner can cancel, as a second line behind the ML-DSA-87 check.
 - Require the post-quantum co-signature on every report from a cut-over the chain can vouch for.
 - A human security audit before any mainnet use.
@@ -266,7 +326,8 @@ Every change is test-first. A claim about the chain counts only with a real tran
   - Reports in [`docs/audit/`](docs/audit).
   - Every finding is fixed, covered by a test, or explained.
 - [On-chain evidence](docs/EVIDENCE.md)
-- [Spec](docs/specs/2026-11-19-qday-guardian-mvp.md) and [plan](docs/plans/2026-11-19-qday-guardian.md)
+- [Spec](docs/specs/2026-11-19-qday-guardian-mvp.md) and [plan](docs/plans/2026-11-19-qday-guardian.md); the browser product:
+  [spec](docs/specs/2026-11-25-end-user-product-design.md) and [plan](docs/plans/2026-11-25-end-user-product.md)
 - [How AI was used to build it](AI_USAGE.md)
 
 ## Acknowledgements

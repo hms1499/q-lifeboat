@@ -1,6 +1,6 @@
 import { NETWORK } from "@qday/core";
 import { describe, expect, it } from "vitest";
-import { DIANA_REST, REST_PROXY_PATH as VITE_PROXY_PATH, restProxyRewrite } from "../../vite.config";
+import { DIANA_REST, DIANA_RPC, REST_PROXY_PATH as VITE_PROXY_PATH, RPC_PROXY_PATH, restProxyRewrite, rpcProxyRewrite } from "../../vite.config";
 import { REST_PROXY_PATH } from "./chain";
 import { checkConfigOnChain, loadCachedConfig, parseAgentConfig, saveCachedConfig, type AgentConfig } from "./config";
 
@@ -67,5 +67,19 @@ describe("restProxyRewrite", () => {
     expect(restProxyRewrite("/qore-rest")).toBe("/");
     expect(restProxyRewrite("/qore-rest?x=1")).toBe("/?x=1");
     expect(restProxyRewrite("/qore-restx/y")).toBe("/qore-restx/y");
+  });
+});
+
+describe("RPC proxy", () => {
+  it("vite.config's DIANA_RPC is NETWORK.rpc, served at /qore-rpc (as the hosted service serves it)", () => {
+    expect(DIANA_RPC).toBe(NETWORK.rpc);
+    expect(RPC_PROXY_PATH).toBe("/qore-rpc");
+  });
+
+  it("strips /qore-rpc only as a whole path segment", () => {
+    expect(rpcProxyRewrite("/qore-rpc/status")).toBe("/status");
+    expect(rpcProxyRewrite("/qore-rpc")).toBe("/");
+    expect(rpcProxyRewrite("/qore-rpc?x=1")).toBe("/?x=1");
+    expect(rpcProxyRewrite("/qore-rpcx/y")).toBe("/qore-rpcx/y");
   });
 });

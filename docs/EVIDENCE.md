@@ -292,3 +292,107 @@ spliced ML-DSA part. Then the agent co-signs every report (branch `task-8-submis
 | The same report with one word added to `summary` (the `/incidents` response changed in the browser) | ✗ ed25519 "does not match the report body" and ✗ co-signature `CLASSICAL_SIGNATURE_INVALID` | same browser session |
 | Older reports (no `guardianSig`) | co-signature check n/a, report still ✓ on the ed25519 checks | root owner's 5 reports |
 
+
+## Task 9 spike: hybrid txs from a browser page, recovery-code PQ key (2026-11-25)
+
+Throwaway page (`spike/browser-hybrid/`, Vite on 127.0.0.1:5174, driven by Playwright). The account is
+`unifiedAccountFromSeed(random 32 bytes, { recoveryCode: generatePqcRecoveryCode() })`: its ML-DSA-87 key comes from the
+recovery code, not from the classical key. REST and the Tendermint RPC go through same-origin proxies `/qore-rest` and
+`/qore-rpc`. Account `0x0698A02Ea2d4cE6A064Bf9a61b5C6f8dd0879557` / `qor1q6v2qt4z6n8x5pjtlxnpkhr03hgg092hjgtnek`.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| diana's Tendermint RPC sends no CORS headers (like REST, chain fact 18) | `OPTIONS` and `POST` from Origin `https://example.org`: no `Access-Control-Allow-Origin` | `curl` 2026-11-25 02:36Z |
+| Funder sends the new account 1.5 QOR | OK | `FC190BE2A938958F215D91DD1DCAB440904B827D067B12414D3E2C56B54028B1` |
+| The browser registers the recovery-code ML-DSA-87 key with a classically signed `MsgRegisterPQCKeyV2` | `registered: true`, `possessionProven: true`, on-chain pubkey = the recovery-code key | `A99A99324EC450487AA25B2AF07DAF37232E09C3B8B4E04A9D66E43609DA66BE` |
+| One hybrid tx from the browser: `MsgOpenEVMWindow` (1 tx, fUSD only) + `MsgUpdateSpendingRules` + `MsgRegisterAuthenticator` | code 0; ed25519 key linked (`revoked: false`) | `27B2E8FC6554BD60A710B522373D94E3722F7CCDBF94470387508482587B2EB9` |
+| An EVM tx signed in the browser with the account's classical key (viem local account) lands in that window | `approve` status success | `0xdb84d4e8a7211e62438280e8e2954985ee1ac6e48fb2f451ddc9fe1b5ef90a76` (EVM) |
+| A window sized to exactly its txs closes itself once used | after the 1 tx: `live: false`, `usedTxs 1/1`, 283 blocks still left | `evmWindowStatus` read right after |
+
+## Task 9 / plan Task 4: Guardian windows on demand (2026-11-25)
+
+`GUARDIAN_WINDOW_MODE=on-demand ./demo.sh` (root guardian `qor1l7pv44…m0pt`). demo.sh opens the owner's window (`setup`) before it
+starts the agent, then attacks.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| First build: an on-demand agent that reports ready before checking the owner's window rescues too late | FAIL: guardian window opened at block 10703568 by the rescue itself (14400 blocks), 3 blocks after the first drain (10703565); rescue at 10703572 = 7 blocks, 70% kept | run `20261125T025302Z`, window open `80FA8B99CA0110EFE1CE839F16C5794DD100F80FD8A18CF2455297E14133F55D` |
+| Fix (`9fbfb89`): on-demand startup awaits one owner-window check before the agent is ready | guardian window opened at block **10703705** with 790 blocks (owner window + 200), BEFORE the first drain (10703710) | `BE1C047DFAE5ACA01B20349D45B10AA7095B2E7F9AD28F08740EB7F894E75EAE` |
+| Rescue with an on-demand window | PASS: rescue at block 10703711 = **1 block** after the drain, **90% kept**; forged withdraw reverts `BadSignature`; agent key `fUSD.transfer` refused | run `20261125T025624Z`, rescue `0x1ad6854853ca3edb07c5aba3c811de9c45eb80a0f4be70292b2761f110cf4ef5` |
+
+## Plan Task 6 + 9: self-serve onboarding in a fresh browser on diana (2026-11-25)
+
+`apps/hosted` run locally (`HOSTED_DATA_DIR` outside the repo, the builder's funder) with `pnpm -F dashboard dev`, driven by
+Playwright in a browser profile with no wallet extension and no QOR. Owner `0xCeb83299B636a8fBE030483483313996cF973513` /
+`qor1e6ur9xdkx650hcpsfq6gxvfejm8ewdgnf7ke3e`, guardian `0xe70B671563f56A1e71c31c3ac4096B209a7E81fC`, vault
+`0x16a63c1b090441f1ef5d35b7824e0d9d0fb45b05`. Steps 1–7 took about 2.5 minutes (11:41:33Z → 11:43:55Z). Every tx below is code 0.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| Starter pack: the service sends a new owner 2.5 QOR | balance 2.5 QOR, stage `starter` | `39F27807E05760BD936294398A1213474C9BF37BE9C276304E124A1BEBF687CA` |
+| The browser registers the recovery-code ML-DSA-87 key, classically signed | `registered: true`, possession proven | `C70298831CE6AEF56D789F097069E7DDF53A908C821F652072436474C76A5387` |
+| Guardian provisioning: the funder sends the new guardian 1 QOR, the guardian registers its own ML-DSA-87 key | stage `provisioned` | fund `58FD81D1C3F3CF28F115F4F7A8050F4AAA3A451E2C139F15389D45579731D7E6`, register `CBC191E80DC074BFE7E0AB310F2B8B711B188B59C5AB8CF3B54424B689638005` |
+| One unscoped 4-tx owner window (hybrid, from the browser), then the vault deploy and three mints in it | `GuardianVault(owner, guardian)` deployed; 100 fUSD, fETH, fBTC minted | window `D712A1689EF2978F327CDDECA81041973DFF780C960BF91E7392AFA71878497F`; deploy `0x3bd1f26059cb7acccbb47b00a2a68314d249d16d49122942a106eabdc0aa85d6`, mints `0xf1e7d41a641575aa47eecb032e452f49dc5b107ce18c2bde075d96f6e2997796`, `0xdbca9310991766c16be08106fcc2387d24096b69ee23d5840500203edd0d5f10`, `0x05ca27a5a87650244727238f3ba5b6ea178f1de7ab6f097bfa6b1f263d7a86f5` (EVM) |
+| The tab closed after the vault step: reopened, unlocked with the password, the journey resumed at step 7 (no second deploy offered) | step 7 "Turn on protection" | browser run |
+| A recovery code with one wrong character is refused before anything is signed | "recovery code checksum does not match: a character is mistyped" | browser run |
+| Window (3 txs, scoped to the three tokens) + spending rule + agent link in ONE hybrid tx, then the three approvals | code 0; `MsgOpenEVMWindow, MsgUpdateSpendingRules, MsgRegisterAuthenticator` | `E18D11E6506E9E107E3DB82F6BF87FAF3C94CC5D6C274BEF5B1D3B53E5E6684D`; approvals (native-lane wrappers) `C9CE4F877BB3CE59F3CB316523443CE9E39EBF6E761C25D8BC7E5D5BDADD60D7`, `8509EA3E76BCBE0A5D194FEE17BCCB5241CB376C8DF1B60924C582C90012B424`, `B0BC55639D22288B4D303B59C77F3B33C2F74B6AA773EAF86A8652171EB8A197` |
+| Signed `activate`: the service checks vault roles, link and exact rule on chain, then starts this owner's agent | stage `active`; agent on 127.0.0.1:9100 answers `GET /api/o/<owner>/health` through the gateway | hosted log 11:43:55Z |
+| The hosted service restarts: the active owner's agent comes back on its stored port with no user action | "started on 127.0.0.1:9100", "resumed 1 agent(s)"; no orphan agent process after the stop | hosted log 11:45:48Z |
+
+Second owner, after the Task 9 review fixes (the vault step reads the chain fresh and saves the vault right after its
+receipt; protect plans mints + approvals in one window scoped to exactly those tokens), in the same browser profile:
+owner `0x880566d1985705E76C032daf7e3D1Bb4Ea72f536` / `qor13qzkd5vc2uz7wmqr9khhu0gmkn489afkxvne8k`, guardian
+`0xaE0C0301Dce680Da9E59A5B91A61BEEEf29f5850`, vault `0x4bf8d0462d4730218cbd857fc4f86adc08369dc6`. Steps 1–7 in about 2 minutes
+(11:53:13Z → 11:55:01Z), every tx code 0.
+
+| Claim | Result | Evidence |
+|---|---|---|
+| A wallet whose code was lost before it was confirmed (tab reloaded on step 2) is replaced by "start over", offered only while the service has handed it nothing and no key is registered | new wallet `0x8805…f536` replaces `0x8E68…203E`; nothing was sent to the old one | browser run |
+| Starter pack, key registration, guardian provisioning | stage `provisioned` | starter `491E84BA1EE9BAE9D9FC37DA0753F32DB8330B1CCF2DCC018816A0DD7CD4C3C4`, register `E54FAC6742ADB8F141A98F3C3F54473CC9756F5A476D4EE0CAA2B1AD7F759C55`, guardian fund `EE8580842E2ED72BC10B3CC22DE784C79A970204DADDA7C8D837B4210FFD57F4`, guardian key `F6839BEB6257E0614A3C502A17E229E8E0C4E4462D188A9BA8EE7D1C6C5C5F17` |
+| Vault step through `runVaultStep`: 4-tx window, deploy, three mints | vault deployed, 100 of each token | window `2F79253DE5E9B932982BDAC819CA0E413B77C684E7D9FAC6106445DD61D26916`; deploy `0xa268499e79ef2db2d755545c472c3fef95233ea1960a294b16e8cd83e923d866`, mints `0xfeb8e742f25811d4f852d90ca168a498e1d6a990fbe6a5be6d23b86b4f3eb0d2`, `0x1177999fa87b4a98aa0f974ed360b7678b8b4778a056776fba9c6a416b8ee061`, `0xdf2619915cb3f07d25c64fe584dd9ccae09ea7d0dd08d5d6fe43e078e44a1d9a` (EVM) |
+| Protect: 3-tx window + rule + link in one hybrid tx, three approvals, signed `activate` | stage `active`; `GET /api/o/<owner>/health` → 200 | `D269A03930AAC398DC826F16D35C8F9927D85476BA4EB62B3FE7DE779B03B6B7`; approvals `1254809C88CB094388E5C609DB3A6B6CDD00620B3433F477C1D510DB2FDA7CBF`, `C4B452A91001DC2911B2442C167DF39E3FA29ED9425239C5D75F0ACA1DF349FE`, `F1F3D20BAF820A58E99C08A0D117EA6270F4B7701629C5EF5EB3876787014BF2` |
+| Hosted agents keep their policy in the owner dir (`POLICY_FILE`), not in the repo's `data/` | `policy …/hosted-dev/owners/<owner>/policy.json` | hosted log 11:45:50Z |
+
+## Plan Task 10: try an attack and withdraw in the browser on diana (2026-11-25)
+
+The second Task 9 owner (`0x880566d1985705E76C032daf7e3D1Bb4Ea72f536`, vault `0x4bf8d0462d4730218cbd857fc4f86adc08369dc6`), same
+Playwright profile, hosted service local. The dashboard now reads this owner's agent through the gateway (`/api/o/<owner>`).
+
+| Claim | Result | Evidence |
+|---|---|---|
+| Arm before open: the signed `arm` makes the hosted Guardian open its own window BEFORE the owner's window | guardian window 12:06:09Z, owner window 12:06:12Z | guardian `BB35D928CDF9ED9AD098E86CB505844C4F429A931D8A935A7F0A6FA09D93B69A`, owner `55FFED5186680F0A43E82AFD97CCB7F0CBC98F0E6C9F9E4E2254F117C46897F6` |
+| Attack 1: 10 fUSD to a random untrusted address from the browser; the Guardian rescues the rest | transfer block 10726801, fUSD rescue block 10726803 (**2 blocks**), 90 of 100 fUSD kept (**90 %**), plus 100 fETH and 100 fBTC; report co-signed (`guardianSig`) | transfer `0xb7002d54bb9c971a13abaebfe313ff5e9d5f648ab4fe47e4b8bab10abbec77bc`, rescues `0xfcb2a09f80dc1f53e1a853bf8a82fd3b969bb59c7f47d2b24b4e24933c19ce5b`, `0xa20c61ca4122c12f7dc063eb32c86e25baf7d8e7d33841b6f59664daf9130316`, `0x8093a42dec8e38b2d4386449f92ff7011ffbcdc173bd71611cfee3e8f2e8aecb` |
+| The first build of the Attack screen crashed on the report (amounts arrive as decimal strings); fixed test-first, the rescue itself was unaffected | — | incident `7f139a46-92b6-4bb5-8603-5fd20892898c` |
+| Attack 2 through the screen: a 2-tx window scoped to fUSD (mint 100, then the transfer, since attack 1 left 0 fUSD on the account) | rescue **2 blocks** after the transfer (10726853 → 10726855), **90 %** kept, the screen shows the signed report ✓ | window `D8F64AD2B025CD295F521D910CD658AAC4498B6E0AFF97A510008958FFE4DEB0`; mint `0xc144d8b8c06e7181b0ae3b2e3cae5a3122b0dd0b06cbd6083b536e33bf09709a`, transfer `0x385ed175af34cde57bdd3b91638c9af605ba2aa9e48d9d953b682a7d0c8b9028`, rescue `0xadce555927d16a33cb2aefb1a5adb5c2c5cc09bb835f88ed7bc4b913e6848715` |
+| Withdraw in the browser: the recovery-code key signs, all six vault checks pass, `vault.withdraw` goes in a 1-tx window scoped to the vault | 50 fUSD arrive at the fresh address `0x95459db24bf28a4878a7441ddc7d53a746edb39b` (`balanceOf` = 50), vault 180 → 130 fUSD, nonce 0 → 1 | window `B9240A4E8B40300AC9011005A6F578ADCC35150DD6569F61C8DD08C3961D982D`, withdraw `0x4563563a956b61d71a528177c82953f8a02f05494f0cf9ee98714be61a783ebe` |
+| After the Task 10 review fixes (Recover reads the vault from chain, not the agent; recipients equal to the owner or the vault refused): 5 fETH withdrawn in the browser | a withdraw to the owner's own address is blocked in the form; 5 fETH arrive at `0x95459db2…b39b` (`balanceOf` = 5), vault nonce 1 → 2 | window `776C1D669162B305376789E9F8FAB9B0DFE0D44DD2A97DB342EBCCBDB67B18F2`, withdraw `0xa61f335c0a98b091f957727764ade3664a65d5b7a562f2ab2932ae9c7a0c5e68` |
+| Hosted agents report healthy while the owner's window is closed (on-demand: `windowRequired: false`), so Overview no longer shows "Guardian degraded" between sessions | both hosted agents: `ok: true`, `window: null`, `windowRequired: false` | `GET /api/o/<owner>/health`, 12:10Z |
+
+## Plan Task 11: hosted navigation and ML-DSA-signed policy edits (2026-11-25)
+
+| Claim | Result | Evidence |
+|---|---|---|
+| Hosted navigation has no Protect (MetaMask) or Fire drill; a Lock wallet button | nav: Get protected, Overview, Incidents, Recover, Try an attack, Rules | browser run, owner `0x8805…f536` |
+| A trusted-list edit from Rules goes through the gateway signed with the recovery-code key (purpose `policy`) and the agent saves it in the owner dir | `GET /api/o/<owner>/policy` → 1 trusted (`Cold wallet 0x9545…b39b`); agent log "policy updated: 1 trusted" | hosted log 12:17:16Z |
+| The same write without a signature is refused | `PUT /api/o/<owner>/policy` unsigned → HTTP 401 | `curl` 12:17Z |
+| Overview's guardian gas warning is real: after three sessions (attack, attack, withdraws) the guardian holds 0.29 QOR of its 1 QOR (each arm opens a 0.225 QOR window) | `health.ok: false`, `gas.low: true` | `GET /api/o/<owner>/health` 12:16Z |
+| A signed arm refills a hosted guardian that ran low (0.29 QOR after three sessions) back to 1 QOR BEFORE the agent opens its window | refill `708600` uqor (1/3 today), then the guardian window, then the 1 fUSD withdraw | refill `DF3C25715D65B4570F7BB17AB82CFC4561E10B7784BFDF06703859E17C80168B`, guardian window `D02154A922D013303C889F4313DA5BC1AA58497668DA0D18AF41B5FE16C19156` |
+
+## Plan Task 12: the public URL, three fresh browsers on diana (2026-11-26)
+
+Hosted service on Fly.io, https://q-lifeboat.fly.dev (one shared-cpu-1x 1 GB Machine in `sin`, volume on `/data`, funder
+`0xa88D…36a1`). Each owner is a fresh browser origin (IndexedDB and storage wiped, Playwright, no extension, no QOR).
+
+| Claim | Result | Evidence |
+|---|---|---|
+| Owner 1 `0xd23fc6025c2555e44f462e92357555a8841f313a`: steps 1–4 (wallet → protected) from the public URL | protected 2 min 45 s after the landing page; guardian `0x133b3D06AaE5b78522d065AB72D569923F3Ab4BF`, vault `0x0f2fd90ab4dbca2486d6050ccc5b06594d2c088c` | starter `B98EB7D9E0566D874F7FEEB42ABD43EEEB1A301A71A6353B0250E2EF9C040BC9` |
+| Owner 1 attack: 10 fUSD to a random address; the hosted Guardian rescues fUSD, fETH and fBTC | transfer block 10762125, rescues block 10762127 (**2 blocks**), **90 %** of fUSD kept | transfer `0x663a5d2099d6bad97f614a5231733cc61825811a2e088e748daa08f41be173bd`, fUSD rescue `0xb17e94e9ee849d6326f3aaf738bacbf0058180692cdd97897885d7df4ee4ac37` |
+| The attack screen never showed owner 1's report: `/events` answered 404/503 before the agent existed, and a non-200 answer closes an `EventSource` for good (`readyState` 2 in the browser). Fixed test-first (reopen after 5 s) | the incident was in `GET /api/o/<owner>/incidents` all along | commit `7e84752` |
+| Owner 1 withdraw in the browser with the recovery-code key | 50 fUSD at the fresh address `0xaa32a8256007015eb636b19e105abde94c51ef00` | window `57D918C15F2AB2184AE296D56B7186CB8258558C010B4D3051971D620A7C66CB`, withdraw `0x5afdb7f910c931759625b1e785ea20fcd8d9b51a9f2cd961323955737d8cd799` |
+| Owner 2 `0x7f4f3dd10d07996ea0df77563fb57126cf3e8d99`: "Turn on protection" came alive while the vault step was still minting (the vault showed on chain, the step view changed and cleared the running action). The click linked nothing; fixed test-first (a running action survives the step change), redeployed, the retry linked and activated | vault `0x08a4bced0768f31a2b713d4adbd2fe67331743bc` | vault window `1644EDB6425AF99F01359731863CD8C08FF8F85664017220C45D35611E678FD7`, deploy `0xe0a28c6884a97117bd8638c4a4f617b36271e4698a981bf270e7d747026d1867`; commit `7e84752` |
+| Owner 2 attack on the same tab that onboarded (no reload): the report arrives live | rescue **2 blocks** after the transfer, **90 %** kept, signed report: every check passes | transfer `0xa002ccd16f223b26c788512c3a84a18b26c99079431133292314cfc11ab8929d` (block 10762743), rescue `0x3cf95093500ef09183ac3f0ed2421171fb69ab092103f3407a04700cd4996f03` |
+| Owner 2 withdraw | 50 fUSD at `0x010e8081bdd07beea56c7f579a0cb62b3277e9a7` | window `227890801204A344F933A71979A8F0698B673C73C4068B6F9C7CB92390B200B1`, withdraw `0x5b769b0395cc93bcfd42aca2b45530f9fd543fdd81ceccfb8a4b7f87787d2222` |
+| Owner 3 `0x337a4e2118c11cfc858831f7388ec0c8d9a156b6` on the fixed build: steps 1–6 with no help | **2 min 32 s** from the landing page to the withdrawal; "Turn on protection" stayed disabled while the vault step minted | — |
+| Owner 3 attack and withdraw | transfer block 10762878, rescue block 10762880 (**2 blocks**), **90 %** kept; 50 fUSD at `0x80bd4ca2a4b75836f37219a94c2a724b930a9aba` | transfer `0xcca2ea755557c02530413ba3ac02ea68d683797373a229240b5c5a9a64392704`, rescue `0x1000ba5e215f6c38ff6ce331ae48ff7c22e7d481ed2b9ab282a31e06f644d45a`, withdraw window `0B628F6F93A9BD31AA67544096366A5933CF6B801A1236901C3FABFCEF6AA1BF`, withdraw `0x5e33624814853cf451fc1fd7dea039ddb0456f8a3c901c0d311e09d3a55ff6af` |
+| A service restart brings every agent back | `fly machine restart` 02:24Z → "resumed 3 agent(s)"; `/api/o/<owner>/health` live for all three (owner 1 `ok: false` only for gas: 0.30 QOR after two arms, refilled on its next signed arm) | Fly logs 2026-11-26T02:24:45Z |
+| Memory on Fly | service ~172 MB RSS, each agent ~185 MB; with 3 agents ~206 MB free of 1 GB → 512 MB swap added, cap stays 4 | `/proc/*/status` VmRSS over `fly ssh console` |

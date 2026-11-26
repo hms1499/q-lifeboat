@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { APP_NAME } from "./brand";
 import { LifeboatMark, NavIcon, ScreenBoundary } from "./components/ui";
-import { fetchHealth } from "./lib/agent";
+import { agentBase, fetchHealth, HOSTED_BUILD } from "./lib/agent";
+import { appSession } from "./lib/appWallet";
+import { navGroups, navMode } from "./lib/nav";
+import { loadSeed } from "./lib/keystore";
 import { explorerAddress } from "./lib/chain";
 import { shortAddr } from "./lib/format";
 import { useHashRoute, usePoll } from "./lib/hooks";
@@ -11,26 +14,9 @@ import { Overview } from "./screens/Overview";
 import { Protect } from "./screens/Protect";
 import { Recover } from "./screens/Recover";
 import { Rules } from "./screens/Rules";
+import { Start } from "./screens/Start";
+import { Attack } from "./screens/Attack";
 import { useApp } from "./state";
-
-const NAV_GROUPS = [
-  {
-    label: "Monitor",
-    items: [
-      { id: "overview", label: "Overview", href: "#/" },
-      { id: "incidents", label: "Incidents", href: "#/incidents" },
-      { id: "recover", label: "Recover", href: "#/recover" },
-    ],
-  },
-  {
-    label: "Set up",
-    items: [
-      { id: "protect", label: "Protect", href: "#/protect" },
-      { id: "rules", label: "Rules", href: "#/rules" },
-      { id: "drill", label: "Fire drill", href: "#/drill" },
-    ],
-  },
-] as const;
 
 /** The Guardian's state for the shell: from /config reachability and /health (polled only while the agent answers). */
 function useGuardianStatus(): { dot: string; text: string } {
@@ -43,9 +29,10 @@ function useGuardianStatus(): { dot: string; text: string } {
   return { dot: "", text: "Guardian online" };
 }
 
-function Sidebar({ active }: { active: string }) {
+function Sidebar({ active, hasSeed }: { active: string; hasSeed: boolean | undefined }) {
   const { config, wallet } = useApp();
   const { cfg, source, agentOnline } = config;
+  const groups = navGroups(navMode({ hasSeed, localAgent: !!cfg && agentBase().owner === null, hostedBuild: HOSTED_BUILD }));
   const status = useGuardianStatus();
   const [open, setOpen] = useState(false);
   const walletDiffers = !!wallet && !!cfg && wallet.account.toLowerCase() !== cfg.owner.toLowerCase();
@@ -78,7 +65,7 @@ function Sidebar({ active }: { active: string }) {
       </div>
       <div className="sb-panel" id="sb-panel">
         <nav className="nav" aria-label="Main">
-          {NAV_GROUPS.map((g) => (
+          {groups.map((g) => (
             <div key={g.label} className="nav-group">
               <span className="nav-label" id={`nav-${g.label.replace(/\s+/g, "-").toLowerCase()}`}>
                 {g.label}
@@ -113,6 +100,19 @@ function Sidebar({ active }: { active: string }) {
               Connected wallet <span className="mono">{shortAddr(wallet!.account)}</span> is not the owner
             </div>
           ) : null}
+          {hasSeed ? (
+            <button
+              type="button"
+              className="btn small"
+              title="Forget the unlocked keys in this tab (the encrypted wallet stays in this browser)"
+              onClick={() => {
+                appSession.lock();
+                window.location.reload();
+              }}
+            >
+              Lock wallet
+            </button>
+          ) : null}
           <div>diana testnet</div>
         </div>
       </div>
@@ -145,17 +145,59 @@ function Banners() {
   );
 }
 
+/** Whether this browser holds an in-app wallet (an encrypted seed in IndexedDB); undefined while checking. */
+function useHasSeed(): boolean | undefined {
+  const [has, setHas] = useState<boolean | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    loadSeed()
+      .then((s) => live && setHas(!!s))
+      .catch(() => live && setHas(false));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return has;
+}
+
+const SCREENS = ["overview", "incidents", "recover", "rules", "protect", "drill", "start", "attack"] as const;
+type ScreenId = (typeof SCREENS)[number];
+
 export function App() {
   const [screen = "", id] = useHashRoute();
-  const active = screen === "incidents" || screen === "recover" || screen === "rules" || screen === "protect" || screen === "drill" ? screen : "overview";
+  const hasSeed = useHasSeed();
+  // `#/` is the landing page (Start) for a browser with no in-app wallet, Overview otherwise.
+  const active: ScreenId | null = (SCREENS as readonly string[]).includes(screen)
+    ? (screen as ScreenId)
+    : screen === "" && hasSeed === undefined
+      ? null
+      : screen === "" && hasSeed === false
+        ? "start"
+        : "overview";
   return (
     <div className="shell">
-      <Sidebar active={active} />
+      <Sidebar active={active ?? ""} hasSeed={hasSeed} />
       <div className="content">
         <main>
-          <Banners />
+          {active === "start" || active === null ? null : <Banners />}
           <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
-            {active === "incidents" ? <Incidents selected={id} /> : active === "recover" ? <Recover /> : active === "rules" ? <Rules /> : active === "protect" ? <Protect /> : active === "drill" ? <Drill /> : <Overview />}
+            {active === null ? null : active === "start" ? (
+              <Start />
+            ) : active === "attack" ? (
+              <Attack />
+            ) : active === "incidents" ? (
+              <Incidents selected={id} />
+            ) : active === "recover" ? (
+              <Recover />
+            ) : active === "rules" ? (
+              <Rules />
+            ) : active === "protect" ? (
+              <Protect />
+            ) : active === "drill" ? (
+              <Drill />
+            ) : (
+              <Overview />
+            )}
           </ScreenBoundary>
         </main>
       </div>

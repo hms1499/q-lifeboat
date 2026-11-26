@@ -1,5 +1,5 @@
-import { withdrawalMessage } from "@qday/core";
-import { ML_DSA_87_SIGNATURE_LENGTH, pqcStatusPublicKey, pqcVerify, type PqcStatus } from "@qorechain/sdk";
+import { assertRegisteredKey, buildWithdrawal, withdrawalMessage } from "@qday/core";
+import { ML_DSA_87_SIGNATURE_LENGTH, pqcStatusPublicKey, pqcVerify, type PqcStatus, type UnifiedAccount } from "@qorechain/sdk";
 import { bytesToHex, hexToBytes, isAddress, type Hex } from "viem";
 import type { CheckStatus } from "./verify";
 
@@ -98,7 +98,7 @@ export async function checkWithdrawal(w: ParsedWithdrawal, deps: WithdrawalDeps)
   status.catch(() => {}); // read once; each check reports its own failure
 
   return Promise.all([
-    guard("vault", "The file is for your vault", async () =>
+    guard("vault", "The withdrawal is for your vault", async () =>
       w.vault.toLowerCase() === deps.vault.toLowerCase() ? [true, `vault ${deps.vault}`] : [false, `the file names vault ${w.vault}, yours is ${deps.vault}`],
     ),
     guard("key", "Your ML-DSA-87 key is registered and proven on chain", async () => {
@@ -129,4 +129,18 @@ export async function checkWithdrawal(w: ParsedWithdrawal, deps: WithdrawalDeps)
       return w.amount <= b ? [true, `vault holds ${b}`] : [false, `amount ${w.amount} is above the vault balance ${b}`];
     }),
   ]);
+}
+
+/**
+ * Sign a withdrawal in the browser with the session's post-quantum key (from the recovery code). Refuses, before
+ * anything is signed, unless `status` (read fresh from chain) shows that exact key registered and proven.
+ */
+export function signWithdrawalInBrowser(
+  acc: Pick<UnifiedAccount, "pqc">,
+  p: { vault: Hex; to: Hex; token: Hex; amount: bigint; nonce: bigint },
+  status: PqcStatus,
+): ParsedWithdrawal {
+  assertRegisteredKey(status, acc.pqc.publicKey);
+  const f = buildWithdrawal(p, acc.pqc.secretKey);
+  return { vault: f.vault, to: f.to, token: f.token, amount: BigInt(f.amount), nonce: BigInt(f.nonce), sig: f.sig };
 }

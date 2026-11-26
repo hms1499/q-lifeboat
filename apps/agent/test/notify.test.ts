@@ -121,3 +121,9 @@ describe("createNotifier", () => {
     expect(lines.join("\n")).not.toContain(BOT_TOKEN);
   });
 });
+
+describe("info alerts", () => {
+  it("formatAlert prints an info message", () => {
+    expect(formatAlert({ type: "info", message: "hello" })).toBe("Q-Lifeboat: hello");
+  });
+});
