@@ -17,7 +17,9 @@ export function appStage(i: { hasSeed: boolean | undefined; ownerStage: OwnerSta
   if (i.hasSeed === undefined) return null;
   if (!i.hasSeed) return !i.hostedBuild && i.localAgent ? "local" : "visitor";
   if (i.ownerStage === undefined) return null;
-  return i.ownerStage === "active" ? "protected" : "onboarding";
+  // A retired owner (7 idle days) keeps its guardian and vault, and its next arm (protection test, withdrawal) revives the
+  // Guardian: it belongs in the app, never back in setup.
+  return i.ownerStage === "active" || i.ownerStage === "retired" ? "protected" : "onboarding";
 }
 
 /** Old hosted links that now land on one of the four app screens. */
@@ -62,11 +64,19 @@ export function hostedNav(): HostedNavItem[] {
 
 type AnyStage = OwnerStage | "none";
 /**
- * The owner's hosted stage for routing: the live read, else (service unreachable) the last stage this browser saw, else
- * "none" so the owner still reaches Setup instead of a blank screen. undefined while the first read is in flight.
+ * The owner's hosted stage for routing: the live read, else the last stage this browser saw (service unreachable, or
+ * the first read still in flight), else "none" when the service is unreachable so the owner still reaches Setup instead
+ * of a blank screen. undefined while a first read with nothing cached is in flight.
  */
 export function ownerStageFor(live: AnyStage | undefined, error: string | null, cached: AnyStage | null): AnyStage | undefined {
   if (live !== undefined) return live;
-  if (error) return cached ?? "none";
+  if (cached) return cached;
+  if (error) return "none";
   return undefined;
+}
+
+/** Asks the app to read the owner's hosted stage again now (Setup's "Open my dashboard" right after activation). */
+export const STAGE_REFRESH_EVENT = "qlifeboat-stage-refresh";
+export function requestStageRefresh(): void {
+  window.dispatchEvent(new Event(STAGE_REFRESH_EVENT));
 }

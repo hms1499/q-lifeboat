@@ -26,6 +26,8 @@ export type ConfigState = {
   /** "cache": the agent is unreachable and this is the last good config. */
   source: "agent" | "cache" | null;
   agentOnline: boolean;
+  /** The first /config read for this agent base has settled (answer or failure): before it, offline means "not known yet". */
+  agentChecked: boolean;
   /** vault.owner() / vault.guardian() against the config; null until read. */
   check: { ok: boolean; detail: string } | null;
   checkError: string | null;
@@ -68,6 +70,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setCfg(c);
         setSource(c ? "cache" : null);
         setAgentOnline(false);
+        setAgentChecked(false);
         setIncidents([]);
         setIncidentsError(null);
         setStore({});
@@ -78,6 +81,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [cfg, setCfg] = useState<AgentConfig | null>(() => cachedFor(agentBase().owner));
   const [source, setSource] = useState<ConfigState["source"]>(() => (cfg ? "cache" : null));
   const [agentOnline, setAgentOnline] = useState(false);
+  const [agentChecked, setAgentChecked] = useState(false);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [incidentsError, setIncidentsError] = useState<string | null>(null);
   const [store, setStore] = useState<Record<string, StoredVerification | undefined>>({});
@@ -92,12 +96,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // The gateway serves one owner: a config for any other is refused, never shown as this account's.
       if (expected && next.owner.toLowerCase() !== expected) throw new Error(`the agent serves ${next.owner}, not ${expected}`);
       setAgentOnline(true);
+      setAgentChecked(true);
       setSource("agent");
       setCfg((prev) => (prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
       saveCachedConfig(storage, next);
     } catch {
       if (agentBase() !== b) return;
       setAgentOnline(false);
+      setAgentChecked(true);
       setSource((s) => (s === "agent" || s === "cache" ? "cache" : null));
     }
   }, []);
@@ -206,11 +212,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const verdictFor = useCallback((i: Incident) => shownVerification(i, store[i.id], key), [store, key]);
 
-  const config: ConfigState = { cfg, source, agentOnline, check, checkError: checkPoll.error };
+  const config: ConfigState = { cfg, source, agentOnline, agentChecked, check, checkError: checkPoll.error };
   const value = useMemo(
     () => ({ config, incidents, incidentsError, verdictFor, wallet, setWallet }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cfg, source, agentOnline, key, check?.detail, checkPoll.error, incidents, incidentsError, verdictFor, wallet],
+    [cfg, source, agentOnline, agentChecked, key, check?.detail, checkPoll.error, incidents, incidentsError, verdictFor, wallet],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

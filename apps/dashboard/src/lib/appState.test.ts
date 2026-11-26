@@ -15,9 +15,11 @@ describe("appStage", () => {
     expect(appStage({ hasSeed: false, ownerStage: undefined, localAgent: false, hostedBuild: false })).toBe("visitor");
   });
 
-  it("a wallet is protected only once its hosted stage is active", () => {
+  it("a wallet is protected once its hosted stage is active, and stays so when the service retires an idle Guardian", () => {
     expect(appStage({ hasSeed: true, ownerStage: "active", ...hosted })).toBe("protected");
-    for (const s of ["none", "starter", "provisioned", "retired"] as const) expect(appStage({ hasSeed: true, ownerStage: s, ...hosted })).toBe("onboarding");
+    // A retired owner keeps its guardian and vault; its next arm revives the Guardian, so it must reach the app (and the Vault).
+    expect(appStage({ hasSeed: true, ownerStage: "retired", ...hosted })).toBe("protected");
+    for (const s of ["none", "starter", "provisioned"] as const) expect(appStage({ hasSeed: true, ownerStage: s, ...hosted })).toBe("onboarding");
   });
 });
 
@@ -67,10 +69,11 @@ describe("hostedNav", () => {
 });
 
 describe("ownerStageFor", () => {
-  it("uses the live stage, else the last one seen when the service is down, else waits", () => {
+  it("uses the live stage, else the last one seen (service down or first read in flight), else none or waits", () => {
     expect(ownerStageFor("active", null, "none")).toBe("active");
     expect(ownerStageFor(undefined, "HTTP 503", "active")).toBe("active");
     expect(ownerStageFor(undefined, "HTTP 503", null)).toBe("none");
-    expect(ownerStageFor(undefined, null, "active")).toBeUndefined();
+    expect(ownerStageFor(undefined, null, "active")).toBe("active");
+    expect(ownerStageFor(undefined, null, null)).toBeUndefined();
   });
 });

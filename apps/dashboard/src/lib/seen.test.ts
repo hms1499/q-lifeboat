@@ -1,6 +1,6 @@
 import type { Incident } from "@qday/core";
 import { describe, expect, it } from "vitest";
-import { loadSeenIncident, saveSeenIncident, unseenIncident } from "./seen";
+import { isNewestIncident, loadSeenIncident, saveSeenIncident, unseenIncident } from "./seen";
 
 const mem = () => {
   const m = new Map<string, string>();
@@ -24,5 +24,12 @@ describe("incident seen store", () => {
     expect(unseenIncident(list, "old")?.id).toBe("new");
     expect(unseenIncident(list, "new")).toBeNull();
     expect(unseenIncident([], null)).toBeNull();
+  });
+
+  it("only opening the newest incident marks it seen: an older report never brings a dismissed one back", () => {
+    const list = [inc("old", "2026-11-26T01:00:00Z"), inc("new", "2026-11-26T02:00:00Z")];
+    expect(isNewestIncident(list, "new")).toBe(true);
+    expect(isNewestIncident(list, "old")).toBe(false);
+    expect(isNewestIncident([], "x")).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import type { Hex } from "viem";
-import { GasTank } from "../components/GasTank";
+import { ConfigCheckAlert } from "../components/ConfigCheckAlert";
 import { TestProtection } from "../components/TestProtection";
 import { fetchHealth } from "../lib/agent";
 import { readWindow } from "../lib/chain";
@@ -17,22 +17,31 @@ import { GuardianHealth } from "./Overview";
 const pct = (part: bigint, total: bigint) => (total === 0n ? 0 : Number((part * 10_000n) / total) / 100);
 
 /** The protected owner's home: status first, then where the tokens are, the protection test and, folded, the details. */
-export function Dashboard({ owner }: { owner: Hex }) {
+export function Dashboard({ owner, paused }: { owner: Hex; paused: boolean }) {
   const { config, incidents, verdictFor } = useApp();
   const cfg = config.cfg;
   const [seen, markSeen] = useSeenIncident(owner);
   const unseen = unseenIncident(incidents, seen);
-  const hero = heroState({ unseen, agentOnline: config.agentOnline });
   const assets = usePoll(() => readAssets(cfg!), 10_000, cfg ? `${cfg.owner}/${cfg.vault}` : null);
   const win = usePoll(() => readWindow(owner), 10_000, owner);
   const health = usePoll(fetchHealth, 15_000, config.agentOnline ? "dash-health" : null);
+  const hero = heroState({
+    unseen,
+    agentOnline: config.agentOnline,
+    agentChecked: config.agentChecked,
+    checkFailed: !!cfg && !!config.check && !config.check.ok,
+    healthOk: config.agentOnline ? health.data?.ok : undefined,
+    paused,
+  });
 
   const v = unseen ? verdictFor(unseen) : undefined;
   const story = unseen ? describeIncident(unseen, cfg) : null;
+  const safeTitle = !!unseen && incidentTag(unseen) === "Rescue" && v?.ok === true;
 
   return (
     <>
       <h1>Dashboard</h1>
+      <ConfigCheckAlert />
       {hero === "incident" && unseen && story ? (
         <section className="dash-hero alert" role="alert">
           <div className="dash-eyebrow">
@@ -40,9 +49,10 @@ export function Dashboard({ owner }: { owner: Hex }) {
             {incidentTag(unseen) === "Rescue" ? "Rescue" : "Alert"} · {ago(unseen.detectedAt)}
             {v === undefined ? " · checking the report…" : v.ok ? " · report verified" : " · report did not verify"}
           </div>
-          <h2>{incidentTag(unseen) === "Rescue" && v?.ok ? "Your tokens are safe in your vault" : story.headline}</h2>
+          <h2>{safeTitle ? "Your tokens are safe in your vault" : story.headline}</h2>
           <p>
-            {story.headline}. {story.detail} Treat the key of this account as leaked: move your tokens to a fresh address.
+            {safeTitle ? `${story.headline}. ` : ""}
+            {story.detail} Treat the key of this account as leaked: move your tokens to a fresh address.
           </p>
           <div className="actions">
             <a className="btn rescue" href="#/vault">
@@ -64,6 +74,48 @@ export function Dashboard({ owner }: { owner: Hex }) {
           </div>
           <h2>Your Guardian is watching</h2>
           <p>Any transfer from your account to an address you don't trust moves your tokens into your vault within a block or two.</p>
+        </section>
+      ) : hero === "check" ? (
+        <section className="dash-hero alert">
+          <div className="dash-eyebrow">
+            <span className="dot bad" aria-hidden="true" />
+            Vault check failed
+          </div>
+          <h2>Your Guardian's settings don't match your vault</h2>
+          <p>
+            The vault your Guardian serves does not name this account and this Guardian on chain, so its reports are marked unverified. Nothing in
+            your vault can be withdrawn without your recovery code.
+          </p>
+        </section>
+      ) : hero === "degraded" ? (
+        <section className="dash-hero">
+          <div className="dash-eyebrow">
+            <span className="dot degraded" aria-hidden="true" />
+            Guardian degraded
+          </div>
+          <h2>Your Guardian is running with a problem</h2>
+          <p>It answers, but its last health check failed, so a rescue may be late. Technical details below show what it reports.</p>
+        </section>
+      ) : hero === "paused" ? (
+        <section className="dash-hero">
+          <div className="dash-eyebrow">
+            <span className="dot off" aria-hidden="true" />
+            Paused
+          </div>
+          <h2>Your Guardian is paused</h2>
+          <p>
+            The service paused it after 7 days without activity. It starts again the next time you run the protection test or withdraw from your
+            vault.
+          </p>
+        </section>
+      ) : hero === "loading" ? (
+        <section className="dash-hero">
+          <div className="dash-eyebrow">
+            <span className="dot off" aria-hidden="true" />
+            Checking
+          </div>
+          <h2>Checking your Guardian…</h2>
+          <p>Balances below are read live from the chain.</p>
         </section>
       ) : (
         <section className="dash-hero">
@@ -139,7 +191,6 @@ export function Dashboard({ owner }: { owner: Hex }) {
               {cfg ? (
                 <div className="stack" style={{ marginTop: 12 }}>
                   <GuardianHealth cfg={cfg} win={win} health={health} />
-                  <GasTank cfg={cfg} health={config.agentOnline ? health.data : undefined} win={win} />
                 </div>
               ) : (
                 <p className="dash-hint">Your Guardian's details appear once it answers.</p>

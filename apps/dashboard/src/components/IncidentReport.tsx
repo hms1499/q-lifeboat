@@ -2,6 +2,7 @@ import type { Incident } from "@qday/core";
 import { useEffect, useState } from "react";
 import type { Hex } from "viem";
 import { CheckRow, TxHash } from "./ui";
+import { agentBase } from "../lib/agent";
 import { readReceipt } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { fmtAmount, fmtInt, shortAddr, shortHash, tokenSymbol, when } from "../lib/format";
@@ -165,9 +166,15 @@ export function IncidentReport({ i, cfg, v }: { i: Incident; cfg: AgentConfig | 
 
         <div className="actions">
           {done.length ? (
-            <a className="btn primary" href="#/recover">
-              Recover funds
-            </a>
+            agentBase().owner ? (
+              <a className="btn primary" href="#/vault">
+                Move tokens to a safe address
+              </a>
+            ) : (
+              <a className="btn primary" href="#/recover">
+                Recover funds
+              </a>
+            )
           ) : null}
           <button type="button" className="btn" onClick={() => download(i)}>
             Download signed report

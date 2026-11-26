@@ -33,6 +33,8 @@ export function KeysProvider({ owner, children }: { owner: Hex | null; children:
     const n = keysNeeded(sessionHas(), need);
     if (!n.password && !n.code) return Promise.resolve(true);
     return new Promise<boolean>((resolve) => {
+      // One dialog at a time: an earlier caller still waiting is told "cancelled" rather than left hanging.
+      resolver.current?.(false);
       resolver.current = resolve;
       setAsk(n);
     });

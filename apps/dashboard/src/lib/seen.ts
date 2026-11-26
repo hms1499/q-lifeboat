@@ -25,3 +25,8 @@ export function unseenIncident(list: readonly Incident[], seenId: string | null)
   const newest = [...list].sort((a, b) => Date.parse(b.detectedAt) - Date.parse(a.detectedAt))[0];
   return newest && newest.id !== seenId ? newest : null;
 }
+
+/** Whether `id` is the newest incident: only opening that one marks it seen (the store keeps a single id). */
+export function isNewestIncident(list: readonly Incident[], id: string): boolean {
+  return unseenIncident(list, null)?.id === id;
+}

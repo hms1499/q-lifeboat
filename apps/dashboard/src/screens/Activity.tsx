@@ -10,6 +10,7 @@ import { usePoll } from "../lib/hooks";
 import { incidentTag } from "../lib/incidents";
 import { labelCounterparty } from "../lib/overview";
 import { readActivity } from "../lib/ownerReads";
+import { isNewestIncident } from "../lib/seen";
 import { useSeenIncident } from "../hooks/useSeen";
 import { useApp } from "../state";
 
@@ -21,8 +22,9 @@ export function Activity({ owner, selected }: { owner: Hex; selected?: string })
   const outgoing = usePoll(() => readActivity(cfg!), 15_000, cfg ? `${cfg.owner}/${Object.values(cfg.tokens).join()}` : null);
   const policy = usePoll(fetchPolicy, 30_000, config.agentOnline ? "activity-policy" : null);
   const open = selected ? incidents.find((i) => i.id === selected) : undefined;
+  // Only the newest incident is marked seen: the store keeps one id, so an older report must not bring a dismissed one back.
   useEffect(() => {
-    if (open) markSeen(open.id);
+    if (open && isNewestIncident(incidents, open.id)) markSeen(open.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open?.id]);
 

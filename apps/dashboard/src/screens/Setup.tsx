@@ -15,7 +15,8 @@ import { loadSeed, type EncryptedSeed } from "../lib/keystore";
 import { canStartOver, landingStart, loadCodeConfirmed, locateVault, nextOnboardStep, protectWindowPlan, runOnStepChange, saveCodeConfirmed, type JourneyStep } from "../lib/onboard";
 import { hasLiveAuthenticator, loadProtectState, saveProtectState } from "../lib/protect";
 import { checkConfirm, confirmPicks } from "../lib/session";
-import { formatRecoveryCode, phaseOf, recoveryFile } from "../lib/setup";
+import { requestStageRefresh } from "../lib/appState";
+import { autoRun, CODE_POWER, formatRecoveryCode, phaseOf, recoveryFile, type SetupStep } from "../lib/setup";
 import { browserStorage } from "../lib/storage";
 import { getVaultArtifact } from "../lib/vaultArtifact";
 import type { OwnerWallet } from "../lib/ownerTx";
@@ -27,6 +28,8 @@ const SYMBOLS: TokenSymbol[] = ["fUSD", "fETH", "fBTC"];
 const MIN_PASSWORD = 10;
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const norm = (h: string) => h.replace(/^0x/i, "").toLowerCase();
+/** A status detail (lower case, from nextOnboardStep) as a sentence. */
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
 type OnboardStep = Exclude<JourneyStep, "attack" | "withdraw" | "done">;
 const ORDER: OnboardStep[] = ["account", "code", "starter", "register", "guardian", "vault", "protect"];
@@ -68,7 +71,10 @@ export function Setup() {
   }, [tick]);
 
   const owner = (stored?.evm ?? null) as Hex | null;
-  const status = usePoll(() => hosted.status(), 30_000, owner ? "hosted-status" : null);
+  // Read with or without a wallet: a visitor may create one only while onboarding is open.
+  const status = usePoll(() => hosted.status(), 30_000, "hosted-status");
+  // Once the wallet form has been shown it stays (as the old Start did), even if onboarding pauses while it is filled in.
+  const formShown = useRef(false);
   const state = usePoll(() => hosted.owner(owner!), 6_000, owner);
   const uqor = usePoll(() => uqorBalance(qorAddress(owner!)), 6_000, owner);
   const pqc = usePoll(() => {
@@ -366,21 +372,33 @@ export function Setup() {
     setTimeout(() => setToast(null), 2000);
   };
 
-  // Phase 3 runs register → Guardian → vault → protect on its own, one step at a time, each only once its inputs are read.
-  const stepReady =
-    current === "register" ? pqc.data?.registered === false : current === "guardian" ? true : current === "vault" ? found.data === null : current === "protect" ? !!vault && !pos.detail.startsWith("reading") : false;
+  // Phase 3 runs register → Guardian → vault → protect on its own, one step at a time, each only once its inputs are read
+  // (lib/setup.ts autoRun). A blocked state or missing keys stops the run instead of spinning.
+  const decision = autoRun({
+    step: current,
+    detail: pos.detail,
+    auto,
+    busy,
+    failed: run.state === "error",
+    last: lastAuto.current,
+    unlocked: !!appSession.account(),
+    registered: pqc.data?.registered,
+    vaultLookup: found.data === undefined ? "reading" : found.data === null ? "none" : "found",
+    vaultError: found.error,
+    vault: !!vault,
+  });
+  const decisionKey = decision.kind === "run" ? `run:${decision.step}` : decision.kind;
   useEffect(() => {
-    if (!auto || busy || run.state === "error" || !stepReady) return;
-    if (!appSession.account()) {
+    if (decision.kind === "blocked" || decision.kind === "locked") {
       setAuto(false);
       return;
     }
-    if (lastAuto.current === current) return;
-    lastAuto.current = current as OnboardStep;
-    const f = current === "register" ? register : current === "guardian" ? getGuardian : current === "vault" ? createVault : turnOn;
-    void f();
+    if (decision.kind !== "run") return;
+    lastAuto.current = decision.step;
+    const steps: Record<SetupStep, () => Promise<void>> = { register, guardian: getGuardian, vault: createVault, protect: turnOn };
+    void steps[decision.step]();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auto, busy, run.state, current, stepReady]);
+  }, [decisionKey]);
   useEffect(() => {
     if (run.state === "error") setAuto(false);
   }, [run.state]);
@@ -414,11 +432,32 @@ export function Setup() {
     a.href = url;
     a.download = "q-lifeboat-recovery-code.txt";
     a.click();
-    URL.revokeObjectURL(url);
+    // Some browsers start the download after click() returns: revoke a little later (as IncidentReport does).
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     flash("Downloaded q-lifeboat-recovery-code.txt");
   }
 
   if (stored === undefined) return <p className="muted">Checking this browser for a wallet…</p>;
+
+  // No wallet yet: one may be made only while the service takes new owners (the old Start's landing gate).
+  if (!stored && gate.enabled) formShown.current = true;
+  if (!stored && !gate.enabled && !formShown.current) {
+    if (!status.data && !status.error) return <p className="muted">Checking whether onboarding is open…</p>;
+    return (
+      <section className="card setup-card">
+        <h2>Onboarding is paused</h2>
+        <p className="err" role="status">
+          {gate.reason}
+        </p>
+        <p className="setup-hint">No wallet was created. Come back later: this page opens the setup as soon as the service takes new owners again.</p>
+        <div className="actions">
+          <a className="btn" href="#/home">
+            Back to the homepage
+          </a>
+        </div>
+      </section>
+    );
+  }
 
   const PHASES = ["Wallet & recovery code", "Starter QOR", "Turn on protection"];
   const phaseNum = phase === "done" ? 4 : phase;
@@ -493,6 +532,9 @@ export function Setup() {
             </li>
           ))}
         </ol>
+        <p className="banner warn" role="note">
+          <strong>{CODE_POWER}</strong> If you copy it or download the file, keep that copy private.
+        </p>
         <div className="actions">
           <button type="button" className="btn" onClick={copyCode}>
             Copy code
@@ -553,9 +595,19 @@ export function Setup() {
             <dd className="mono">{uqor.data === undefined ? "…" : fmtUqor(uqor.data)} QOR</dd>
           </div>
         </dl>
-        {gate.reason ? <p className="err" role="status">{gate.reason}</p> : null}
+        {state.data?.stage === "none" ? (
+          gate.reason ? (
+            <p className="err" role="status">
+              {gate.reason}
+            </p>
+          ) : null
+        ) : (
+          <p className="setup-hint" role="status">
+            {cap(pos.detail)}
+          </p>
+        )}
         <div className="actions">
-          <button type="button" className="btn primary" disabled={busy || !gate.enabled} onClick={() => void takeStarter()}>
+          <button type="button" className="btn primary" disabled={busy || !gate.enabled || state.data?.stage !== "none"} onClick={() => void takeStarter()}>
             Get my 2.5 QOR
           </button>
         </div>
@@ -576,7 +628,7 @@ export function Setup() {
         <ol className="setup-checklist">
           {SUB.map(([id, label]) => {
             const idx = ORDER.indexOf(id);
-            const st = idx < currentIdx ? "ok" : id === current && busy ? "run" : id === current && run.state === "error" ? "bad" : "";
+            const st = idx < currentIdx ? "ok" : id === current && busy ? "run" : id === current && (run.state === "error" || decision.kind === "blocked") ? "bad" : "";
             return (
               <li key={id} className={st}>
                 <span className="ic" aria-hidden="true">
@@ -584,14 +636,43 @@ export function Setup() {
                 </span>
                 <div>
                   <span>{label}</span>
-                  {id === current && run.state !== "idle" ? <RunView run={run} /> : null}
+                  {id !== current ? null : busy || run.state === "done" ? (
+                    <RunView run={run} />
+                  ) : (
+                    <>
+                      {run.state === "error" ? <RunView run={run} /> : null}
+                      <p className={decision.kind === "blocked" ? "err" : "setup-hint"} role="status">
+                        {cap(decision.kind === "blocked" ? decision.detail : pos.detail)}
+                      </p>
+                    </>
+                  )}
                 </div>
               </li>
             );
           })}
         </ol>
         <div className="actions">
-          {run.state === "error" ? (
+          {decision.kind === "blocked" ? (
+            decision.retry ? (
+              <button
+                type="button"
+                className="btn primary"
+                onClick={() => {
+                  refreshAll();
+                  void turnOnAll();
+                }}
+              >
+                Retry
+              </button>
+            ) : (
+              <>
+                <p className="setup-hint">This can't be fixed from this page. Check again after a change on chain, or set up a new wallet in another browser.</p>
+                <button type="button" className="btn" onClick={refreshAll}>
+                  Check again
+                </button>
+              </>
+            )
+          ) : run.state === "error" ? (
             <button type="button" className="btn primary" onClick={() => void turnOnAll()}>
               Retry
             </button>
@@ -609,7 +690,7 @@ export function Setup() {
         <h2>You're protected</h2>
         <p className="setup-hint">Your Guardian is watching {owner ? shortAddr(owner) : "your account"}. Next, test it: attack yourself from your dashboard.</p>
         <div className="actions">
-          <a className="btn primary" href="#/dashboard">
+          <a className="btn primary" href="#/dashboard" onClick={requestStageRefresh}>
             Open my dashboard
           </a>
         </div>

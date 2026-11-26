@@ -1,5 +1,4 @@
 import { useCallback, useState } from "react";
-import { agentBase } from "../lib/agent";
 
 const KEY = "qlifeboat.howItWorks.dismissed";
 
@@ -63,25 +62,12 @@ export function HowItWorks({ onDismiss }: { onDismiss: () => void }) {
         ))}
       </ol>
       <div className="actions">
-        {agentBase().owner ? (
-          <>
-            <a className="btn primary small" href="#/start">
-              Get protected
-            </a>
-            <a className="btn small" href="#/attack">
-              Try an attack
-            </a>
-          </>
-        ) : (
-          <>
-            <a className="btn primary small" href="#/protect">
-              Set up protection
-            </a>
-            <a className="btn small" href="#/drill">
-              Watch a fire drill (~90 s)
-            </a>
-          </>
-        )}
+        <a className="btn primary small" href="#/protect">
+          Set up protection
+        </a>
+        <a className="btn small" href="#/drill">
+          Watch a fire drill (~90 s)
+        </a>
       </div>
     </section>
   );

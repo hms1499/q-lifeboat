@@ -5,12 +5,28 @@ import { heroState, testPlan } from "./dashboard";
 const inc = { id: "i1" } as unknown as Incident;
 const E18 = 10n ** 18n;
 
+const ok = { unseen: null, agentOnline: true, agentChecked: true, checkFailed: false, healthOk: true, paused: false };
+
 describe("heroState", () => {
   it("an unseen incident wins; otherwise calm while the Guardian answers, offline when it does not", () => {
-    expect(heroState({ unseen: inc, agentOnline: true })).toBe("incident");
-    expect(heroState({ unseen: inc, agentOnline: false })).toBe("incident");
-    expect(heroState({ unseen: null, agentOnline: true })).toBe("calm");
-    expect(heroState({ unseen: null, agentOnline: false })).toBe("offline");
+    expect(heroState({ ...ok, unseen: inc })).toBe("incident");
+    expect(heroState({ ...ok, unseen: inc, agentOnline: false })).toBe("incident");
+    expect(heroState({ ...ok, unseen: inc, checkFailed: true })).toBe("incident");
+    expect(heroState(ok)).toBe("calm");
+    expect(heroState({ ...ok, agentOnline: false })).toBe("offline");
+  });
+
+  it("never calm when the vault check failed or the Guardian reports itself unhealthy", () => {
+    expect(heroState({ ...ok, checkFailed: true })).toBe("check");
+    expect(heroState({ ...ok, checkFailed: true, agentOnline: false })).toBe("check");
+    expect(heroState({ ...ok, healthOk: false })).toBe("degraded");
+    // No /health answer yet is not a failure.
+    expect(heroState({ ...ok, healthOk: undefined })).toBe("calm");
+  });
+
+  it("a Guardian retired for idleness is paused, not offline; before the first answer it is loading, not offline", () => {
+    expect(heroState({ ...ok, paused: true, agentOnline: false })).toBe("paused");
+    expect(heroState({ ...ok, agentOnline: false, agentChecked: false })).toBe("loading");
   });
 });
 

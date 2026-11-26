@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { APP_NAME } from "./brand";
 import { LifeboatMark, NavIcon, ScreenBoundary } from "./components/ui";
 import { agentBase, fetchHealth, HOSTED_BUILD } from "./lib/agent";
@@ -21,7 +21,7 @@ import { Activity } from "./screens/Activity";
 import { Vault } from "./screens/Vault";
 import { Settings } from "./screens/Settings";
 import { Home } from "./screens/Home";
-import { appStage, ownerStageFor, resolveRoute, type Stage } from "./lib/appState";
+import { appStage, ownerStageFor, resolveRoute, STAGE_REFRESH_EVENT, type Stage } from "./lib/appState";
 import { hosted } from "./lib/appWallet";
 import { browserStorage } from "./lib/storage";
 import type { OwnerStage } from "@qday/core";
@@ -30,6 +30,7 @@ import { useApp } from "./state";
 import { KeysProvider } from "./components/KeysProvider";
 import { AppShell } from "./components/AppShell";
 import { FocusShell } from "./components/FocusShell";
+import { ConfigCheckAlert } from "./components/ConfigCheckAlert";
 
 /** Which product this browser sees: a visitor, the hosted product, or the builder's local agent. */
 function useNavMode(hasSeed: boolean | undefined): NavMode {
@@ -55,7 +56,7 @@ function useUnlocked(): boolean {
 function Sidebar({ active, hasSeed, mode }: { active: string; hasSeed: boolean | undefined; mode: NavMode }) {
   const { config, wallet } = useApp();
   const { cfg, source, agentOnline } = config;
-  const groups = navGroups(mode);
+  const groups = navGroups();
   const status = useGuardianStatus(mode);
   const unlocked = useUnlocked();
   const [open, setOpen] = useState(false);
@@ -145,35 +146,31 @@ function Sidebar({ active, hasSeed, mode }: { active: string; hasSeed: boolean |
   );
 }
 
-function Banners({ mode }: { mode: NavMode }) {
+function Banners({ mode, paused = false }: { mode: NavMode; paused?: boolean }) {
   const { config } = useApp();
-  const { cfg, check, agentOnline, source } = config;
+  const { cfg, agentOnline, agentChecked, source } = config;
   if (mode !== "local") {
-    // The public product: never point a browser user at the repo or the agent's API.
-    if (!cfg) {
-      return (
-        <div className="banner warn" role="status">
-          <strong>Your Guardian is not set up yet.</strong> Finish the steps on <a href="#/start">Get protected</a>.
-        </div>
-      );
-    }
-    if (!agentOnline) {
-      return (
-        <div className="banner warn" role="status">
-          <strong>Your Guardian is not answering right now.</strong> Balances below are read live from the chain; incidents and health
-          come back when it does.
-        </div>
-      );
-    }
+    // The public product (a protected owner): never point a browser user at the repo or the agent's API.
+    return (
+      <>
+        <ConfigCheckAlert />
+        {!agentChecked || agentOnline ? null : paused ? (
+          <div className="banner warn" role="status">
+            <strong>Your Guardian is paused after 7 days without activity.</strong> It starts again the next time you run the protection test or
+            withdraw from your vault.
+          </div>
+        ) : (
+          <div className="banner warn" role="status">
+            <strong>Your Guardian is not answering right now.</strong> Balances below are read live from the chain; incidents and health
+            come back when it does.
+          </div>
+        )}
+      </>
+    );
   }
   return (
     <>
-      {cfg && check && !check.ok ? (
-        <div className="banner bad" role="alert">
-          <strong>Config does not match the vault on chain.</strong> {check.detail}. Every report is marked ✗ until the agent serves the vault's own
-          owner and guardian.
-        </div>
-      ) : null}
+      <ConfigCheckAlert />
       {!cfg ? (
         <div className="banner warn" role="status">
           <strong>Agent offline and no saved config.</strong> Start it from the repo root with <span className="mono">pnpm agent</span>; this page
@@ -210,22 +207,35 @@ function useStoredOwner(): Hex | null | undefined {
 
 const stageKey = (owner: string) => `qlifeboat.stage.${owner.toLowerCase()}`;
 
-/** The browser's stage (visitor, onboarding, protected, local); null while loading. */
-function useStage(owner: Hex | null | undefined): Stage | null {
+/**
+ * The browser's stage (visitor, onboarding, protected, local); null only while nothing is known yet. While a new
+ * owner's first read is in flight (a wallet just created in Setup) the last stage is kept, so Setup is not unmounted.
+ * `paused`: the service retired this owner's Guardian after 7 idle days (its next arm revives it).
+ */
+function useStage(owner: Hex | null | undefined): { stage: Stage | null; paused: boolean } {
   const { cfg } = useApp().config;
   const st = usePoll(() => hosted.owner(owner!), 15_000, owner ?? null);
+  const { refresh } = st;
+  useEffect(() => {
+    window.addEventListener(STAGE_REFRESH_EVENT, refresh);
+    return () => window.removeEventListener(STAGE_REFRESH_EVENT, refresh);
+  }, [refresh]);
   const kv = browserStorage();
   const cached = owner ? ((kv?.getItem(stageKey(owner)) as OwnerStage | "none" | null) ?? null) : null;
   const live = st.data?.stage;
   useEffect(() => {
     if (owner && live) kv?.setItem(stageKey(owner), live);
   }, [owner, live, kv]);
-  return appStage({
+  const ownerStage = owner ? ownerStageFor(live, st.error, cached) : undefined;
+  const stage = appStage({
     hasSeed: owner === undefined ? undefined : !!owner,
-    ownerStage: owner ? ownerStageFor(live, st.error, cached) : undefined,
+    ownerStage,
     localAgent: !!cfg && agentBase().owner === null,
     hostedBuild: HOSTED_BUILD,
   });
+  const last = useRef<Stage | null>(null);
+  if (stage !== null) last.current = stage;
+  return { stage: stage ?? last.current, paused: ownerStage === "retired" };
 }
 
 export function App() {
@@ -241,8 +251,16 @@ function Routes({ owner }: { owner: Hex | null | undefined }) {
   const [screen = "", id] = useHashRoute();
   const hasSeed = owner === undefined ? undefined : !!owner;
   const mode = useNavMode(hasSeed);
-  const stage = useStage(owner);
+  const { stage, paused } = useStage(owner);
   const active = resolveRoute(screen, stage);
+  // Nothing known yet (the wallet check, or a first owner read with nothing cached): a neutral view, never the legacy shell.
+  if (stage === null) {
+    return (
+      <main className="focus-main">
+        <p className="muted">Loading…</p>
+      </main>
+    );
+  }
   // The homepage is full width: no sidebar, no banners.
   if (active === "home") return <Home />;
   // Setup runs in focus mode: no app navigation.
@@ -257,15 +275,23 @@ function Routes({ owner }: { owner: Hex | null | undefined }) {
   }
   if (stage === "protected" && owner && active) {
     return (
-      <AppShell active={active} owner={owner}>
-        {active === "dashboard" ? null : <Banners mode={mode} />}
+      <AppShell active={active} owner={owner} paused={paused}>
+        {active === "dashboard" ? null : <Banners mode={mode} paused={paused} />}
         <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
-          {active === "activity" ? <Activity owner={owner} selected={id} /> : active === "vault" ? <Vault owner={owner} /> : active === "settings" ? <Settings owner={owner} /> : <Dashboard owner={owner} />}
+          {active === "activity" ? (
+            <Activity owner={owner} selected={id} />
+          ) : active === "vault" ? (
+            <Vault owner={owner} />
+          ) : active === "settings" ? (
+            <Settings owner={owner} />
+          ) : (
+            <Dashboard owner={owner} paused={paused} />
+          )}
         </ScreenBoundary>
       </AppShell>
     );
   }
-  // Local mode (the builder's agent) keeps the legacy shell and screens.
+  // Local mode (the builder's agent) keeps the legacy shell and screens: the only stage that reaches them.
   const legacy = active === "dashboard" ? "overview" : active === "activity" ? "incidents" : active === "vault" ? "recover" : active === "settings" ? "rules" : active;
   return (
     <div className="shell">
