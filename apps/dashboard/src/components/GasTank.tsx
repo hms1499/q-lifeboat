@@ -2,7 +2,7 @@ import type { EvmWindow } from "@qorechain/evm/window";
 import { useState } from "react";
 import type { Hex } from "viem";
 import { planTopUp, TOPUP_GAS, withWindowHint } from "../lib/actions";
-import type { Health } from "../lib/agent";
+import { agentBase, type Health } from "../lib/agent";
 import { publicClient, readFees } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { errorText, fmtAmount, fmtUqor, shortAddr, shortHash } from "../lib/format";
@@ -99,7 +99,12 @@ export function GasTank({ cfg, health, win }: { cfg: AgentConfig; health: Health
         {low ? <span className="tag orange">Low</span> : null}
       </div>
 
-      {!open ? (
+      {agentBase().owner ? (
+        // Hosted: the top-up below needs MetaMask and the CLI. The service refills the Guardian when you sign an arm.
+        <p style={{ margin: "12px 0 0", fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
+          The service refills it when it runs low, the next time you run the protection test or withdraw.
+        </p>
+      ) : !open ? (
         <div className="actions" style={{ marginTop: 14 }}>
           <button type="button" className="btn small" onClick={() => setOpen(true)}>
             Top up

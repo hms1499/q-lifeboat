@@ -12,23 +12,8 @@ export function navMode(i: { hasSeed: boolean | undefined; localAgent: boolean; 
   return i.hostedBuild || i.hasSeed || !i.localAgent ? "hosted" : "local";
 }
 
-export function navGroups(mode: NavMode): NavGroup[] {
-  if (mode === "visitor") return [{ label: "Start", items: [{ id: "start", label: "Get protected", href: "#/start" }] }];
-  if (mode === "hosted") {
-    return [
-      { label: "Start", items: [{ id: "start", label: "Get protected", href: "#/start" }] },
-      {
-        label: "Monitor",
-        items: [
-          { id: "overview", label: "Overview", href: "#/overview" },
-          { id: "incidents", label: "Incidents", href: "#/incidents" },
-          { id: "recover", label: "Recover", href: "#/recover" },
-          { id: "attack", label: "Try an attack", href: "#/attack" },
-        ],
-      },
-      { label: "Set up", items: [{ id: "rules", label: "Rules", href: "#/rules" }] },
-    ];
-  }
+/** The legacy sidebar's groups. Only local mode (the builder's own agent) still renders that shell. */
+export function navGroups(): NavGroup[] {
   return [
     {
       label: "Monitor",

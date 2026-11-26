@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { APP_NAME } from "./brand";
 import { LifeboatMark, NavIcon, ScreenBoundary } from "./components/ui";
 import { agentBase, fetchHealth, HOSTED_BUILD } from "./lib/agent";
@@ -15,11 +15,22 @@ import { Overview } from "./screens/Overview";
 import { Protect } from "./screens/Protect";
 import { Recover } from "./screens/Recover";
 import { Rules } from "./screens/Rules";
-import { Start } from "./screens/Start";
-import { Attack } from "./screens/Attack";
+import { Setup } from "./screens/Setup";
+import { Dashboard } from "./screens/Dashboard";
+import { Activity } from "./screens/Activity";
+import { Vault } from "./screens/Vault";
+import { Settings } from "./screens/Settings";
 import { Home } from "./screens/Home";
-import { resolveScreen } from "./lib/home";
+import { appStage, ownerStageFor, resolveRoute, STAGE_REFRESH_EVENT, type Stage } from "./lib/appState";
+import { hosted } from "./lib/appWallet";
+import { browserStorage } from "./lib/storage";
+import type { OwnerStage } from "@qday/core";
+import type { Hex } from "viem";
 import { useApp } from "./state";
+import { KeysProvider } from "./components/KeysProvider";
+import { AppShell } from "./components/AppShell";
+import { FocusShell } from "./components/FocusShell";
+import { ConfigCheckAlert } from "./components/ConfigCheckAlert";
 
 /** Which product this browser sees: a visitor, the hosted product, or the builder's local agent. */
 function useNavMode(hasSeed: boolean | undefined): NavMode {
@@ -45,7 +56,7 @@ function useUnlocked(): boolean {
 function Sidebar({ active, hasSeed, mode }: { active: string; hasSeed: boolean | undefined; mode: NavMode }) {
   const { config, wallet } = useApp();
   const { cfg, source, agentOnline } = config;
-  const groups = navGroups(mode);
+  const groups = navGroups();
   const status = useGuardianStatus(mode);
   const unlocked = useUnlocked();
   const [open, setOpen] = useState(false);
@@ -135,35 +146,31 @@ function Sidebar({ active, hasSeed, mode }: { active: string; hasSeed: boolean |
   );
 }
 
-function Banners({ mode }: { mode: NavMode }) {
+function Banners({ mode, paused = false }: { mode: NavMode; paused?: boolean }) {
   const { config } = useApp();
-  const { cfg, check, agentOnline, source } = config;
+  const { cfg, agentOnline, agentChecked, source } = config;
   if (mode !== "local") {
-    // The public product: never point a browser user at the repo or the agent's API.
-    if (!cfg) {
-      return (
-        <div className="banner warn" role="status">
-          <strong>Your Guardian is not set up yet.</strong> Finish the steps on <a href="#/start">Get protected</a>.
-        </div>
-      );
-    }
-    if (!agentOnline) {
-      return (
-        <div className="banner warn" role="status">
-          <strong>Your Guardian is not answering right now.</strong> Balances below are read live from the chain; incidents and health
-          come back when it does.
-        </div>
-      );
-    }
+    // The public product (a protected owner): never point a browser user at the repo or the agent's API.
+    return (
+      <>
+        <ConfigCheckAlert />
+        {!agentChecked || agentOnline ? null : paused ? (
+          <div className="banner warn" role="status">
+            <strong>Your Guardian is paused after 7 days without activity.</strong> It starts again the next time you run the protection test or
+            withdraw from your vault.
+          </div>
+        ) : (
+          <div className="banner warn" role="status">
+            <strong>Your Guardian is not answering right now.</strong> Balances below are read live from the chain; incidents and health
+            come back when it does.
+          </div>
+        )}
+      </>
+    );
   }
   return (
     <>
-      {cfg && check && !check.ok ? (
-        <div className="banner bad" role="alert">
-          <strong>Config does not match the vault on chain.</strong> {check.detail}. Every report is marked ✗ until the agent serves the vault's own
-          owner and guardian.
-        </div>
-      ) : null}
+      <ConfigCheckAlert />
       {!cfg ? (
         <div className="banner warn" role="status">
           <strong>Agent offline and no saved config.</strong> Start it from the repo root with <span className="mono">pnpm agent</span>; this page
@@ -178,16 +185,16 @@ function Banners({ mode }: { mode: NavMode }) {
   );
 }
 
-/** Whether this browser holds an in-app wallet (an encrypted seed in IndexedDB); undefined while checking. Read again
- * whenever the session changes, so a wallet created on Start shows the full menu at once. */
-function useHasSeed(): boolean | undefined {
-  const [has, setHas] = useState<boolean | undefined>(undefined);
+/** The in-app wallet's address in this browser: null without one, undefined while checking. Read again whenever the
+ * session changes, so a wallet created in Setup is seen at once. */
+function useStoredOwner(): Hex | null | undefined {
+  const [owner, setOwner] = useState<Hex | null | undefined>(undefined);
   useEffect(() => {
     let live = true;
     const read = () =>
       void loadSeed()
-        .then((s) => live && setHas(!!s))
-        .catch(() => live && setHas(false));
+        .then((s) => live && setOwner(s ? (s.evm as Hex) : null))
+        .catch(() => live && setOwner(null));
     read();
     const off = appSession.onChange(read);
     return () => {
@@ -195,56 +202,113 @@ function useHasSeed(): boolean | undefined {
       off();
     };
   }, []);
-  return has;
+  return owner;
 }
 
-/** What a visitor sees on a screen that needs a wallet. */
-function NoWallet() {
-  return (
-    <section className="card" style={{ maxWidth: 640 }}>
-      <h1 style={{ fontSize: 28 }}>No wallet in this browser yet</h1>
-      <p className="lead" style={{ marginTop: 8 }}>
-        This page shows your Guardian, your vault and what it rescued. Set up protection first: it takes a few minutes and runs on the diana
-        testnet with free test tokens.
-      </p>
-      <div className="actions">
-        <a className="btn primary" href="#/start">
-          Get protected
-        </a>
-      </div>
-    </section>
-  );
+const stageKey = (owner: string) => `qlifeboat.stage.${owner.toLowerCase()}`;
+
+/**
+ * The browser's stage (visitor, onboarding, protected, local); null only while nothing is known yet. While a new
+ * owner's first read is in flight (a wallet just created in Setup) the last stage is kept, so Setup is not unmounted.
+ * `paused`: the service retired this owner's Guardian after 7 idle days (its next arm revives it).
+ */
+function useStage(owner: Hex | null | undefined): { stage: Stage | null; paused: boolean } {
+  const { cfg } = useApp().config;
+  const st = usePoll(() => hosted.owner(owner!), 15_000, owner ?? null);
+  const { refresh } = st;
+  useEffect(() => {
+    window.addEventListener(STAGE_REFRESH_EVENT, refresh);
+    return () => window.removeEventListener(STAGE_REFRESH_EVENT, refresh);
+  }, [refresh]);
+  const kv = browserStorage();
+  const cached = owner ? ((kv?.getItem(stageKey(owner)) as OwnerStage | "none" | null) ?? null) : null;
+  const live = st.data?.stage;
+  useEffect(() => {
+    if (owner && live) kv?.setItem(stageKey(owner), live);
+  }, [owner, live, kv]);
+  const ownerStage = owner ? ownerStageFor(live, st.error, cached) : undefined;
+  const stage = appStage({
+    hasSeed: owner === undefined ? undefined : !!owner,
+    ownerStage,
+    localAgent: !!cfg && agentBase().owner === null,
+    hostedBuild: HOSTED_BUILD,
+  });
+  const last = useRef<Stage | null>(null);
+  if (stage !== null) last.current = stage;
+  return { stage: stage ?? last.current, paused: ownerStage === "retired" };
 }
 
 export function App() {
+  const owner = useStoredOwner();
+  return (
+    <KeysProvider owner={owner ?? null}>
+      <Routes owner={owner} />
+    </KeysProvider>
+  );
+}
+
+function Routes({ owner }: { owner: Hex | null | undefined }) {
   const [screen = "", id] = useHashRoute();
-  const hasSeed = useHasSeed();
+  const hasSeed = owner === undefined ? undefined : !!owner;
   const mode = useNavMode(hasSeed);
-  const active = resolveScreen(screen, hasSeed);
+  const { stage, paused } = useStage(owner);
+  const active = resolveRoute(screen, stage);
+  // Nothing known yet (the wallet check, or a first owner read with nothing cached): a neutral view, never the legacy shell.
+  if (stage === null) {
+    return (
+      <main className="focus-main">
+        <p className="muted">Loading…</p>
+      </main>
+    );
+  }
   // The homepage is full width: no sidebar, no banners.
   if (active === "home") return <Home />;
+  // Setup runs in focus mode: no app navigation.
+  if (active === "setup") {
+    return (
+      <FocusShell>
+        <ScreenBoundary resetKey="setup">
+          <Setup />
+        </ScreenBoundary>
+      </FocusShell>
+    );
+  }
+  if (stage === "protected" && owner && active) {
+    return (
+      <AppShell active={active} owner={owner} paused={paused}>
+        {active === "dashboard" ? null : <Banners mode={mode} paused={paused} />}
+        <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
+          {active === "activity" ? (
+            <Activity owner={owner} selected={id} />
+          ) : active === "vault" ? (
+            <Vault owner={owner} />
+          ) : active === "settings" ? (
+            <Settings owner={owner} />
+          ) : (
+            <Dashboard owner={owner} paused={paused} />
+          )}
+        </ScreenBoundary>
+      </AppShell>
+    );
+  }
+  // Local mode (the builder's agent) keeps the legacy shell and screens: the only stage that reaches them.
+  const legacy = active === "dashboard" ? "overview" : active === "activity" ? "incidents" : active === "vault" ? "recover" : active === "settings" ? "rules" : active;
   return (
     <div className="shell">
-      <Sidebar active={active ?? ""} hasSeed={hasSeed} mode={mode} />
+      <Sidebar active={legacy ?? ""} hasSeed={hasSeed} mode={mode} />
       <div className="content">
         <main>
-          {active === "start" || active === null || mode === "visitor" ? null : <Banners mode={mode} />}
+          {legacy === null ? null : <Banners mode={mode} />}
           <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
-            {active === null ? null : active === "start" ? (
-              <Start />
-            ) : mode === "visitor" ? (
-              <NoWallet />
-            ) : active === "attack" ? (
-              <Attack />
-            ) : active === "incidents" ? (
+            {legacy === null ? null : legacy === "incidents" ? (
               <Incidents selected={id} />
-            ) : active === "recover" ? (
+            ) : legacy === "recover" ? (
               <Recover />
-            ) : active === "rules" ? (
+            ) : legacy === "rules" ? (
               <Rules />
-            ) : active === "protect" ? (
+            ) : legacy === "protect" ? (
               <Protect />
-            ) : active === "drill" ? (
+            ) : legacy === "drill" ? (
               <Drill />
             ) : (
               <Overview />

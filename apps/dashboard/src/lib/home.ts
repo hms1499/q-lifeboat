@@ -1,17 +1,3 @@
-/** Screens the hash router knows (`#/<id>`). */
-export const SCREENS = ["home", "overview", "incidents", "recover", "rules", "protect", "drill", "start", "attack"] as const;
-export type ScreenId = (typeof SCREENS)[number];
-
-/**
- * The screen for `#/<screen>`. `#/` is the homepage for a browser with no in-app wallet and Overview for one that has
- * it; null while the wallet check runs. An unknown screen falls back to Overview.
- */
-export function resolveScreen(screen: string, hasSeed: boolean | undefined): ScreenId | null {
-  if ((SCREENS as readonly string[]).includes(screen)) return screen as ScreenId;
-  if (screen === "") return hasSeed === undefined ? null : hasSeed ? "overview" : "home";
-  return "overview";
-}
-
 /** The Task 12 browser-run rescues on diana (docs/EVIDENCE.md, 2026-11-26): leak block, rescue block, first rescue tx. */
 export const PROOF = [
   { owner: "0xd23f…313a", leakBlock: 10_762_125, rescueBlock: 10_762_127, kept: "90 %", rescueTx: "0xb17e94e9…ac37" },

@@ -1,20 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LINKS, PROOF, resolveScreen } from "./home";
-
-describe("resolveScreen", () => {
-  it("#/ is the homepage for a browser with no wallet, Overview with one, nothing while checking", () => {
-    expect(resolveScreen("", false)).toBe("home");
-    expect(resolveScreen("", true)).toBe("overview");
-    expect(resolveScreen("", undefined)).toBeNull();
-  });
-
-  it("named screens open as asked; an unknown one falls back to Overview", () => {
-    expect(resolveScreen("home", true)).toBe("home");
-    expect(resolveScreen("start", false)).toBe("start");
-    expect(resolveScreen("incidents", true)).toBe("incidents");
-    expect(resolveScreen("nope", false)).toBe("overview");
-  });
-});
+import { LINKS, PROOF } from "./home";
 
 describe("homepage proof data (docs/EVIDENCE.md, Task 12)", () => {
   it("lists the three browser-run rescues, each two blocks after the leak", () => {

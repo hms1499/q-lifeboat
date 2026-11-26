@@ -1,9 +1,10 @@
 import { APPROVE_GAS, buildGuardianLinkMsgsFromProof, buildRegisterMsg, DEPLOY_GAS, MINT_AMOUNT, MINT_GAS, NETWORK, ruleIsExact, type TokenSymbol } from "@qday/core";
 import { broadcastTx, uqorBalance } from "@qday/core/chain";
 import { clearPqcStatusCache, normalizeRecoveryCode } from "@qorechain/sdk";
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { bytesToHex, erc20Abi, maxUint256, parseAbi, type Hex } from "viem";
-import { CodeEntry, Hint, IDLE, NeedKeys, RunView, track, UnlockForm, type Run } from "../components/Keys";
+import { IDLE, RunView, track, type Run } from "../components/Run";
+import { useKeys } from "../components/KeysProvider";
 import { hostedAgentUrl, setAgentBase } from "../lib/agent";
 import { appSession, DIANA_TOKENS, hosted, ownerTx, readVaultRoles } from "../lib/appWallet";
 import { publicClient, qorAddress, readAuthenticators, readFees, readPqcStatus, readSpendingRules } from "../lib/chain";
@@ -14,6 +15,8 @@ import { loadSeed, type EncryptedSeed } from "../lib/keystore";
 import { canStartOver, landingStart, loadCodeConfirmed, locateVault, nextOnboardStep, protectWindowPlan, runOnStepChange, saveCodeConfirmed, type JourneyStep } from "../lib/onboard";
 import { hasLiveAuthenticator, loadProtectState, saveProtectState } from "../lib/protect";
 import { checkConfirm, confirmPicks } from "../lib/session";
+import { requestStageRefresh } from "../lib/appState";
+import { autoRun, CODE_POWER, formatRecoveryCode, phaseOf, recoveryFile, type SetupStep } from "../lib/setup";
 import { browserStorage } from "../lib/storage";
 import { getVaultArtifact } from "../lib/vaultArtifact";
 import type { OwnerWallet } from "../lib/ownerTx";
@@ -25,18 +28,11 @@ const SYMBOLS: TokenSymbol[] = ["fUSD", "fETH", "fBTC"];
 const MIN_PASSWORD = 10;
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const norm = (h: string) => h.replace(/^0x/i, "").toLowerCase();
+/** A status detail (lower case, from nextOnboardStep) as a sentence. */
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
 type OnboardStep = Exclude<JourneyStep, "attack" | "withdraw" | "done">;
 const ORDER: OnboardStep[] = ["account", "code", "starter", "register", "guardian", "vault", "protect"];
-const TITLES: Record<OnboardStep, string> = {
-  account: "Create your wallet",
-  code: "Save your recovery code",
-  starter: "Get starter QOR",
-  register: "Register your post-quantum key",
-  guardian: "Get your Guardian",
-  vault: "Create your vault",
-  protect: "Turn on protection",
-};
 
 /** The recovery code just created: memory only, shown once, dropped as soon as it is confirmed. Never stored. */
 let freshCode: string | null = null;
@@ -57,56 +53,9 @@ async function readBalances(owner: Hex, vault: Hex): Promise<{ owned: Record<Tok
   return { owned: { fUSD: o[0]!, fETH: o[1]!, fBTC: o[2]! }, inVault: { fUSD: v[0]!, fETH: v[1]!, fBTC: v[2]! } };
 }
 
-function CodeGroups({ code }: { code: string }) {
-  const groups = normalizeRecoveryCode(code).match(/.{1,4}/g) ?? [];
-  return (
-    <ol className="code-groups" aria-label="Recovery code groups">
-      <li className="prefix">QRC1</li>
-      {groups.map((g, i) => (
-        <li key={i}>
-          <span className="n">{i + 1}</span>
-          <span className="mono">{g}</span>
-        </li>
-      ))}
-    </ol>
-  );
-}
 
-function Landing({ onStart }: { onStart: () => void }) {
-  const status = usePoll(() => hosted.status(), 30_000, "hosted-status");
-  const gate = landingStart(status.data, status.data ? null : status.error);
-  // The homepage already made the pitch: with onboarding open, go straight to step 1. This card stays for a pause.
-  useEffect(() => {
-    if (gate.enabled) onStart();
-  }, [gate.enabled, onStart]);
-  if (gate.enabled || (!status.data && !status.error)) return <p className="muted">Checking whether onboarding is open…</p>;
-  return (
-    <section className="card roomy hero">
-      <span className="lbl">diana testnet</span>
-      <h1>Keep your tokens when your wallet key leaks</h1>
-      <p className="lead" style={{ margin: 0 }}>
-        Create a wallet in this browser, get free testnet QOR, and a Guardian moves your tokens into a vault the moment someone else spends from your
-        account. Only your post-quantum key can take them out again. No extension, no terminal.
-      </p>
-      <div className="actions">
-        <button type="button" className="btn primary" disabled={!gate.enabled} onClick={onStart}>
-          Get started
-        </button>
-      </div>
-      {gate.reason ? (
-        <p role="status" style={{ margin: "10px 0 0", fontSize: 14, color: gate.enabled ? "var(--muted)" : "var(--danger)" }}>
-          {gate.reason}
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
-const MARK: Record<string, string> = { done: "✓", blocked: "!" };
-
-export function Start() {
+export function Setup() {
   const [stored, setStored] = useState<EncryptedSeed | null | undefined>(undefined);
-  const [started, setStarted] = useState(false);
   const [, setVer] = useState(0);
   const bump = () => setVer((v) => v + 1);
   const [tick, setTick] = useState(0);
@@ -122,7 +71,10 @@ export function Start() {
   }, [tick]);
 
   const owner = (stored?.evm ?? null) as Hex | null;
-  const status = usePoll(() => hosted.status(), 30_000, owner ? "hosted-status" : null);
+  // Read with or without a wallet: a visitor may create one only while onboarding is open.
+  const status = usePoll(() => hosted.status(), 30_000, "hosted-status");
+  // Once the wallet form has been shown it stays (as the old Start did), even if onboarding pauses while it is filled in.
+  const formShown = useRef(false);
   const state = usePoll(() => hosted.owner(owner!), 6_000, owner);
   const uqor = usePoll(() => uqorBalance(qorAddress(owner!)), 6_000, owner);
   const pqc = usePoll(() => {
@@ -220,9 +172,8 @@ export function Start() {
   // step 2
   // `freshCode` lives outside React: it is read at render, and the picks are drawn again only when it changes.
   const code = freshCode;
-  const picks = useMemo(() => (code ? confirmPicks(code) : []), [code]);
-  const [typed, setTyped] = useState<string[]>(["", "", ""]);
-  const [wrote, setWrote] = useState(false);
+  const picks = useMemo(() => (code ? confirmPicks(code, 2) : []), [code]);
+  const [typed, setTyped] = useState<string[]>(["", ""]);
   function confirmCode(e: FormEvent) {
     e.preventDefault();
     if (!freshCode || !owner) return;
@@ -238,7 +189,7 @@ export function Start() {
     }
     saveCodeConfirmed(storage, owner);
     freshCode = null;
-    setTyped(["", "", ""]);
+    setTyped(["", ""]);
     setRun(IDLE);
     setSelected(null);
     bump();
@@ -410,313 +361,353 @@ export function Start() {
     });
   }
 
-  // ---------- cards ----------
-  const locked = !appSession.classical();
-  const action = (label: string, f: () => Promise<void>, blockers: string[] = []) => (
-    <>
-      <div className="actions">
-        <button type="button" className="btn primary" disabled={busy || blockers.length > 0} onClick={() => void f()}>
-          {label}
-        </button>
-      </div>
-      {blockers.length && !busy ? <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 8 }}>{blockers.join("; ")}</div> : null}
-      <RunView run={run} />
-    </>
-  );
-  const notYet = (id: OnboardStep) => ORDER.indexOf(id) > currentIdx;
+  // ---------- setup in three phases ----------
+  const keys = useKeys();
+  const phase = current === "finished" ? "done" : phaseOf(current);
+  const [auto, setAuto] = useState(false);
+  const lastAuto = useRef<OnboardStep | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const flash = (t: string) => {
+    setToast(t);
+    setTimeout(() => setToast(null), 2000);
+  };
 
-  const cards: Record<OnboardStep, () => ReactNode> = {
-    account: () =>
-      stored && !restarting ? (
-        <p className="ok-note">A wallet for {shortAddr(stored.evm)} is stored (encrypted) in this browser.</p>
-      ) : (
-        <form className="form" onSubmit={(e) => void createWallet(e)}>
-          {restarting ? (
-            <div className="banner warn" role="note" style={{ marginBottom: 12 }}>
-              This replaces the wallet {stored ? shortAddr(stored.evm) : ""} in this browser. Nothing was sent to it, so nothing is lost.
-            </div>
-          ) : null}
-          <Hint>
-            A new key is made in this browser and stored encrypted under your password. Nobody else holds it, and there is no password reset: keep the
-            password safe.
-          </Hint>
-          <label>
+  // Phase 3 runs register → Guardian → vault → protect on its own, one step at a time, each only once its inputs are read
+  // (lib/setup.ts autoRun). A blocked state or missing keys stops the run instead of spinning.
+  const decision = autoRun({
+    step: current,
+    detail: pos.detail,
+    auto,
+    busy,
+    failed: run.state === "error",
+    last: lastAuto.current,
+    unlocked: !!appSession.account(),
+    registered: pqc.data?.registered,
+    vaultLookup: found.data === undefined ? "reading" : found.data === null ? "none" : "found",
+    vaultError: found.error,
+    vault: !!vault,
+  });
+  const decisionKey = decision.kind === "run" ? `run:${decision.step}` : decision.kind;
+  useEffect(() => {
+    if (decision.kind === "blocked" || decision.kind === "locked") {
+      setAuto(false);
+      return;
+    }
+    if (decision.kind !== "run") return;
+    lastAuto.current = decision.step;
+    const steps: Record<SetupStep, () => Promise<void>> = { register, guardian: getGuardian, vault: createVault, protect: turnOn };
+    void steps[decision.step]();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [decisionKey]);
+  useEffect(() => {
+    if (run.state === "error") setAuto(false);
+  }, [run.state]);
+
+  async function turnOnAll() {
+    if (!(await keys.requireKeys("pqc"))) return;
+    lastAuto.current = null;
+    setRun(IDLE);
+    setAuto(true);
+  }
+
+  async function confirmSavedLater() {
+    // After a reload the code is gone from memory: typing it once proves it was saved, and unlocks the signing key.
+    if (!owner || !(await keys.requireKeys("pqc"))) return;
+    saveCodeConfirmed(storage, owner);
+    bump();
+  }
+
+  function copyCode() {
+    if (!freshCode) return;
+    void navigator.clipboard?.writeText(formatRecoveryCode(freshCode)).then(
+      () => flash("Recovery code copied"),
+      () => flash("Copy was blocked: download the file instead"),
+    );
+  }
+
+  function downloadCode() {
+    if (!freshCode || !owner) return;
+    const url = URL.createObjectURL(new Blob([recoveryFile(freshCode, owner)], { type: "text/plain" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "q-lifeboat-recovery-code.txt";
+    a.click();
+    // Some browsers start the download after click() returns: revoke a little later (as IncidentReport does).
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    flash("Downloaded q-lifeboat-recovery-code.txt");
+  }
+
+  if (stored === undefined) return <p className="muted">Checking this browser for a wallet…</p>;
+
+  // No wallet yet: one may be made only while the service takes new owners (the old Start's landing gate).
+  if (!stored && gate.enabled) formShown.current = true;
+  if (!stored && !gate.enabled && !formShown.current) {
+    if (!status.data && !status.error) return <p className="muted">Checking whether onboarding is open…</p>;
+    return (
+      <section className="card setup-card">
+        <h2>Onboarding is paused</h2>
+        <p className="err" role="status">
+          {gate.reason}
+        </p>
+        <p className="setup-hint">No wallet was created. Come back later: this page opens the setup as soon as the service takes new owners again.</p>
+        <div className="actions">
+          <a className="btn" href="#/home">
+            Back to the homepage
+          </a>
+        </div>
+      </section>
+    );
+  }
+
+  const PHASES = ["Wallet & recovery code", "Starter QOR", "Turn on protection"];
+  const phaseNum = phase === "done" ? 4 : phase;
+  const bar = (
+    <ol className="setup-phases" aria-label="Setup progress">
+      {PHASES.map((p, i) => (
+        <li key={p} className={i + 1 < phaseNum ? "done" : i + 1 === phaseNum ? "on" : ""} aria-current={i + 1 === phaseNum ? "step" : undefined}>
+          <i />
+          <span>
+            {i + 1 < phaseNum ? "✓ " : ""}
+            {p}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+  const startOver =
+    stored && !restarting && phase !== 3 && phase !== "done" && canStartOver(state.data, pqc.data) ? (
+      <button type="button" className="linklike setup-startover" onClick={() => setRestarting(true)}>
+        Start over with a new wallet
+      </button>
+    ) : null;
+
+  let card: JSX.Element;
+  if (!stored || restarting) {
+    card = (
+      <section className="card setup-card">
+        <h2>Create your wallet</h2>
+        {restarting ? (
+          <div className="banner warn" role="note">
+            This replaces the wallet {stored ? shortAddr(stored.evm) : ""} in this browser. Nothing was sent to it, so nothing is lost.
+          </div>
+        ) : null}
+        <p className="setup-hint">A new key is made in this browser and stored encrypted under your password. There is no password reset, so use a password manager.</p>
+        <form className="setup-form" onSubmit={(e) => void createWallet(e)}>
+          <label className="setup-field">
             Password ({MIN_PASSWORD}+ characters)
             <input className="input" type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} />
           </label>
-          <label style={{ marginTop: 10 }}>
+          <label className="setup-field">
             Password again
             <input className="input" type="password" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
           </label>
+          {pw && pwProblem ? <p className="setup-hint">Password: {pwProblem}</p> : null}
           <div className="actions">
             <button type="submit" className="btn primary" disabled={busy || !!pwProblem}>
               Create wallet
             </button>
+            {restarting ? (
+              <button type="button" className="btn" onClick={() => setRestarting(false)}>
+                Keep my wallet
+              </button>
+            ) : null}
           </div>
-          {pw && pwProblem ? <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 8 }}>Password: {pwProblem}</div> : null}
           <RunView run={run} />
         </form>
-      ),
-    code: () => {
-      if (notYet("code")) return <p className="muted">Create your wallet first.</p>;
-      if (current !== "code" && !freshCode) return <p className="ok-note">Recovery code confirmed.</p>;
-      if (locked) return <UnlockForm onDone={bump} />;
-      if (!freshCode) {
-        return (
-          <CodeEntry
-            pqc={pqc.data}
-            onDone={() => {
-              if (owner) saveCodeConfirmed(storage, owner);
-              bump();
-            }}
-            why="Your code was shown once, when the wallet was made. Type it here to confirm you have it: it stays in this tab's memory and is never stored."
-            extra={
-              canStartOver(state.data, pqc.data) ? (
-                <div style={{ marginTop: 12, fontSize: 13, color: "var(--muted)" }}>
-                  Lost the code before confirming it? Nothing was sent to this wallet yet, so you can{" "}
-                  <button
-                    type="button"
-                    className="btn small"
-                    onClick={() => {
-                      setRestarting(true);
-                      setSelected("account");
-                    }}
-                  >
-                    start over with a new wallet
-                  </button>
-                </div>
-              ) : null
-            }
-          />
-        );
-      }
-      return (
-        <form className="form" onSubmit={confirmCode}>
-          <div className="banner warn" role="note" style={{ marginBottom: 12 }}>
-            <strong>Write this code on paper now.</strong> It is the only way to take your tokens out of the vault. It is shown once, never stored, and
-            nobody can recover it for you.
+      </section>
+    );
+  } else if (current === "code") {
+    card = freshCode ? (
+      <section className="card setup-card">
+        <h2>Save your recovery code</h2>
+        <p className="setup-hint">
+          This code is the only way to take tokens out of your vault. Save it somewhere only you can reach: a password manager, a file, or paper. Nobody
+          can recover it for you.
+        </p>
+        <ol className="code-grid" aria-label="Recovery code, 14 groups">
+          {(normalizeRecoveryCode(freshCode).match(/.{1,4}/g) ?? []).map((g, i) => (
+            <li key={i}>
+              <small>{i + 1}</small>
+              <span className="mono">{g}</span>
+            </li>
+          ))}
+        </ol>
+        <p className="banner warn" role="note">
+          <strong>{CODE_POWER}</strong> If you copy it or download the file, keep that copy private.
+        </p>
+        <div className="actions">
+          <button type="button" className="btn" onClick={copyCode}>
+            Copy code
+          </button>
+          <button type="button" className="btn" onClick={downloadCode}>
+            Download .txt
+          </button>
+        </div>
+        <form className="setup-confirm" onSubmit={confirmCode}>
+          <b>Check you saved it</b>
+          <p className="setup-hint">Type group {picks[0]} and group {picks[1]} from your saved copy (pasting works).</p>
+          <div className="setup-groups">
+            {picks.map((p, i) => (
+              <label key={p} className="setup-field">
+                Group {p}
+                <input
+                  className="input mono"
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={4}
+                  value={typed[i] ?? ""}
+                  onChange={(e) => setTyped(typed.map((t, j) => (j === i ? e.target.value : t)))}
+                />
+              </label>
+            ))}
           </div>
-          <CodeGroups code={freshCode} />
-          <label style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14, color: "var(--harbour)" }}>
-            <input type="checkbox" checked={wrote} onChange={(e) => setWrote(e.target.checked)} /> I wrote it down
-          </label>
-          {wrote ? (
-            <>
-              <Hint>Type these groups from your paper copy to confirm:</Hint>
-              <div className="fields">
-                {picks.map((p, i) => (
-                  <label key={p}>
-                    Group {p}
-                    <input
-                      className="input mono"
-                      autoComplete="off"
-                      spellCheck={false}
-                      maxLength={6}
-                      value={typed[i] ?? ""}
-                      onChange={(e) => setTyped(typed.map((t, j) => (j === i ? e.target.value : t)))}
-                    />
-                  </label>
-                ))}
-              </div>
-              <div className="actions">
-                <button type="submit" className="btn primary" disabled={typed.some((t) => !t.trim())}>
-                  Confirm
-                </button>
-              </div>
-            </>
-          ) : null}
+          <div className="actions">
+            <button type="submit" className="btn primary" disabled={typed.some((t) => !t.trim())}>
+              Continue
+            </button>
+          </div>
           <RunView run={run} />
         </form>
-      );
-    },
-    starter: () => {
-      const taken = !!state.data && state.data.stage !== "none";
-      return (
-        <>
-          <Hint>The service sends this account 2.5 testnet QOR for its fees. One pack per account.</Hint>
-          <dl className="kv" style={{ marginTop: 0 }}>
-            <div>
-              <dt>Your account</dt>
-              <dd className="mono wrap-any">{owner ?? "—"}</dd>
-            </div>
-            <div>
-              <dt>Balance</dt>
-              <dd className="mono">{uqor.data === undefined ? "reading…" : `${fmtUqor(uqor.data)} QOR`}</dd>
-            </div>
-          </dl>
-          {taken
-            ? current === "starter"
-              ? <p style={{ fontSize: 14 }}>{pos.detail}</p>
-              : <p className="ok-note">Starter pack received.</p>
-            : action("Get my starter pack", takeStarter, [...(notYet("starter") ? ["finish the steps above first"] : []), ...(gate.enabled ? [] : [gate.reason ?? "checking the service"])])}
-          {taken ? <RunView run={run} /> : null}
-        </>
-      );
-    },
-    register: () => (
-      <>
-        <Hint>
-          Your post-quantum key comes from your recovery code. Registering it on chain is what lets your vault release funds only to a signature made
-          with it.
-        </Hint>
-        {pqc.data?.registered ? (
-          <p className={pqc.data.possessionProven === true ? "ok-note" : "err"}>
-            {pqc.data.possessionProven === true ? "ML-DSA-87 key registered, possession proven." : pos.detail}
+      </section>
+    ) : (
+      <section className="card setup-card">
+        <h2>Confirm your recovery code</h2>
+        <p className="setup-hint">This tab was closed before you confirmed your recovery code. Enter it once from your saved copy to continue.</p>
+        <div className="actions">
+          <button type="button" className="btn primary" onClick={() => void confirmSavedLater()}>
+            Enter my recovery code
+          </button>
+        </div>
+      </section>
+    );
+  } else if (phase === 2) {
+    card = (
+      <section className="card setup-card">
+        <h2>Get starter QOR</h2>
+        <p className="setup-hint">QOR pays the network fees for setting up your Guardian and vault. The service sends 2.5 test QOR, once per account.</p>
+        <dl className="kv">
+          <div>
+            <dt>Your account</dt>
+            <dd className="mono wrap-any">{owner}</dd>
+          </div>
+          <div>
+            <dt>Balance</dt>
+            <dd className="mono">{uqor.data === undefined ? "…" : fmtUqor(uqor.data)} QOR</dd>
+          </div>
+        </dl>
+        {state.data?.stage === "none" ? (
+          gate.reason ? (
+            <p className="err" role="status">
+              {gate.reason}
+            </p>
+          ) : null
+        ) : (
+          <p className="setup-hint" role="status">
+            {cap(pos.detail)}
           </p>
-        ) : notYet("register") ? (
-          <p className="muted">Finish the steps above first.</p>
-        ) : (
-          <NeedKeys pqc={pqc.data} onChange={bump}>
-            {action("Register my key", register, pqc.data ? [] : ["reading your key on chain"])}
-          </NeedKeys>
         )}
-      </>
-    ),
-    guardian: () => (
-      <>
-        <Hint>The service creates a Guardian account for you: it watches your account and is the only other address that can move tokens into your vault.</Hint>
-        {guardian ? (
-          <dl className="kv" style={{ marginTop: 0 }}>
-            <div>
-              <dt>Your Guardian</dt>
-              <dd className="mono wrap-any">{guardian}</dd>
-            </div>
-          </dl>
-        ) : notYet("guardian") ? (
-          <p className="muted">Finish the steps above first.</p>
-        ) : (
-          <NeedKeys pqc={pqc.data} onChange={bump}>
-            {action("Get my Guardian", getGuardian)}
-          </NeedKeys>
-        )}
-      </>
-    ),
-    vault: () => (
-      <>
-        <Hint>
-          One window of 4 transactions: your vault (owner: you, guardian: your Guardian, fixed forever) and 100 each of the test tokens fUSD, fETH and
-          fBTC.
-        </Hint>
-        {vault ? (
-          <dl className="kv" style={{ marginTop: 0 }}>
-            <div>
-              <dt>Vault</dt>
-              <dd className="mono wrap-any">{vault}</dd>
-            </div>
-          </dl>
-        ) : notYet("vault") ? (
-          <p className="muted">Finish the steps above first.</p>
-        ) : (
-          <NeedKeys pqc={pqc.data} onChange={bump}>
-            {action("Create vault and mint tokens", createVault, found.data === undefined ? [found.error ? `could not look for an existing vault: ${found.error}` : "looking for an existing vault"] : [])}
-          </NeedKeys>
-        )}
-      </>
-    ),
-    protect: () => (
-      <>
-        <Hint>
-          One window for the approvals (the vault may pull fUSD, fETH and fBTC from you, only into itself) with your Guardian's link in the same
-          transaction. Its key may call <span className="mono">vault.rescue</span> and nothing else. Then the service starts your Guardian.
-        </Hint>
-        {current === "finished" ? (
-          <p className="ok-note">Approvals, link and Guardian confirmed.</p>
-        ) : notYet("protect") ? (
-          <p className="muted">Finish the steps above first.</p>
-        ) : (
-          <NeedKeys pqc={pqc.data} onChange={bump}>
-            <p style={{ fontSize: 14 }}>{pos.detail}</p>
-            {action("Turn on protection", turnOn, pos.detail.startsWith("reading") ? [pos.detail] : [])}
-          </NeedKeys>
-        )}
-      </>
-    ),
-  };
-
-  if (stored === undefined) return <p className="muted">Checking this browser for a wallet…</p>;
-  if (!stored && !started) return <Landing onStart={() => setStarted(true)} />;
+        <div className="actions">
+          <button type="button" className="btn primary" disabled={busy || !gate.enabled || state.data?.stage !== "none"} onClick={() => void takeStarter()}>
+            Get my 2.5 QOR
+          </button>
+        </div>
+        <RunView run={run} />
+      </section>
+    );
+  } else if (phase === 3) {
+    const SUB: [OnboardStep, string][] = [
+      ["register", "Register your post-quantum key"],
+      ["guardian", "Create your Guardian"],
+      ["vault", "Create your vault and mint 100 test fUSD, fETH and fBTC"],
+      ["protect", "Approve the vault and link your Guardian"],
+    ];
+    card = (
+      <section className="card setup-card">
+        <h2>Turn on protection</h2>
+        <p className="setup-hint">One click runs the four setup steps. Each turns ✓ only when the chain confirms it, so you can close the tab and come back.</p>
+        <ol className="setup-checklist">
+          {SUB.map(([id, label]) => {
+            const idx = ORDER.indexOf(id);
+            const st = idx < currentIdx ? "ok" : id === current && busy ? "run" : id === current && (run.state === "error" || decision.kind === "blocked") ? "bad" : "";
+            return (
+              <li key={id} className={st}>
+                <span className="ic" aria-hidden="true">
+                  {st === "ok" ? "✓" : st === "bad" ? "!" : ""}
+                </span>
+                <div>
+                  <span>{label}</span>
+                  {id !== current ? null : busy || run.state === "done" ? (
+                    <RunView run={run} />
+                  ) : (
+                    <>
+                      {run.state === "error" ? <RunView run={run} /> : null}
+                      <p className={decision.kind === "blocked" ? "err" : "setup-hint"} role="status">
+                        {cap(decision.kind === "blocked" ? decision.detail : pos.detail)}
+                      </p>
+                    </>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+        <div className="actions">
+          {decision.kind === "blocked" ? (
+            decision.retry ? (
+              <button
+                type="button"
+                className="btn primary"
+                onClick={() => {
+                  refreshAll();
+                  void turnOnAll();
+                }}
+              >
+                Retry
+              </button>
+            ) : (
+              <>
+                <p className="setup-hint">This can't be fixed from this page. Check again after a change on chain, or set up a new wallet in another browser.</p>
+                <button type="button" className="btn" onClick={refreshAll}>
+                  Check again
+                </button>
+              </>
+            )
+          ) : run.state === "error" ? (
+            <button type="button" className="btn primary" onClick={() => void turnOnAll()}>
+              Retry
+            </button>
+          ) : (
+            <button type="button" className="btn primary" disabled={auto || busy} onClick={() => void turnOnAll()}>
+              {auto || busy ? "Working…" : "Turn on protection"}
+            </button>
+          )}
+        </div>
+      </section>
+    );
+  } else {
+    card = (
+      <section className="card setup-card setup-done">
+        <h2>You're protected</h2>
+        <p className="setup-hint">Your Guardian is watching {owner ? shortAddr(owner) : "your account"}. Next, test it: attack yourself from your dashboard.</p>
+        <div className="actions">
+          <a className="btn primary" href="#/dashboard" onClick={requestStageRefresh}>
+            Open my dashboard
+          </a>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <>
-      <div className="page-head">
-        <h1>Get protected</h1>
-        {stored && !locked ? (
-          <button
-            type="button"
-            className="btn small"
-            onClick={() => {
-              appSession.lock();
-              bump();
-            }}
-          >
-            Lock wallet
-          </button>
-        ) : null}
-      </div>
-      <p className="lead">Seven steps, one click each. Each turns done only when the chain or the service confirms it, so you can close the tab and come back.</p>
-      <div className="protect">
-        <nav className="steps" aria-label="Onboarding steps">
-          {ORDER.map((id, i) => {
-            const st = i < currentIdx ? "done" : i === currentIdx ? "current" : "todo";
-            return (
-              <button key={id} type="button" className={`step-item ${st}`} aria-current={view === id ? "step" : undefined} onClick={() => setSelected(id)}>
-                <span className={`stepnum ${st === "done" ? "done" : st === "current" ? "on" : ""}`}>{MARK[st] ?? i + 1}</span>
-                <span style={{ minWidth: 0 }}>
-                  <span className="t">{TITLES[id]}</span>
-                  <span className="s">{st === "current" ? pos.detail : st === "done" ? "done" : "to do"}</span>
-                </span>
-              </button>
-            );
-          })}
-          <button type="button" className={`step-item final${current === "finished" ? " done" : ""}`} aria-current={view === "finished" ? "step" : undefined} onClick={() => setSelected("finished")}>
-            <span className={`stepnum ${current === "finished" ? "done" : ""}`}>{current === "finished" ? "✓" : "★"}</span>
-            <span style={{ minWidth: 0 }}>
-              <span className="t">{current === "finished" ? "You're protected" : "Protected"}</span>
-              <span className="s">{current === "finished" ? pos.detail : "after every step is confirmed"}</span>
-            </span>
-          </button>
-        </nav>
-        <section className="card roomy" aria-live="polite">
-          {view !== "finished" ? (
-            <>
-              <div className="between" style={{ marginBottom: 6 }}>
-                <span className="lbl">
-                  Step {ORDER.indexOf(view) + 1} of {ORDER.length}
-                </span>
-                <span className={`tag ${ORDER.indexOf(view) < currentIdx ? "safe" : ""}`}>
-                  {ORDER.indexOf(view) < currentIdx ? "Done" : view === current ? "Next" : "To do"}
-                </span>
-              </div>
-              <h2>{TITLES[view]}</h2>
-              {cards[view]()}
-            </>
-          ) : (
-            <div className="done-box">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M5 12l5 5 9-10" />
-              </svg>
-              <div>
-                <div style={{ fontSize: 17, fontWeight: 600 }}>{current === "finished" ? "You're protected" : "Not protected yet"}</div>
-                <div style={{ fontSize: 14, color: "var(--harbour-2)", marginTop: 4, lineHeight: 1.5 }}>
-                  {current === "finished"
-                    ? `Vault ${vault ?? ""} holds what your Guardian ${guardian ?? ""} rescues. Your account's EVM window stays closed until the app opens a short one for you.`
-                    : "Every step turns ✓ only when the chain or the service confirms it. Finish the open steps."}
-                </div>
-                {current === "finished" ? (
-                  <div className="actions">
-                    <a className="btn primary" href="#/attack">
-                      Try an attack
-                    </a>
-                    <a className="btn" href="#/overview">
-                      Go to Overview
-                    </a>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          )}
-        </section>
-      </div>
+      {bar}
+      {card}
+      {startOver}
+      {toast ? (
+        <div className="setup-toast" role="status">
+          {toast}
+        </div>
+      ) : null}
     </>
   );
 }
