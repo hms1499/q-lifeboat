@@ -353,3 +353,7 @@ Spec `docs/specs/2026-11-24-submission-gaps.md`, from checking the event's publi
   replace the watched owner's), the agent's `/config` owner checked, and the tip-ordering caveat in the docs. Decided 2026-11-24: keep the agent, film `--drainer-delay 2` and say so on
   screen, and show the worst-case result on the Honest limits slide.
 - [ ] **Step 5:** Complete the project on build.qorechain.io: public repo, GitHub App installed, cover image, video, addresses, AI-native box ticked. Press "Check again". Expected: every item shows Verified.
+  2026-11-26: project page filled by the builder (name, tagline, category Post-Quantum AI Agents, How it's made, cover,
+  repo, demo https://q-lifeboat.fly.dev, five qor1 addresses: local owner, guardian, vault v3, funder, hosted E2E owner
+  `qor1785q5vupey58zruwr2g3uelp7yscfam9dy35v8`; kits QoreChain SDK + QoreSign; 7 network features; AI-Native). Left: the
+  video link (Step 4), then "Check again". Before the deadline, reopen hosted onboarding (Fly is at its 4-agent cap).
