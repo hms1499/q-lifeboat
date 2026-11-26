@@ -18,7 +18,11 @@ import { Rules } from "./screens/Rules";
 import { Start } from "./screens/Start";
 import { Attack } from "./screens/Attack";
 import { Home } from "./screens/Home";
-import { resolveScreen } from "./lib/home";
+import { appStage, ownerStageFor, resolveRoute, type Stage } from "./lib/appState";
+import { hosted } from "./lib/appWallet";
+import { browserStorage } from "./lib/storage";
+import type { OwnerStage } from "@qday/core";
+import type { Hex } from "viem";
 import { useApp } from "./state";
 
 /** Which product this browser sees: a visitor, the hosted product, or the builder's local agent. */
@@ -178,16 +182,16 @@ function Banners({ mode }: { mode: NavMode }) {
   );
 }
 
-/** Whether this browser holds an in-app wallet (an encrypted seed in IndexedDB); undefined while checking. Read again
- * whenever the session changes, so a wallet created on Start shows the full menu at once. */
-function useHasSeed(): boolean | undefined {
-  const [has, setHas] = useState<boolean | undefined>(undefined);
+/** The in-app wallet's address in this browser: null without one, undefined while checking. Read again whenever the
+ * session changes, so a wallet created in Setup is seen at once. */
+function useStoredOwner(): Hex | null | undefined {
+  const [owner, setOwner] = useState<Hex | null | undefined>(undefined);
   useEffect(() => {
     let live = true;
     const read = () =>
       void loadSeed()
-        .then((s) => live && setHas(!!s))
-        .catch(() => live && setHas(false));
+        .then((s) => live && setOwner(s ? (s.evm as Hex) : null))
+        .catch(() => live && setOwner(null));
     read();
     const off = appSession.onChange(read);
     return () => {
@@ -195,7 +199,27 @@ function useHasSeed(): boolean | undefined {
       off();
     };
   }, []);
-  return has;
+  return owner;
+}
+
+const stageKey = (owner: string) => `qlifeboat.stage.${owner.toLowerCase()}`;
+
+/** The browser's stage (visitor, onboarding, protected, local); null while loading. */
+function useStage(owner: Hex | null | undefined): Stage | null {
+  const { cfg } = useApp().config;
+  const st = usePoll(() => hosted.owner(owner!), 15_000, owner ?? null);
+  const kv = browserStorage();
+  const cached = owner ? ((kv?.getItem(stageKey(owner)) as OwnerStage | "none" | null) ?? null) : null;
+  const live = st.data?.stage;
+  useEffect(() => {
+    if (owner && live) kv?.setItem(stageKey(owner), live);
+  }, [owner, live, kv]);
+  return appStage({
+    hasSeed: owner === undefined ? undefined : !!owner,
+    ownerStage: owner ? ownerStageFor(live, st.error, cached) : undefined,
+    localAgent: !!cfg && agentBase().owner === null,
+    hostedBuild: HOSTED_BUILD,
+  });
 }
 
 /** What a visitor sees on a screen that needs a wallet. */
@@ -218,33 +242,33 @@ function NoWallet() {
 
 export function App() {
   const [screen = "", id] = useHashRoute();
-  const hasSeed = useHasSeed();
+  const owner = useStoredOwner();
+  const hasSeed = owner === undefined ? undefined : !!owner;
   const mode = useNavMode(hasSeed);
-  const active = resolveScreen(screen, hasSeed);
+  const stage = useStage(owner);
+  const active = resolveRoute(screen, stage);
   // The homepage is full width: no sidebar, no banners.
   if (active === "home") return <Home />;
+  // Until the rebuilt screens land, the hosted routes render the legacy ones.
+  const legacy = active === "setup" ? "start" : active === "dashboard" ? "overview" : active === "activity" ? "incidents" : active === "vault" ? "recover" : active === "settings" ? "rules" : active;
   return (
     <div className="shell">
-      <Sidebar active={active ?? ""} hasSeed={hasSeed} mode={mode} />
+      <Sidebar active={legacy ?? ""} hasSeed={hasSeed} mode={mode} />
       <div className="content">
         <main>
-          {active === "start" || active === null || mode === "visitor" ? null : <Banners mode={mode} />}
+          {legacy === "start" || legacy === null ? null : <Banners mode={mode} />}
           <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
-            {active === null ? null : active === "start" ? (
+            {legacy === null ? null : legacy === "start" ? (
               <Start />
-            ) : mode === "visitor" ? (
-              <NoWallet />
-            ) : active === "attack" ? (
-              <Attack />
-            ) : active === "incidents" ? (
+            ) : legacy === "incidents" ? (
               <Incidents selected={id} />
-            ) : active === "recover" ? (
+            ) : legacy === "recover" ? (
               <Recover />
-            ) : active === "rules" ? (
+            ) : legacy === "rules" ? (
               <Rules />
-            ) : active === "protect" ? (
+            ) : legacy === "protect" ? (
               <Protect />
-            ) : active === "drill" ? (
+            ) : legacy === "drill" ? (
               <Drill />
             ) : (
               <Overview />
