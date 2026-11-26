@@ -113,4 +113,23 @@ describe("session", () => {
     s.lock();
     expect(sk.every((b) => b === 0)).toBe(true);
   });
+
+  it("onChange fires on create, unlock, providePqc and lock, and stops after unsubscribe", async () => {
+    const store = mem();
+    const s = createSession({ store, iter: 1000 });
+    let n = 0;
+    const off = s.onChange(() => n++);
+    const { code } = await s.create("pw");
+    expect(n).toBe(1);
+    s.providePqc(code, { registered: false });
+    expect(n).toBe(2);
+    s.lock();
+    expect(n).toBe(3);
+    expect(s.classical()).toBeNull();
+    await s.unlock("pw");
+    expect(n).toBe(4);
+    off();
+    s.lock();
+    expect(n).toBe(4);
+  });
 });

@@ -112,6 +112,35 @@ describe("summarize", () => {
     const t = templateSummary({ ...facts, rescues: [...facts.rescues, { ...facts.rescues[0], success: false }] });
     expect(t).toMatch(/1 of 2/);
   });
+
+  describe("with token labels (the agent's configured tokens)", () => {
+    const E18 = 10n ** 18n;
+    const ATTACKER = "0x255Fab9c7a2d2D122AC7dCa6FD6906E5bC5e75E7" as const;
+    const HASH = "0xcca2ea755557c02530413ba3ac02ea68d683797373a229240b5c5a9a64392704" as const;
+    const labels = { [FUSD.toUpperCase().replace("0X", "0x")]: "fUSD" };
+    const labelled: Facts = { ...facts, trigger: { ...trigger, token: FUSD, to: ATTACKER, hash: HASH, amount: 10n * E18 } };
+
+    it("names the token with a decimal amount and shortens the addresses", () => {
+      expect(templateSummary(labelled, labels)).toBe(
+        "10 fUSD sent to 0x255F…75E7 in tx 0xcca2…2704 triggered a rescue: recipient not in allowlist. Rescued 1 of 1 token balance(s) into the vault.",
+      );
+    });
+
+    it("an approval of the max amount reads as unlimited; a fractional one keeps its decimals", () => {
+      const unlimited: Facts = { ...labelled, trigger: { ...labelled.trigger, kind: "approval", amount: 2n ** 256n - 1n }, reason: "r" };
+      expect(templateSummary(unlimited, labels)).toMatch(/^Unlimited fUSD approval to 0x255F…75E7 in tx 0xcca2…2704 triggered a rescue: r\. /);
+      const part: Facts = { ...unlimited, trigger: { ...unlimited.trigger, amount: E18 / 4n } };
+      expect(templateSummary(part, labels)).toMatch(/^Approval of 0\.25 fUSD to 0x255F…75E7 /);
+    });
+
+    it("a token it has no label for keeps the raw amount and address", () => {
+      expect(templateSummary(facts, labels)).toBe(templateSummary(facts));
+    });
+
+    it("summarize uses the labels for its template fallback", async () => {
+      expect((await summarize(labelled, undefined, undefined, labels)).text).toBe(templateSummary(labelled, labels));
+    });
+  });
 });
 
 describe("incident build, sign and store", () => {

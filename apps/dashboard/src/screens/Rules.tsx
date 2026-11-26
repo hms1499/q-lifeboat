@@ -42,7 +42,7 @@ export function Rules() {
     } catch (e) {
       return fail(errorText(e));
     }
-    if (await save({ ...current, maxOutbound }, `Threshold set to ${fmtAmount(BigInt(maxOutbound), 6)} QOR.`)) setThreshold(null);
+    if (await save({ ...current, maxOutbound }, `Largest trusted transfer set to ${fmtAmount(BigInt(maxOutbound), 6)} tokens.`)) setThreshold(null);
   }
 
   const detail = rules.data ? describeRuleDetail(rules.data, cfg.vault) : null;
@@ -56,8 +56,14 @@ export function Rules() {
       </p>
       {!online ? (
         <div className="banner warn" role="status">
-          <strong>Agent offline: editing is off.</strong> The trusted list and threshold live in the agent. Start it from the repo root with{" "}
-          <span className="mono">pnpm agent</span>.
+          <strong>{hostedOwner ? "Your Guardian is not answering: editing is off." : "Agent offline: editing is off."}</strong>{" "}
+          {hostedOwner ? (
+            "The trusted list and the transfer limit live with your Guardian. Try again in a minute."
+          ) : (
+            <>
+              The trusted list and threshold live in the agent. Start it from the repo root with <span className="mono">pnpm agent</span>.
+            </>
+          )}
         </div>
       ) : null}
       <div className="row">
@@ -79,13 +85,14 @@ export function Rules() {
           <TrustedEditor cfg={cfg} editor={editor} />
 
           <section className="card">
-            <h2>Transfer threshold</h2>
+            <h2>Largest trusted transfer</h2>
             <p style={{ margin: "6px 0 12px", fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-              A transfer above this triggers a rescue even to a trusted wallet. 0 means every transfer does.
+              A transfer of more than this many tokens (fUSD, fETH or fBTC) triggers a rescue even to a trusted wallet. 0 means every transfer
+              does.
               {current ? (
                 <>
                   {" "}
-                  Now: <strong>{fmtAmount(big(current.maxOutbound), 6)} QOR</strong>.
+                  Now: <strong>{fmtAmount(big(current.maxOutbound), 6)} per transfer</strong>.
                 </>
               ) : null}
             </p>
@@ -97,7 +104,7 @@ export function Rules() {
               }}
             >
               <label style={{ flex: "1 1 160px" }}>
-                Threshold (QOR)
+                Tokens per transfer
                 <input
                   className="input mono"
                   inputMode="decimal"
@@ -117,20 +124,29 @@ export function Rules() {
         <aside className="side">
           <section className="card">
             <h2>Alert channels</h2>
-            <dl className="kv">
-              <div>
-                <dt>Telegram</dt>
-                <dd>{!h ? "—" : h.alerts.telegram ? "On" : "Off"}</dd>
-              </div>
-              <div>
-                <dt>Webhook</dt>
-                <dd>{!h ? "—" : h.alerts.webhook ? "On" : "Off"}</dd>
-              </div>
-            </dl>
-            <p style={{ margin: "12px 0 0", fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-              Read only. They are set in the agent's <span className="mono">.env</span> (<span className="mono">TELEGRAM_BOT_TOKEN</span>,{" "}
-              <span className="mono">TELEGRAM_CHAT_ID</span>, the webhook URL) because they hold secrets.
-            </p>
+            {hostedOwner ? (
+              <p style={{ margin: "6px 0 0", fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
+                Alerts by Telegram or email are not available on the public instance yet. Every rescue shows on{" "}
+                <a href="#/overview">Overview</a> and <a href="#/incidents">Incidents</a> with its signed report.
+              </p>
+            ) : (
+              <>
+                <dl className="kv">
+                  <div>
+                    <dt>Telegram</dt>
+                    <dd>{!h ? "—" : h.alerts.telegram ? "On" : "Off"}</dd>
+                  </div>
+                  <div>
+                    <dt>Webhook</dt>
+                    <dd>{!h ? "—" : h.alerts.webhook ? "On" : "Off"}</dd>
+                  </div>
+                </dl>
+                <p style={{ margin: "12px 0 0", fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
+                  Read only. They are set in the agent's <span className="mono">.env</span> (<span className="mono">TELEGRAM_BOT_TOKEN</span>,{" "}
+                  <span className="mono">TELEGRAM_CHAT_ID</span>, the webhook URL) because they hold secrets.
+                </p>
+              </>
+            )}
           </section>
           <section className="card">
             <div className="between">

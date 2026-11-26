@@ -17,3 +17,6 @@ withdrawal*.json
 
 # Playwright MCP screenshots and logs
 .playwright-mcp/
+
+# Brainstorming visual companion mockups
+.superpowers/

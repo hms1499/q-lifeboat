@@ -87,6 +87,8 @@ async function main() {
   // Incidents: <repo>/data/incidents.jsonl, or INCIDENTS_FILE (a fire drill's own <run dir>/incidents.jsonl).
   const file = cfg.incidentsFile;
   const llm = cfg.anthropicApiKey ? anthropicLlm(cfg.anthropicApiKey) : undefined;
+  // Token address → symbol, so the template summary reads "10 fUSD" (the LLM still sees raw facts).
+  const tokenLabels = Object.fromEntries(Object.entries(cfg.tokens).map(([sym, addr]) => [addr, sym]));
   // Reports are co-signed by the guardian account (QoreSign: eth_secp256k1 + ML-DSA-87), the vault's immutable guardian.
   // A failure here must not stop the agent (Review Focus 8): reports then go out with the ed25519 signature only.
   let coSigner: ReturnType<typeof guardianCoSigner> | undefined;
@@ -154,7 +156,7 @@ async function main() {
     // cfg.gas.evm is the vault's guardian: checkVaultGuardian above refuses to start when vault.guardian() differs.
     policy: () => toRulesPolicy(cfg.vault, cfg.gas.evm as Hex, policyStore.get()),
     rescue: (trigger) => serial(() => rescueAll(deps, trigger.token)),
-    record: (facts) => signAndRecord({ ...facts, sk: cfg.agentKey.sk, llm, log, coSigner }, file),
+    record: (facts) => signAndRecord({ ...facts, sk: cfg.agentKey.sk, llm, log, coSigner, labels: tokenLabels }, file),
     publish: server.publish,
     notify: notifier.notify,
     log,

@@ -3,7 +3,8 @@ import { APP_NAME } from "./brand";
 import { LifeboatMark, NavIcon, ScreenBoundary } from "./components/ui";
 import { agentBase, fetchHealth, HOSTED_BUILD } from "./lib/agent";
 import { appSession } from "./lib/appWallet";
-import { navGroups, navMode } from "./lib/nav";
+import { navGroups, navMode, type NavMode } from "./lib/nav";
+import { guardianStatus } from "./lib/status";
 import { loadSeed } from "./lib/keystore";
 import { explorerAddress } from "./lib/chain";
 import { shortAddr } from "./lib/format";
@@ -16,24 +17,37 @@ import { Recover } from "./screens/Recover";
 import { Rules } from "./screens/Rules";
 import { Start } from "./screens/Start";
 import { Attack } from "./screens/Attack";
+import { Home } from "./screens/Home";
+import { resolveScreen } from "./lib/home";
 import { useApp } from "./state";
 
+/** Which product this browser sees: a visitor, the hosted product, or the builder's local agent. */
+function useNavMode(hasSeed: boolean | undefined): NavMode {
+  const { cfg } = useApp().config;
+  return navMode({ hasSeed, localAgent: !!cfg && agentBase().owner === null, hostedBuild: HOSTED_BUILD });
+}
+
 /** The Guardian's state for the shell: from /config reachability and /health (polled only while the agent answers). */
-function useGuardianStatus(): { dot: string; text: string } {
+function useGuardianStatus(mode: NavMode): { dot: string; text: string } {
   const { config } = useApp();
   const { cfg, check, agentOnline } = config;
   const health = usePoll(fetchHealth, 10_000, agentOnline ? "shell-health" : null);
-  if (cfg && check && !check.ok) return { dot: "bad", text: "Vault check failed" };
-  if (!cfg || !agentOnline) return { dot: "off", text: "Guardian offline" };
-  if (health.data && !health.data.ok) return { dot: "degraded", text: "Guardian degraded" };
-  return { dot: "", text: "Guardian online" };
+  return guardianStatus({ mode, hasCfg: !!cfg, checkFailed: !!check && !check.ok, agentOnline, healthOk: health.data?.ok });
 }
 
-function Sidebar({ active, hasSeed }: { active: string; hasSeed: boolean | undefined }) {
+/** Whether the in-app wallet is unlocked in this tab (follows every lock and unlock). */
+function useUnlocked(): boolean {
+  const [unlocked, setUnlocked] = useState(() => !!appSession.classical());
+  useEffect(() => appSession.onChange(() => setUnlocked(!!appSession.classical())), []);
+  return unlocked;
+}
+
+function Sidebar({ active, hasSeed, mode }: { active: string; hasSeed: boolean | undefined; mode: NavMode }) {
   const { config, wallet } = useApp();
   const { cfg, source, agentOnline } = config;
-  const groups = navGroups(navMode({ hasSeed, localAgent: !!cfg && agentBase().owner === null, hostedBuild: HOSTED_BUILD }));
-  const status = useGuardianStatus();
+  const groups = navGroups(mode);
+  const status = useGuardianStatus(mode);
+  const unlocked = useUnlocked();
   const [open, setOpen] = useState(false);
   const walletDiffers = !!wallet && !!cfg && wallet.account.toLowerCase() !== cfg.owner.toLowerCase();
 
@@ -100,7 +114,8 @@ function Sidebar({ active, hasSeed }: { active: string; hasSeed: boolean | undef
               Connected wallet <span className="mono">{shortAddr(wallet!.account)}</span> is not the owner
             </div>
           ) : null}
-          {hasSeed ? (
+          {hasSeed && !unlocked ? <div>Wallet locked</div> : null}
+          {hasSeed && unlocked ? (
             <button
               type="button"
               className="btn small"
@@ -120,9 +135,27 @@ function Sidebar({ active, hasSeed }: { active: string; hasSeed: boolean | undef
   );
 }
 
-function Banners() {
+function Banners({ mode }: { mode: NavMode }) {
   const { config } = useApp();
   const { cfg, check, agentOnline, source } = config;
+  if (mode !== "local") {
+    // The public product: never point a browser user at the repo or the agent's API.
+    if (!cfg) {
+      return (
+        <div className="banner warn" role="status">
+          <strong>Your Guardian is not set up yet.</strong> Finish the steps on <a href="#/start">Get protected</a>.
+        </div>
+      );
+    }
+    if (!agentOnline) {
+      return (
+        <div className="banner warn" role="status">
+          <strong>Your Guardian is not answering right now.</strong> Balances below are read live from the chain; incidents and health
+          come back when it does.
+        </div>
+      );
+    }
+  }
   return (
     <>
       {cfg && check && !check.ok ? (
@@ -145,44 +178,62 @@ function Banners() {
   );
 }
 
-/** Whether this browser holds an in-app wallet (an encrypted seed in IndexedDB); undefined while checking. */
+/** Whether this browser holds an in-app wallet (an encrypted seed in IndexedDB); undefined while checking. Read again
+ * whenever the session changes, so a wallet created on Start shows the full menu at once. */
 function useHasSeed(): boolean | undefined {
   const [has, setHas] = useState<boolean | undefined>(undefined);
   useEffect(() => {
     let live = true;
-    loadSeed()
-      .then((s) => live && setHas(!!s))
-      .catch(() => live && setHas(false));
+    const read = () =>
+      void loadSeed()
+        .then((s) => live && setHas(!!s))
+        .catch(() => live && setHas(false));
+    read();
+    const off = appSession.onChange(read);
     return () => {
       live = false;
+      off();
     };
   }, []);
   return has;
 }
 
-const SCREENS = ["overview", "incidents", "recover", "rules", "protect", "drill", "start", "attack"] as const;
-type ScreenId = (typeof SCREENS)[number];
+/** What a visitor sees on a screen that needs a wallet. */
+function NoWallet() {
+  return (
+    <section className="card" style={{ maxWidth: 640 }}>
+      <h1 style={{ fontSize: 28 }}>No wallet in this browser yet</h1>
+      <p className="lead" style={{ marginTop: 8 }}>
+        This page shows your Guardian, your vault and what it rescued. Set up protection first: it takes a few minutes and runs on the diana
+        testnet with free test tokens.
+      </p>
+      <div className="actions">
+        <a className="btn primary" href="#/start">
+          Get protected
+        </a>
+      </div>
+    </section>
+  );
+}
 
 export function App() {
   const [screen = "", id] = useHashRoute();
   const hasSeed = useHasSeed();
-  // `#/` is the landing page (Start) for a browser with no in-app wallet, Overview otherwise.
-  const active: ScreenId | null = (SCREENS as readonly string[]).includes(screen)
-    ? (screen as ScreenId)
-    : screen === "" && hasSeed === undefined
-      ? null
-      : screen === "" && hasSeed === false
-        ? "start"
-        : "overview";
+  const mode = useNavMode(hasSeed);
+  const active = resolveScreen(screen, hasSeed);
+  // The homepage is full width: no sidebar, no banners.
+  if (active === "home") return <Home />;
   return (
     <div className="shell">
-      <Sidebar active={active ?? ""} hasSeed={hasSeed} />
+      <Sidebar active={active ?? ""} hasSeed={hasSeed} mode={mode} />
       <div className="content">
         <main>
-          {active === "start" || active === null ? null : <Banners />}
+          {active === "start" || active === null || mode === "visitor" ? null : <Banners mode={mode} />}
           <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
             {active === null ? null : active === "start" ? (
               <Start />
+            ) : mode === "visitor" ? (
+              <NoWallet />
             ) : active === "attack" ? (
               <Attack />
             ) : active === "incidents" ? (
