@@ -6,7 +6,7 @@ import { useKeys } from "./KeysProvider";
 import { TxHash } from "./ui";
 import { fetchPolicy } from "../lib/agent";
 import { appSession, DIANA_TOKENS, ownerTx } from "../lib/appWallet";
-import { ATTACK_AMOUNT, ATTACK_GAS, attackOutcome, attackTarget, fusdRescue, incidentFor } from "../lib/attack";
+import { ATTACK_AMOUNT, ATTACK_GAS, attackOutcome, attackTarget, elapsedSeconds, fusdRescue, incidentFor, rescueLine } from "../lib/attack";
 import { big } from "../lib/incidents";
 import { publicClient, readFees } from "../lib/chain";
 import { fmtAmount, shortAddr } from "../lib/format";
@@ -125,12 +125,12 @@ export function TestProtection({ owner }: { owner: Hex }) {
             <small>block {sent.block.toString()}</small>
           </li>
           <li className={incident ? "" : "pending"}>
-            <span>{incident ? "Guardian matched its rules (fixed rules, not AI)" : waitedTooLong ? "No report yet: check Activity in a minute" : `Waiting for your Guardian… ${Math.round((now - sent.at) / 1000)} s`}</span>
+            <span>{incident ? "Guardian matched its rules (fixed rules, not AI)" : waitedTooLong ? "No report yet: check Activity in a minute" : `Waiting for your Guardian… ${elapsedSeconds(now, sent.at)} s`}</span>
           </li>
           <li className={rescueHash ? "good" : "pending"}>
             <span>
               {rescueHash && outcome
-                ? `${fmtAmount(outcome.rescued)} fUSD${alsoRescued.length ? " and your other tokens" : ""} moved into your vault${outcome.blocksLater !== undefined ? `, ${outcome.blocksLater.toString()} block${outcome.blocksLater === 1n ? "" : "s"} later` : ""}`
+                ? rescueLine(outcome.rescued, outcome.blocksLater, alsoRescued.length > 0)
                 : incident && !rescueHash
                   ? `No rescue landed: ${incident.reason}`
                   : "Rescue into your vault"}

@@ -227,7 +227,7 @@ export function Setup() {
         pqc.refresh();
         return "Your key is already registered.";
       }
-      step("Registering your ML-DSA-87 key (signed classically: the account has no post-quantum key yet)…");
+      step("Registering your post-quantum key…");
       const r = await broadcastTx(acc, [buildRegisterMsg(acc, NETWORK.chainId)], "qlifeboat: register ML-DSA-87 key", { signMode: "classical" });
       hashes.push(r.transactionHash);
       pqc.refresh();

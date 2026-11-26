@@ -73,7 +73,7 @@ export function IncidentReport({ i, cfg, v }: { i: Incident; cfg: AgentConfig | 
   const pct = kind === "transfer" && keptSame + lost > 0n ? Number((keptSame * 1000n) / (keptSame + lost)) / 10 : null;
 
   const stats = [
-    { k: "Drain to rescue", v: !done.length ? "—" : lastRescue === null ? "…" : `${fmtInt(lastRescue - triggerBlock)} block${lastRescue - triggerBlock === 1n ? "" : "s"}` },
+    { k: "Drain to last rescue", v: !done.length ? "—" : lastRescue === null ? "…" : `${fmtInt(lastRescue - triggerBlock)} block${lastRescue - triggerBlock === 1n ? "" : "s"}` },
     { k: `Value kept (${sym})`, v: pct === null || !done.length ? "—" : `${pct}%` },
     { k: kind === "approval" ? "Spender got" : "Attacker got", v: kind === "approval" ? "an allowance" : `${fmtAmount(lost)} ${sym}` },
     { k: "Rescue txs", v: i.rescues.length ? `${done.length} of ${i.rescues.length} ok` : "none (alert)" },

@@ -1,7 +1,7 @@
 import type { Incident } from "@qday/core";
 import { getAddress, type Hex } from "viem";
 import { describe, expect, it } from "vitest";
-import { ATTACK_AMOUNT, attackOutcome, attackTarget, fusdRescue, incidentFor } from "./attack";
+import { ATTACK_AMOUNT, attackOutcome, attackTarget, elapsedSeconds, fusdRescue, incidentFor, rescueLine } from "./attack";
 
 const T1 = "0x1111111111111111111111111111111111111111";
 const H = (n: number) => (`0x${n.toString(16).padStart(64, "0")}`) as Hex;
@@ -69,5 +69,22 @@ describe("attackOutcome", () => {
   it("a failed rescue moves nothing", () => {
     const i = incident(H(1), [{ hash: H(9), amount: 0n, success: false }]);
     expect(attackOutcome(i, { token: T1 as Hex, transferBlock: 100n, rescueBlock: undefined, balanceBefore: 100n })).toEqual({ rescued: 0n, blocksLater: undefined, keptPct: 0 });
+  });
+});
+
+describe("elapsedSeconds", () => {
+  it("never goes below zero (the clock state can lag the send time by a tick)", () => {
+    expect(elapsedSeconds(1_000, 98_000)).toBe(0);
+    expect(elapsedSeconds(5_400, 1_000)).toBe(4);
+    expect(elapsedSeconds(1_000, 1_000)).toBe(0);
+  });
+});
+
+describe("rescueLine", () => {
+  const E18 = 10n ** 18n;
+  it("puts the block count on the fUSD rescue only, the one it was measured on", () => {
+    expect(rescueLine(90n * E18, 1n, true)).toBe("90 fUSD moved into your vault 1 block later; your other tokens followed");
+    expect(rescueLine(90n * E18, 2n, false)).toBe("90 fUSD moved into your vault 2 blocks later");
+    expect(rescueLine(90n * E18, undefined, true)).toBe("90 fUSD moved into your vault; your other tokens followed");
   });
 });

@@ -41,7 +41,7 @@ describe("confirmPicks with a count", () => {
 describe("autoRun", () => {
   const base: AutoInput = {
     step: "register",
-    detail: "register your post-quantum (ML-DSA-87) key on chain",
+    detail: "register your post-quantum key on chain",
     auto: true,
     busy: false,
     failed: false,

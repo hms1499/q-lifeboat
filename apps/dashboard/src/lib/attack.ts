@@ -1,3 +1,4 @@
+import { fmtAmount } from "./format";
 import type { Incident } from "@qday/core";
 import { bytesToHex, getAddress, type Hex } from "viem";
 import { big } from "./incidents";
@@ -47,4 +48,16 @@ export function attackOutcome(
   const blocksLater = p.rescueBlock === undefined ? undefined : p.rescueBlock - p.transferBlock;
   const keptPct = p.balanceBefore > 0n ? Number((rescued * 1000n) / p.balanceBefore) / 10 : 0;
   return { rescued, blocksLater, keptPct };
+}
+
+/** Whole seconds since `at`, never negative (the ticking clock can still hold a time from before the send). */
+export const elapsedSeconds = (now: number, at: number) => Math.max(0, Math.round((now - at) / 1000));
+
+/**
+ * The rescue line of the protection test. The block count is measured on the fUSD rescue, so it is attached to fUSD only:
+ * the other tokens can land a block later (the report's "Drain to last rescue" counts to the last one).
+ */
+export function rescueLine(rescued: bigint, blocksLater: bigint | undefined, others: boolean): string {
+  const when = blocksLater === undefined ? "" : ` ${blocksLater.toString()} block${blocksLater === 1n ? "" : "s"} later`;
+  return `${fmtAmount(rescued)} fUSD moved into your vault${when}${others ? "; your other tokens followed" : ""}`;
 }
