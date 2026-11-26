@@ -75,6 +75,11 @@ function CodeGroups({ code }: { code: string }) {
 function Landing({ onStart }: { onStart: () => void }) {
   const status = usePoll(() => hosted.status(), 30_000, "hosted-status");
   const gate = landingStart(status.data, status.data ? null : status.error);
+  // The homepage already made the pitch: with onboarding open, go straight to step 1. This card stays for a pause.
+  useEffect(() => {
+    if (gate.enabled) onStart();
+  }, [gate.enabled, onStart]);
+  if (gate.enabled || (!status.data && !status.error)) return <p className="muted">Checking whether onboarding is open…</p>;
   return (
     <section className="card roomy hero">
       <span className="lbl">diana testnet</span>

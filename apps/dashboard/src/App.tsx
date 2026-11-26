@@ -17,6 +17,8 @@ import { Recover } from "./screens/Recover";
 import { Rules } from "./screens/Rules";
 import { Start } from "./screens/Start";
 import { Attack } from "./screens/Attack";
+import { Home } from "./screens/Home";
+import { resolveScreen } from "./lib/home";
 import { useApp } from "./state";
 
 /** Which product this browser sees: a visitor, the hosted product, or the builder's local agent. */
@@ -214,21 +216,13 @@ function NoWallet() {
   );
 }
 
-const SCREENS = ["overview", "incidents", "recover", "rules", "protect", "drill", "start", "attack"] as const;
-type ScreenId = (typeof SCREENS)[number];
-
 export function App() {
   const [screen = "", id] = useHashRoute();
   const hasSeed = useHasSeed();
   const mode = useNavMode(hasSeed);
-  // `#/` is the landing page (Start) for a browser with no in-app wallet, Overview otherwise.
-  const active: ScreenId | null = (SCREENS as readonly string[]).includes(screen)
-    ? (screen as ScreenId)
-    : screen === "" && hasSeed === undefined
-      ? null
-      : screen === "" && hasSeed === false
-        ? "start"
-        : "overview";
+  const active = resolveScreen(screen, hasSeed);
+  // The homepage is full width: no sidebar, no banners.
+  if (active === "home") return <Home />;
   return (
     <div className="shell">
       <Sidebar active={active ?? ""} hasSeed={hasSeed} mode={mode} />
