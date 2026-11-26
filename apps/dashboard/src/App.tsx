@@ -25,6 +25,8 @@ import type { OwnerStage } from "@qday/core";
 import type { Hex } from "viem";
 import { useApp } from "./state";
 import { KeysProvider } from "./components/KeysProvider";
+import { AppShell } from "./components/AppShell";
+import { FocusShell } from "./components/FocusShell";
 
 /** Which product this browser sees: a visitor, the hosted product, or the builder's local agent. */
 function useNavMode(hasSeed: boolean | undefined): NavMode {
@@ -258,18 +260,36 @@ function Routes({ owner }: { owner: Hex | null | undefined }) {
   const active = resolveRoute(screen, stage);
   // The homepage is full width: no sidebar, no banners.
   if (active === "home") return <Home />;
-  // Until the rebuilt screens land, the hosted routes render the legacy ones.
-  const legacy = active === "setup" ? "start" : active === "dashboard" ? "overview" : active === "activity" ? "incidents" : active === "vault" ? "recover" : active === "settings" ? "rules" : active;
+  // Setup runs in focus mode: no app navigation.
+  if (active === "setup") {
+    return (
+      <FocusShell>
+        <ScreenBoundary resetKey="setup">
+          <Start />
+        </ScreenBoundary>
+      </FocusShell>
+    );
+  }
+  if (stage === "protected" && owner && active) {
+    return (
+      <AppShell active={active} owner={owner}>
+        <Banners mode={mode} />
+        <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
+          {active === "activity" ? <Incidents selected={id} /> : active === "vault" ? <Recover /> : active === "settings" ? <Rules /> : <Overview />}
+        </ScreenBoundary>
+      </AppShell>
+    );
+  }
+  // Local mode (the builder's agent) keeps the legacy shell and screens.
+  const legacy = active === "dashboard" ? "overview" : active === "activity" ? "incidents" : active === "vault" ? "recover" : active === "settings" ? "rules" : active;
   return (
     <div className="shell">
       <Sidebar active={legacy ?? ""} hasSeed={hasSeed} mode={mode} />
       <div className="content">
         <main>
-          {legacy === "start" || legacy === null ? null : <Banners mode={mode} />}
+          {legacy === null ? null : <Banners mode={mode} />}
           <ScreenBoundary resetKey={`${active}/${id ?? ""}`}>
-            {legacy === null ? null : legacy === "start" ? (
-              <Start />
-            ) : legacy === "incidents" ? (
+            {legacy === null ? null : legacy === "incidents" ? (
               <Incidents selected={id} />
             ) : legacy === "recover" ? (
               <Recover />
