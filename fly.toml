@@ -6,6 +6,8 @@
 
 app = "q-lifeboat"
 primary_region = "sin"
+# Agents are mostly idle pollers: a 4th one pages instead of running the Machine out of memory.
+swap_size_mb = 512
 
 [build]
   dockerfile = "apps/hosted/Dockerfile"
@@ -15,7 +17,8 @@ primary_region = "sin"
   HOSTED_DATA_DIR = "/data"
   # Fly's proxy appends the client IP to X-Forwarded-For: the starter-pack per-IP cap reads it.
   TRUST_PROXY = "1"
-  # 1 GB Machine: the service takes ~265 MB, each agent ~130 MB. Owner #5 gets a clean "capacity" refusal.
+  # 1 GB Machine: measured on Fly the service takes ~172 MB RSS and each agent ~185 MB (3 agents left ~206 MB free).
+  # The 4th agent leans on the swap below; owner #5 gets a clean "capacity" refusal.
   HOSTED_MAX_AGENTS = "4"
   # Public test-token addresses on diana (README, "Addresses").
   FUSD_ADDRESS = "0x8478737e5ac2c2cbf70aad17f459d1b8ab8a7a14"
