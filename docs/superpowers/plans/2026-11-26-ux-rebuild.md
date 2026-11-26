@@ -41,14 +41,14 @@ single unlock dialog. Local mode keeps its current screens.
 `type RouteId = "home" | "setup" | "dashboard" | "activity" | "vault" | "settings" | LocalScreen`;
 `resolveRoute(screen: string, stage: Stage | null): RouteId | null`; `hostedNav(): { id: RouteId; label: string; href: string; icon: string }[]` (4 items).
 
-- [ ] Tests: `appStage` → visitor (no seed, hosted build), onboarding (seed + stage none/starter/provisioned), protected (seed + active),
+- [x] Tests: `appStage` → visitor (no seed, hosted build), onboarding (seed + stage none/starter/provisioned), protected (seed + active),
       local (no seed + local agent + not hosted build), null (hasSeed undefined or seed with ownerStage undefined);
       retired → onboarding. `resolveRoute`: `""`→ home/setup/dashboard per stage; `dashboard` while onboarding → setup;
       `setup` while protected → dashboard; aliases (overview, incidents, recover, rules, attack, start) for hosted stages;
       `incidents` stays `incidents` for local; visitor on `vault` → home. `hostedNav()` ids = dashboard, activity, vault, settings.
-- [ ] Run → FAIL; implement; run → PASS. `App.tsx` reads `hosted.owner(owner)` (poll 15 s) for the stage and routes with
+- [x] Run → FAIL; implement; run → PASS. `App.tsx` reads `hosted.owner(owner)` (poll 15 s) for the stage and routes with
       `resolveRoute`; local stage keeps the legacy shell and screens untouched.
-- [ ] Commit `feat(dashboard): state-driven routes for the hosted product`.
+- [x] Commit `feat(dashboard): state-driven routes for the hosted product`.
 
 ### Task 2: Unlock once (KeysProvider + dialog)
 
@@ -57,22 +57,22 @@ single unlock dialog. Local mode keeps its current screens.
 `useKeys(): { requireKeys(need: "classical" | "pqc"): Promise<boolean>; unlocked: boolean; lock(): void }` (resolves
 false on cancel); `<KeysProvider owner={Hex | null}>`.
 
-- [ ] Tests: need pqc with nothing → both; need pqc with classical → code only; need classical with classical → neither;
+- [x] Tests: need pqc with nothing → both; need pqc with classical → code only; need classical with classical → neither;
       need pqc with pqc → neither.
-- [ ] Run → FAIL; implement the dialog (password field shown only when needed, recovery code field only when needed,
+- [x] Run → FAIL; implement the dialog (password field shown only when needed, recovery code field only when needed,
       paste allowed, errors inline: wrong password, code not this account's key), `appSession.onChange` drives `unlocked`.
-- [ ] Commit.
+- [x] Commit.
 
 ### Task 3: App shell, focus shell, incident "seen" store
 
 **Files:** Create `src/components/AppShell.tsx`, `src/components/FocusShell.tsx`, `src/lib/seen.ts` (+ test). Modify `src/styles.css` (new `.app-*` rules from the prototype).
 **Produces:** `loadSeenIncident(kv, owner): string | null`, `saveSeenIncident(kv, owner, id)`, `unseenIncident(list: Incident[], seenId: string | null): Incident | null` (newest rescue/alert not seen).
 
-- [ ] Tests for the seen store (per owner key, newest wins, null when all seen).
-- [ ] AppShell: sidebar (4 items, Activity dot when `unseenIncident`), footer (status line, account, "Locked · unlocks when you sign" /
+- [x] Tests for the seen store (per owner key, newest wins, null when all seen).
+- [x] AppShell: sidebar (4 items, Activity dot when `unseenIncident`), footer (status line, account, "Locked · unlocks when you sign" /
       "Unlocked · Lock", "diana testnet · test tokens"); phones: top bar + bottom tab bar. FocusShell: brand, "Setting up
       protection", Exit (→ `#/home`). Browser check: tabs, dot, lock state, 390 px.
-- [ ] Commit.
+- [x] Commit.
 
 ### Task 4: Setup (3 phases)
 
@@ -80,54 +80,54 @@ false on cancel); `<KeysProvider owner={Hex | null}>`.
 **Produces:** `phaseOf(step: JourneyStep): 1 | 2 | 3 | "done"`; `recoveryFile(code: string, account: Hex): string`;
 `useSetup()` returning `{ owner, pos, phase, gate, uqor, run, createWallet(pw), confirmCode(typed), takeStarter(), turnOn(), autoRunning }`.
 
-- [ ] Tests: `phaseOf` (account, code → 1; starter → 2; register, guardian, vault, protect → 3; attack, withdraw, done → done);
+- [x] Tests: `phaseOf` (account, code → 1; starter → 2; register, guardian, vault, protect → 3; attack, withdraw, done → done);
       `recoveryFile` contains `QRC1-…` normalised, the account, and the line "Anyone with this code and your wallet password can sign withdrawals";
       `confirmPicks(code, 2)` returns 2 distinct sorted groups in 1..14.
-- [ ] `useSetup`: Start's reads and actions moved as they are; `turnOn()` sets auto-run: while the step is register,
+- [x] `useSetup`: Start's reads and actions moved as they are; `turnOn()` sets auto-run: while the step is register,
       guardian, vault or protect and nothing is busy, run that step's action; stop on the first error (shown, with Retry).
-- [ ] Setup screen per prototype: 3-phase bar; phase 1 password form, then code grid (4 cols / 2 on phones) with Copy
+- [x] Setup screen per prototype: 3-phase bar; phase 1 password form, then code grid (4 cols / 2 on phones) with Copy
       (clipboard) and Download (`q-lifeboat-recovery-code.txt`), confirm 2 groups; phase 2 starter (balance, gate reason);
       phase 3 checklist of the 4 sub-steps (✓ from `pos`, spinner on the running one, hashes under each). Start-over stays.
-- [ ] Browser check: fresh visitor through phase 1 and into phase 2 (no starter request); owner 3 → lands on Dashboard.
-- [ ] Commit.
+- [x] Browser check: fresh visitor through phase 1 and into phase 2 (no starter request); owner 3 → lands on Dashboard.
+- [x] Commit.
 
 ### Task 5: Dashboard + Test your protection
 
 **Files:** Create `src/screens/Dashboard.tsx`, `src/components/TestProtection.tsx`, `src/hooks/useAttack.ts`, `src/lib/dashboard.ts` (+ test).
 **Produces:** `heroState(i: { unseen: Incident | null; agentOnline: boolean }): "incident" | "calm" | "offline"`; `canTest(fusd: bigint | undefined): "ready" | "mint" | "loading"` (ready at ≥ 10 fUSD).
 
-- [ ] Tests for `heroState` and `canTest` (0 → mint, 10e18 → ready, undefined → loading).
-- [ ] Dashboard: hero (calm / incident with "Move tokens to a safe address" → `#/vault`, "See what happened" →
+- [x] Tests for `heroState` and `canTest` (0 → mint, 10e18 → ready, undefined → loading).
+- [x] Dashboard: hero (calm / incident with "Move tokens to a safe address" → `#/vault`, "See what happened" →
       `#/activity/<id>`, Dismiss → seen / offline line), tokens (account vs vault bars from `readAssets`), latest activity (3 rows),
       TestProtection, "Technical details" `<details>` holding the EVM window, Guardian health, permission and GasTank.
-- [ ] `useAttack` = Attack's logic moved; TestProtection: fUSD on account, "Mint 100 test fUSD" (owner window scoped to
+- [x] `useAttack` = Attack's logic moved; TestProtection: fUSD on account, "Mint 100 test fUSD" (owner window scoped to
       fUSD `mint`, `requireKeys("pqc")`), confirm dialog, then the live timeline; afterwards links to the report.
-- [ ] Browser check (owner 3: incident hero, dismiss, calm; mint button shown at 0 fUSD; no tx sent). Commit.
+- [x] Browser check (owner 3: incident hero, dismiss, calm; mint button shown at 0 fUSD; no tx sent). Commit.
 
 ### Task 6: Activity
 
 **Files:** Create `src/screens/Activity.tsx`, `src/components/IncidentReport.tsx` (Incidents' `Detail` moved), `src/lib/activity.ts` (+ test).
 **Produces:** `activityFeed(incidents: Incident[], outgoing: OutboundRow[]): FeedItem[]` (newest first; an outgoing tx that triggered an incident appears once, as the incident).
 
-- [ ] Tests for `activityFeed` ordering and de-duplication. Opening an incident marks it seen. Browser check. Commit.
+- [x] Tests for `activityFeed` ordering and de-duplication. Opening an incident marks it seen. Browser check. Commit.
 
 ### Task 7: Vault (3-step withdraw)
 
 **Files:** Create `src/screens/Vault.tsx`, `src/lib/vaultForm.ts` (+ test), `src/lib/vaultWithdraw.ts` (BrowserWithdraw's withdraw moved).
 **Produces:** `checkWithdraw(i: { amount: string; balance: bigint | undefined; to: string; owner: Hex; vault: Hex }): { amount?: string; to?: string }`.
 
-- [ ] Tests: empty/zero/non-decimal/over balance amounts; bad address, zero address, owner (case-insensitive), vault.
-- [ ] Steps What (token chips with balances, Max) → Where → Review → Sign (`requireKeys("pqc")`) → success (tx hash, new balances).
-- [ ] Browser check up to Review (no signature). Commit.
+- [x] Tests: empty/zero/non-decimal/over balance amounts; bad address, zero address, owner (case-insensitive), vault.
+- [x] Steps What (token chips with balances, Max) → Where → Review → Sign (`requireKeys("pqc")`) → success (tx hash, new balances).
+- [x] Browser check up to Review (no signature). Commit.
 
 ### Task 8: Settings
 
 **Files:** Create `src/screens/Settings.tsx`. Reuse `TrustedEditor`, the threshold form from Rules, `requireKeys("pqc")` before a policy write.
-- [ ] Sections: Trusted wallets and apps, Largest trusted transfer, Alerts (coming soon), Wallet (account, lock). Browser check. Commit.
+- [x] Sections: Trusted wallets and apps, Largest trusted transfer, Alerts (coming soon), Wallet (account, lock). Browser check. Commit.
 
 ### Task 9: Remove dead hosted code, docs
 
-- [ ] Delete `screens/Start.tsx`, `screens/Attack.tsx`, `components/BrowserWithdraw.tsx` and their CSS once nothing imports them
+- [x] Delete `screens/Start.tsx`, `screens/Attack.tsx`, `components/BrowserWithdraw.tsx` and their CSS once nothing imports them
       (grep); keep local-mode screens. `docs/THREAT_MODEL.md` row for copy/download of the recovery code; README "Try it in
       your browser" steps; AI_USAGE row; CLAUDE.md note on the routes. Green commands. Commit.
 
