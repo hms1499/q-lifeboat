@@ -753,3 +753,13 @@ dl.kv dd small { display: block; color: var(--muted); font-weight: 400; font-siz
   .dash-tokens .dash-bar { grid-column: 1 / -1; }
   .dash-hero h2 { font-size: 22px; line-height: 28px; }
 }
+
+/* Activity (hosted) */
+.act-back { align-self: flex-start; font-size: 14px; font-weight: 600; text-decoration: none; }
+.act-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.act-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--hull); border: 1px solid var(--rope); border-radius: 12px; color: var(--harbour); text-decoration: none; }
+a.act-row:hover { background: var(--well); color: var(--harbour); }
+.act-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.act-main b { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.act-main small { font-size: 12px; color: var(--muted); }
+.act-go { color: var(--muted); font-size: 18px; }
