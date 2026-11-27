@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { APP_NAME } from "../brand";
 import { LifeboatMark } from "../components/ui";
 import { hosted } from "../lib/appWallet";
@@ -16,6 +16,8 @@ const SECTIONS: [string, string][] = [
 ];
 const fmt = (n: number) => n.toLocaleString("en-US");
 const first = PROOF[0];
+/** A CSS custom property, typed: the diagram staggers its arrows and labels with `--i`. */
+const at = (i: number) => ({ "--i": i }) as CSSProperties;
 
 /** What a visitor sees first: what Q-Lifeboat does, a real rescue on diana, and the way in. */
 export function Home() {
@@ -24,6 +26,26 @@ export function Home() {
   const watching = status.data?.activeGuardians;
   // The section links are folded into a menu below 900px (styles.css): there is no room for them in the bar.
   const [menu, setMenu] = useState(false);
+  // The flow diagram is the one scroll-driven moment: it draws itself, in order, the first time it is seen. Users who
+  // asked for reduced motion get it finished and still (the animation lives inside a no-preference media query).
+  const [diagramSeen, setDiagramSeen] = useState(false);
+  const diagramRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = diagramRef.current;
+    if (!el || diagramSeen) return;
+    if (typeof IntersectionObserver === "undefined") return setDiagramSeen(true);
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setDiagramSeen(true);
+          io.disconnect();
+        }
+      },
+      { threshold: 0.4 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [diagramSeen]);
   useEffect(() => {
     if (!menu) return;
     const onKey = (e: KeyboardEvent) => {
@@ -215,7 +237,7 @@ export function Home() {
               <p>You take them out to a new, safe address, signed with the post-quantum key from your recovery code.</p>
             </li>
           </ol>
-          <div className="hm-diagram">
+          <div className={`hm-diagram${diagramSeen ? " in" : ""}`} ref={diagramRef}>
             <FlowDiagram />
             <FlowList />
           </div>
@@ -425,30 +447,41 @@ function FlowDiagram() {
         </marker>
       </defs>
       <g fontFamily="Archivo, sans-serif" fontSize="14" fill="#0f2236">
-        <rect x="20" y="60" width="170" height="70" rx="12" fill="#fff" stroke="#d6dee6" />
-        <text x="105" y="90" textAnchor="middle" fontWeight="700">Your account</text>
-        <text x="105" y="112" textAnchor="middle" fill="#5a6878" fontSize="12">ECDSA key</text>
-        <rect x="250" y="8" width="160" height="56" rx="12" fill="#fdeee6" stroke="#f4c9b4" />
-        <text x="330" y="33" textAnchor="middle" fontWeight="700" fill="#b03a0b">Thief</text>
-        <text x="330" y="52" textAnchor="middle" fill="#b03a0b" fontSize="12">has your key</text>
-        <rect x="250" y="126" width="160" height="56" rx="12" fill="#fff" stroke="#d6dee6" />
-        <text x="330" y="151" textAnchor="middle" fontWeight="700">Guardian</text>
-        <text x="330" y="170" textAnchor="middle" fill="#5a6878" fontSize="12">may only call rescue</text>
-        <rect x="480" y="60" width="170" height="70" rx="12" fill="#e4f3ee" stroke="#0b6b50" />
-        <text x="565" y="90" textAnchor="middle" fontWeight="700" fill="#0b6b50">Your vault</text>
-        <text x="565" y="112" textAnchor="middle" fill="#0b6b50" fontSize="12">no admin key</text>
-        <rect x="710" y="60" width="170" height="70" rx="12" fill="#fff" stroke="#d6dee6" />
-        <text x="795" y="90" textAnchor="middle" fontWeight="700">New safe address</text>
-        <text x="795" y="112" textAnchor="middle" fill="#5a6878" fontSize="12">your choice</text>
-        <path d="M190 84 L250 46" stroke="#e8501a" strokeWidth="2" fill="none" markerEnd="url(#hm-ar-orange)" />
-        <text x="220" y="40" textAnchor="middle" fill="#b03a0b" fontSize="12">1. sends</text>
-        <path d="M330 64 L330 126" stroke="#0f2236" strokeWidth="2" strokeDasharray="5 4" fill="none" markerEnd="url(#hm-ar-navy)" />
-        <text x="338" y="96" fill="#5a6878" fontSize="12">2. sees it</text>
-        <path d="M410 150 L480 116" stroke="#0b6b50" strokeWidth="2.5" fill="none" markerEnd="url(#hm-ar-green)" />
-        <text x="416" y="172" fill="#0b6b50" fontSize="12">3. rescues</text>
-        <path d="M650 95 L710 95" stroke="#0b6b50" strokeWidth="2.5" fill="none" markerEnd="url(#hm-ar-green)" />
-        <text x="654" y="82" fill="#0b6b50" fontSize="12">4. you</text>
-        <text x="565" y="152" textAnchor="middle" fill="#5a6878" fontSize="12">post-quantum key only</text>
+        {/* Nodes settle in reading order, then each arrow draws itself: the diagram is a sequence, so the motion says so. */}
+        <g className="hm-node" style={at(0)}>
+          <rect x="20" y="60" width="170" height="70" rx="12" fill="#fff" stroke="#d6dee6" />
+          <text x="105" y="90" textAnchor="middle" fontWeight="700">Your account</text>
+          <text x="105" y="112" textAnchor="middle" fill="#5a6878" fontSize="12">ECDSA key</text>
+        </g>
+        <g className="hm-node" style={at(1)}>
+          <rect x="250" y="8" width="160" height="56" rx="12" fill="#fdeee6" stroke="#f4c9b4" />
+          <text x="330" y="33" textAnchor="middle" fontWeight="700" fill="#b03a0b">Thief</text>
+          <text x="330" y="52" textAnchor="middle" fill="#b03a0b" fontSize="12">has your key</text>
+        </g>
+        <g className="hm-node" style={at(2)}>
+          <rect x="250" y="126" width="160" height="56" rx="12" fill="#fff" stroke="#d6dee6" />
+          <text x="330" y="151" textAnchor="middle" fontWeight="700">Guardian</text>
+          <text x="330" y="170" textAnchor="middle" fill="#5a6878" fontSize="12">may only call rescue</text>
+        </g>
+        <g className="hm-node" style={at(3)}>
+          <rect x="480" y="60" width="170" height="70" rx="12" fill="#e4f3ee" stroke="#0b6b50" />
+          <text x="565" y="90" textAnchor="middle" fontWeight="700" fill="#0b6b50">Your vault</text>
+          <text x="565" y="112" textAnchor="middle" fill="#0b6b50" fontSize="12">no admin key</text>
+        </g>
+        <g className="hm-node" style={at(4)}>
+          <rect x="710" y="60" width="170" height="70" rx="12" fill="#fff" stroke="#d6dee6" />
+          <text x="795" y="90" textAnchor="middle" fontWeight="700">New safe address</text>
+          <text x="795" y="112" textAnchor="middle" fill="#5a6878" fontSize="12">your choice</text>
+        </g>
+        <path className="hm-arrow" style={at(0)} pathLength={100} d="M190 84 L250 46" stroke="#e8501a" strokeWidth="2" fill="none" markerEnd="url(#hm-ar-orange)" />
+        <text className="hm-lbl" style={at(0)} x="220" y="40" textAnchor="middle" fill="#b03a0b" fontSize="12">1. sends</text>
+        <path className="hm-arrow" style={at(1)} pathLength={100} d="M330 64 L330 126" stroke="#0f2236" strokeWidth="2" strokeDasharray="5 4" fill="none" markerEnd="url(#hm-ar-navy)" />
+        <text className="hm-lbl" style={at(1)} x="338" y="96" fill="#5a6878" fontSize="12">2. sees it</text>
+        <path className="hm-arrow" style={at(2)} pathLength={100} d="M410 150 L480 116" stroke="#0b6b50" strokeWidth="2.5" fill="none" markerEnd="url(#hm-ar-green)" />
+        <text className="hm-lbl" style={at(2)} x="416" y="172" fill="#0b6b50" fontSize="12">3. rescues</text>
+        <path className="hm-arrow" style={at(3)} pathLength={100} d="M650 95 L710 95" stroke="#0b6b50" strokeWidth="2.5" fill="none" markerEnd="url(#hm-ar-green)" />
+        <text className="hm-lbl" style={at(3)} x="654" y="82" fill="#0b6b50" fontSize="12">4. you</text>
+        <text className="hm-lbl" style={at(3)} x="565" y="152" textAnchor="middle" fill="#5a6878" fontSize="12">post-quantum key only</text>
       </g>
     </svg>
   );

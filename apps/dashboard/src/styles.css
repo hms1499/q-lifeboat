@@ -559,6 +559,40 @@ dl.kv dd small { display: block; color: var(--muted); font-weight: 400; font-siz
 .hm-replay-foot { margin-top: 14px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .hm-replay-foot button { background: none; border: 0; padding: 0; color: var(--signal); font: 12px var(--sans); text-decoration: underline; cursor: pointer; }
 
+/*
+ * Motion, on purpose: the page makes two moves, then stops. The hero replays the rescue it is showing (the rail draws,
+ * the three blocks land in order, the 2-block figure settles); the how-it-works diagram draws its arrows in order the
+ * first time it is scrolled into view, because that diagram really is a sequence. There are no per-section fade-ups.
+ * Only opacity, transform and clip move; each animation runs once and lasts under half a second. All of it lives in
+ * `no-preference`, so a reduced-motion browser gets the finished page with the diagram already drawn.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .hm-hero .hm-eyebrow, .hm-hero h1, .hm-hero .hm-sub, .hm-hero .hm-ctas, .hm-hero .hm-fine { animation: hm-in 460ms cubic-bezier(.22, .61, .36, 1) both; }
+  .hm-hero h1 { animation-duration: 560ms; animation-delay: 60ms; }
+  .hm-hero .hm-sub { animation-delay: 130ms; }
+  .hm-hero .hm-ctas { animation-delay: 200ms; }
+  .hm-hero .hm-fine { animation-delay: 260ms; }
+  .hm-replay { animation: hm-in 520ms cubic-bezier(.22, .61, .36, 1) 80ms both; }
+  .hm-tl li { animation: hm-clip 400ms cubic-bezier(.22, .61, .36, 1) both; }
+  .hm-tl li:nth-child(1) { animation-delay: 320ms; }
+  .hm-tl li:nth-child(2) { animation-delay: 620ms; }
+  .hm-tl li:nth-child(3) { animation-delay: 920ms; }
+  .hm-tl li + li::before { transform-origin: top; animation: hm-rail 240ms ease-out both; }
+  .hm-tl li:nth-child(2)::before { animation-delay: 480ms; }
+  .hm-tl li:nth-child(3)::before { animation-delay: 780ms; }
+  .hm-stats b { animation: hm-in 320ms cubic-bezier(.22, .61, .36, 1) 1220ms both; }
+  .hm-diagram .hm-node { opacity: 0; }
+  .hm-diagram.in .hm-node { animation: hm-in 300ms ease-out both; animation-delay: calc(var(--i) * 70ms); }
+  .hm-diagram .hm-arrow { opacity: 0; stroke-dasharray: 100; stroke-dashoffset: 100; }
+  .hm-diagram.in .hm-arrow { animation: hm-draw 420ms cubic-bezier(.22, .61, .36, 1) both; animation-delay: calc(160ms + var(--i) * 220ms); }
+  .hm-diagram .hm-lbl { opacity: 0; }
+  .hm-diagram.in .hm-lbl { animation: hm-in 240ms ease-out both; animation-delay: calc(300ms + var(--i) * 220ms); }
+}
+@keyframes hm-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes hm-clip { from { opacity: 0; clip-path: inset(0 0 100% 0); } to { opacity: 1; clip-path: inset(0 0 0 0); } }
+@keyframes hm-rail { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes hm-draw { 0% { opacity: 0; stroke-dashoffset: 100; } 25% { opacity: 1; } 100% { opacity: 1; stroke-dashoffset: 0; } }
+
 .hm-band { padding: 80px 0; scroll-margin-top: 64px; }
 .hm-band.white { background: var(--hull); }
 .hm-sh { max-width: 40em; }
