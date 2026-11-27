@@ -4,6 +4,7 @@ import { extname, join, normalize, sep } from "node:path";
 import type { HostedStatus, OwnerPublicState } from "@qday/core";
 import type { Gateway } from "./gateway.ts";
 import type { Provisioner } from "./provision.ts";
+import type { Recoverer } from "./recover.ts";
 import { isOwnerAddress, type Store } from "./store.ts";
 
 export type HostedDeps = {
@@ -20,6 +21,8 @@ export type HostedDeps = {
   provision?: Pick<Provisioner, "starter" | "topup" | "onboard" | "activate">;
   /** TRUST_PROXY=1: the client IP is the right-most X-Forwarded-For entry (appended by the proxy) instead of the socket address. */
   trustProxy?: boolean;
+  /** Sponsored withdrawal for a lost browser (POST /api/recover/submit). Absent: that route answers 503. */
+  recover?: Pick<Recoverer, "submit">;
   /** `/api/o/<owner>/*` to the owner's loopback agent. Absent: those routes answer 404. */
   gateway?: Pick<Gateway, "handle">;
 };
@@ -126,6 +129,14 @@ export function createHostedServer(deps: HostedDeps): Server {
       if (isUnder(url, "/qore-rest")) return void (await proxy(deps, deps.restUrl, stripPrefix("/qore-rest", url), req, res));
       if (isUnder(url, "/qore-rpc")) return void (await proxy(deps, deps.rpcUrl, stripPrefix("/qore-rpc", url), req, res));
       if (pathname === "/api/status" && req.method === "GET") return json(res, 200, await deps.status());
+      if (pathname === "/api/recover/submit" && req.method === "POST") {
+        const r = deps.recover;
+        if (!r) return json(res, 503, { error: "recovery unavailable" });
+        const body = await readJson(req);
+        if (!body.ok) return json(res, body.code, { error: body.code === 413 ? "body too large" : "invalid json" });
+        const reply = await r.submit(body.value);
+        return json(res, reply.code, reply.body);
+      }
       if (PROVISION_ROUTES.has(pathname) && req.method === "POST") {
         const p = deps.provision;
         if (!p) return json(res, 503, { error: "onboarding unavailable" });

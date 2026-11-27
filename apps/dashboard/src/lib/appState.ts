@@ -6,7 +6,7 @@ import type { OwnerStage } from "@qday/core";
  */
 export type Stage = "visitor" | "onboarding" | "protected" | "local";
 
-const HOSTED_SCREENS = ["home", "setup", "dashboard", "activity", "vault", "settings"] as const;
+const HOSTED_SCREENS = ["home", "setup", "restore", "dashboard", "activity", "vault", "settings"] as const;
 const LOCAL_SCREENS = ["overview", "incidents", "recover", "rules", "protect", "drill"] as const;
 export type HostedScreen = (typeof HOSTED_SCREENS)[number];
 export type LocalScreen = (typeof LOCAL_SCREENS)[number];
@@ -35,6 +35,8 @@ const ALIASES: Record<string, HostedScreen> = {
 
 /** The screen for `#/<screen>` at this stage: each stage only reaches the screens that have content for it. */
 export function resolveRoute(screen: string, stage: Stage | null): RouteId | null {
+  // Restore needs no wallet: it must resolve before the stage is known (or a lost browser could never reach it).
+  if (screen === "restore") return "restore";
   if (stage === null) return null;
   if (screen === "home") return "home";
   switch (stage) {

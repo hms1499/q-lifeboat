@@ -42,6 +42,13 @@ const PLAIN: Record<string, string> = {
   "rule-not-exact": "the Guardian's rule on chain is not exactly vault.rescue",
   "chain unreachable": "the service could not reach the diana testnet",
   "guardian provisioning failed": "the service could not set up your Guardian; try again",
+  "recover-vault": "that vault does not name this account as its owner",
+  "recover-message": "the vault encodes a different withdrawal message (the values were changed)",
+  "recover-signature": "the signature does not verify with the key registered on chain",
+  "recover-nonce": "this withdrawal was already used, or another one came first: sign it again",
+  "recover-balance": "the vault does not hold that much",
+  "recover-cap": "too many sponsored withdrawals today; try again tomorrow (UTC)",
+  "not-active": "this account's Guardian is not active with the service",
 };
 
 /** A refusal from the hosted service: the HTTP status, its error code, and a plain message. */
@@ -116,6 +123,12 @@ export function createHosted(deps: HostedDeps) {
     },
 
     activate: (signed: SignedOwnerRequest) => call<{ ok: true }>("activate", "POST", "/api/activate", signed),
+
+    /**
+     * `POST /api/recover/submit`: the service pays the gas for a withdrawal signed with the recovery code's key (a
+     * browser that lost its wallet has no funded account of its own). The signature, not this request, is the authority.
+     */
+    submitWithdrawal: (body: Record<string, string>) => call<{ hash: string; status: string }>("sponsored withdrawal", "POST", "/api/recover/submit", body),
 
     /** `POST /api/o/<owner>/arm`: answers once the Guardian's own window is live (`tx` null when it already was). */
     arm: (owner: string, signed: SignedOwnerRequest) => call<{ tx: string | null }>("arm the Guardian", "POST", `/api/o/${lc(owner)}/arm`, signed),

@@ -21,6 +21,7 @@ import { Activity } from "./screens/Activity";
 import { Vault } from "./screens/Vault";
 import { Settings } from "./screens/Settings";
 import { Home } from "./screens/Home";
+import { Restore } from "./screens/Restore";
 import { appStage, ownerStageFor, resolveRoute, STAGE_REFRESH_EVENT, type Stage } from "./lib/appState";
 import { hosted } from "./lib/appWallet";
 import { browserStorage } from "./lib/storage";
@@ -253,6 +254,16 @@ function Routes({ owner }: { owner: Hex | null | undefined }) {
   const mode = useNavMode(hasSeed);
   const { stage, paused } = useStage(owner);
   const active = resolveRoute(screen, stage);
+  // Restore runs in focus mode and needs no wallet: a lost browser must reach it before any stage is known.
+  if (active === "restore") {
+    return (
+      <FocusShell note="Recovering your vault">
+        <ScreenBoundary resetKey="restore">
+          <Restore />
+        </ScreenBoundary>
+      </FocusShell>
+    );
+  }
   // Nothing known yet (the wallet check, or a first owner read with nothing cached): a neutral view, never the legacy shell.
   if (stage === null) {
     return (

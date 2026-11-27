@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { APP_NAME } from "../brand";
 import { LifeboatMark } from "../components/ui";
 import { hosted } from "../lib/appWallet";
@@ -21,6 +22,16 @@ export function Home() {
   const status = usePoll(() => hosted.status(), 30_000, "home-status");
   const gate = landingStart(status.data, status.data ? null : status.error);
   const watching = status.data?.activeGuardians;
+  // The section links are folded into a menu below 900px (styles.css): there is no room for them in the bar.
+  const [menu, setMenu] = useState(false);
+  useEffect(() => {
+    if (!menu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenu(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menu]);
 
   return (
     <div className="hm">
@@ -30,13 +41,20 @@ export function Home() {
             <LifeboatMark size={28} />
             {APP_NAME}
           </a>
-          <nav aria-label="Homepage sections">
+          <nav id="hm-nav" className={menu ? "open" : undefined} aria-label="Homepage sections">
             {SECTIONS.map(([id, label]) => (
-              <button key={id} type="button" onClick={() => scrollTo(id)}>
+              <button
+                key={id}
+                type="button"
+                onClick={() => {
+                  scrollTo(id);
+                  setMenu(false);
+                }}
+              >
                 {label}
               </button>
             ))}
-            <a href={LINKS.github} target="_blank" rel="noreferrer noopener">
+            <a href={LINKS.github} target="_blank" rel="noreferrer noopener" onClick={() => setMenu(false)}>
               GitHub
             </a>
           </nav>
@@ -46,6 +64,18 @@ export function Home() {
               Get protected
             </a>
           </div>
+          <button
+            type="button"
+            className="hm-menu"
+            aria-expanded={menu}
+            aria-controls="hm-nav"
+            aria-label={menu ? "Close menu" : "Open menu"}
+            onClick={() => setMenu(!menu)}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              {menu ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -187,6 +217,7 @@ export function Home() {
           </ol>
           <div className="hm-diagram">
             <FlowDiagram />
+            <FlowList />
           </div>
         </div>
       </section>
@@ -330,8 +361,9 @@ export function Home() {
             <details>
               <summary>What if I lose this browser?</summary>
               <p>
-                Today the wallet lives in this browser, encrypted with your password. Keep your password and recovery code. Recovery on a new device is on
-                the roadmap.
+                Your vault is still yours. Open <a href="#/restore">Restore access</a>, drop the file you downloaded when you set up (or type the account
+                plus the code), and sign the withdrawal there: the service pays the fee, and it can only send to the address you name. Your account's own
+                key cannot be restored from the code, so start over with a fresh account for everyday use.
               </p>
             </details>
           </div>
@@ -381,6 +413,17 @@ function FlowDiagram() {
       role="img"
       aria-label="A thief with your key sends from your account; the Guardian sees it and rescues your tokens into your vault; only your post-quantum key withdraws them to a new address"
     >
+      <defs>
+        <marker id="hm-ar-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#e8501a" />
+        </marker>
+        <marker id="hm-ar-navy" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#0f2236" />
+        </marker>
+        <marker id="hm-ar-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#0b6b50" />
+        </marker>
+      </defs>
       <g fontFamily="Archivo, sans-serif" fontSize="14" fill="#0f2236">
         <rect x="20" y="60" width="170" height="70" rx="12" fill="#fff" stroke="#d6dee6" />
         <text x="105" y="90" textAnchor="middle" fontWeight="700">Your account</text>
@@ -397,16 +440,36 @@ function FlowDiagram() {
         <rect x="710" y="60" width="170" height="70" rx="12" fill="#fff" stroke="#d6dee6" />
         <text x="795" y="90" textAnchor="middle" fontWeight="700">New safe address</text>
         <text x="795" y="112" textAnchor="middle" fill="#5a6878" fontSize="12">your choice</text>
-        <path d="M190 80 L250 40" stroke="#e8501a" strokeWidth="2" fill="none" />
-        <text x="198" y="48" fill="#b03a0b" fontSize="12">1. sends</text>
-        <path d="M330 64 L330 126" stroke="#0f2236" strokeWidth="2" strokeDasharray="5 4" fill="none" />
-        <text x="338" y="100" fill="#5a6878" fontSize="12">2. sees it</text>
-        <path d="M410 154 L480 112" stroke="#0b6b50" strokeWidth="2.5" fill="none" />
-        <text x="418" y="170" fill="#0b6b50" fontSize="12">3. rescues</text>
-        <path d="M650 95 L710 95" stroke="#0b6b50" strokeWidth="2.5" fill="none" />
-        <text x="652" y="84" fill="#0b6b50" fontSize="12">4. you</text>
-        <text x="644" y="150" fill="#5a6878" fontSize="12">post-quantum key only</text>
+        <path d="M190 84 L250 46" stroke="#e8501a" strokeWidth="2" fill="none" markerEnd="url(#hm-ar-orange)" />
+        <text x="220" y="40" textAnchor="middle" fill="#b03a0b" fontSize="12">1. sends</text>
+        <path d="M330 64 L330 126" stroke="#0f2236" strokeWidth="2" strokeDasharray="5 4" fill="none" markerEnd="url(#hm-ar-navy)" />
+        <text x="338" y="96" fill="#5a6878" fontSize="12">2. sees it</text>
+        <path d="M410 150 L480 116" stroke="#0b6b50" strokeWidth="2.5" fill="none" markerEnd="url(#hm-ar-green)" />
+        <text x="416" y="172" fill="#0b6b50" fontSize="12">3. rescues</text>
+        <path d="M650 95 L710 95" stroke="#0b6b50" strokeWidth="2.5" fill="none" markerEnd="url(#hm-ar-green)" />
+        <text x="654" y="82" fill="#0b6b50" fontSize="12">4. you</text>
+        <text x="565" y="152" textAnchor="middle" fill="#5a6878" fontSize="12">post-quantum key only</text>
       </g>
     </svg>
+  );
+}
+
+/** The same flow as text, for phones: the SVG is hidden below 700px (styles.css). */
+function FlowList() {
+  return (
+    <ol className="hm-flow" aria-label="How a rescue works">
+      <li>
+        <b>Someone with your key sends from your account.</b> That transfer is the leak.
+      </li>
+      <li>
+        <b>Your Guardian sees it.</b> Fixed rules match, one or two blocks later. No AI decides this.
+      </li>
+      <li>
+        <b>Your tokens move into your vault.</b> Only your post-quantum key can take them out.
+      </li>
+      <li>
+        <b>You withdraw to a new address.</b> One you choose, after the rescue.
+      </li>
+    </ol>
   );
 }

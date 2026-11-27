@@ -4,6 +4,20 @@ import { fmtAmount, shortAddr, tokenSymbol } from "./format";
 import { big, triggerKind } from "./incidents";
 
 /**
+ * The report's own summary, shown only when it reads as prose. The deterministic template is a machine sentence (base
+ * units, full addresses) and the printed claim above already says the same thing in plain words. Never rewrites the
+ * signed body: this only decides what the screen shows.
+ */
+export function reportSummary(i: Incident): string | null {
+  const s = typeof i.summary === "string" ? i.summary.trim() : "";
+  if (i.summarySource !== "llm") return null;
+  if (s.length < 40) return null;
+  if (/\d{15,}/.test(s)) return null; // base units, not a human amount
+  if (/0x[0-9a-fA-F]{40}/.test(s)) return null; // a full address: the model echoed a field
+  return s;
+}
+
+/**
  * Plain words for an incident, built only from the signed fields. It states what the report CLAIMS ("The Guardian
  * reports ..."); the verification badge stays the authority on whether that is true.
  */

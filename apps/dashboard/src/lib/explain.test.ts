@@ -1,7 +1,7 @@
 import { maxUint256, zeroAddress } from "viem";
 import { describe, expect, it } from "vitest";
 import type { AgentConfig } from "./config";
-import { describeIncident } from "./explain";
+import { describeIncident, reportSummary } from "./explain";
 
 const USD = "0x1111111111111111111111111111111111111111";
 const ETH = "0x2222222222222222222222222222222222222222";
@@ -63,5 +63,31 @@ describe("describeIncident", () => {
   });
   it("approval to the guardian", () => {
     expect(describeIncident(make({ kind: "approval", to: GUARD, amount: String(2n * E18) }), cfg).headline).toBe("Your account approved your Guardian (0xff82…3850) to spend 2 fUSD");
+  });
+});
+
+describe("reportSummary", () => {
+  const body = (summary: string, summarySource: "llm" | "template") => ({ ...(make({}) as object), summary, summarySource }) as never;
+  const raw =
+    "Outbound transfer of 1000000000000000000000 (token 0x8478737e5ac2c2cbf70aad17f459d1b8ab8a7a14) to " +
+    "0x255Fab9c7a2d2D122AC7dCa6FD6906E5bC5e75E7 in tx 0xcca2ea755557c02530413ba3ac02ea68d683797373a229240b5c5a9a64392704 " +
+    "triggered a rescue: recipient 0x255Fab… is not in the allowlist. Rescued 3 of 3 token balance(s) into the vault.";
+  const prose = "10 fUSD left your account for an address you don't trust. The Guardian moved the rest into your vault.";
+
+  it("hides the template fallback, labelled or not", () => {
+    expect(reportSummary(body(raw, "template"))).toBeNull();
+    expect(reportSummary(body("10 fUSD sent to 0x255F…75E7 in tx 0xcca2…2704", "template"))).toBeNull();
+  });
+  it("keeps prose written by the model", () => {
+    expect(reportSummary(body(prose, "llm"))).toBe(prose);
+  });
+  it("hides model text that echoes raw fields", () => {
+    expect(reportSummary(body(`It moved ${prose} 1000000000000000000000 units.`, "llm"))).toBeNull();
+    expect(reportSummary(body(`It went to 0x255Fab9c7a2d2D122AC7dCa6FD6906E5bC5e75E7 and ${prose}`, "llm"))).toBeNull();
+  });
+  it("hides empty, short and malformed summaries", () => {
+    expect(reportSummary(body("", "llm"))).toBeNull();
+    expect(reportSummary(body("Too short to be a summary.", "llm"))).toBeNull();
+    expect(reportSummary({ ...(body(prose, "llm") as object), summary: 7 } as never)).toBeNull();
   });
 });

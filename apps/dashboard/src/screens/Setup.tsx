@@ -454,6 +454,9 @@ export function Setup() {
           <a className="btn" href="#/home">
             Back to the homepage
           </a>
+          <a className="btn" href="#/restore">
+            Restore access with your recovery code
+          </a>
         </div>
       </section>
     );
@@ -514,6 +517,9 @@ export function Setup() {
           </div>
           <RunView run={run} />
         </form>
+        <p className="setup-hint">
+          Already have a vault and a recovery code? <a href="#/restore">Restore access from your code</a>.
+        </p>
       </section>
     );
   } else if (current === "code") {

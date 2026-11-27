@@ -22,6 +22,8 @@ export type OwnerState = {
   topups: number;
   /** Arm refills of the guardian's gas on UTC day `day` (days since the epoch). */
   refills?: { day: number; n: number };
+  /** Sponsored withdrawals (a lost browser signing with its recovery code) on UTC day `day`. */
+  restores?: { day: number; n: number };
 };
 
 export type OwnerSecrets = { GAS_MNEMONIC: string; AGENT_ED25519_SK: string };

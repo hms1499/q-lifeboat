@@ -521,6 +521,8 @@ dl.kv dd small { display: block; color: var(--muted); font-weight: 400; font-siz
 .hm-top nav { display: flex; gap: 6px; margin-left: 8px; }
 .hm-top nav button, .hm-top nav a { background: none; border: 0; padding: 6px 8px; border-radius: 6px; color: #c9d5e1; font: 14px var(--sans); text-decoration: none; cursor: pointer; }
 .hm-top nav button:hover, .hm-top nav a:hover { color: #fff; }
+.hm-menu { display: none; background: none; border: 1px solid #3a5068; border-radius: 8px; color: #fff; width: 44px; height: 44px; align-items: center; justify-content: center; cursor: pointer; }
+.hm-menu:hover { border-color: #c9d5e1; }
 .hm-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 .hm-net { font: 500 12px var(--mono); color: #c9d5e1; border: 1px solid var(--harbour-2); padding: 4px 8px; border-radius: 999px; }
 
@@ -575,6 +577,7 @@ dl.kv dd small { display: block; color: var(--muted); font-weight: 400; font-siz
 .hm-steps p { color: var(--muted); margin-top: 8px; font-size: 15px; line-height: 24px; }
 .hm-diagram { margin-top: 28px; background: var(--well); border: 1px solid var(--rope-soft); border-radius: 14px; padding: 18px; overflow-x: auto; }
 .hm-diagram svg { display: block; min-width: 760px; width: 100%; height: auto; }
+.hm-flow { display: none; }
 
 .hm-proof { margin-top: 32px; background: var(--hull); border: 1px solid var(--rope); border-radius: 14px; overflow-x: auto; }
 .hm-proof table { width: 100%; border-collapse: collapse; min-width: 720px; font-size: 14px; }
@@ -618,10 +621,25 @@ dl.kv dd small { display: block; color: var(--muted); font-weight: 400; font-siz
 @media (max-width: 900px) {
   .hm-hero > .hm-wrap, .hm-why, .hm-steps, .hm-verify, .hm-cannot { grid-template-columns: minmax(0, 1fr); }
   .hm-open { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .hm-top nav { display: none; }
+  .hm-top nav {
+    display: none; position: absolute; left: 0; right: 0; top: 100%; flex-direction: column; gap: 2px; margin: 0;
+    padding: 8px 16px 16px; background: var(--harbour); border-top: 1px solid var(--harbour-2);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, .28); max-height: calc(100vh - 64px); overflow-y: auto;
+  }
+  .hm-top nav.open { display: flex; }
+  .hm-top nav button, .hm-top nav a { min-height: 44px; padding: 12px 8px; text-align: left; font-size: 16px; }
+  .hm-menu { display: inline-flex; }
+}
+@media (max-width: 700px) {
+  .hm-diagram { overflow-x: visible; }
+  .hm-diagram svg { display: none; }
+  .hm-flow { display: flex; flex-direction: column; gap: 12px; margin: 0; padding-left: 18px; font-size: 14px; line-height: 21px; color: var(--harbour-2); }
+  .hm-flow b { color: var(--harbour); }
 }
 @media (max-width: 520px) {
   .hm-wrap { padding: 0 16px; }
+  .hm-right { gap: 8px; }
+  .hm-right .hm-btn.small { padding: 0 12px; font-size: 13px; }
   .hm-open { grid-template-columns: minmax(0, 1fr); }
   .hm-net { display: none; }
   .hm-band { padding: 56px 0; }

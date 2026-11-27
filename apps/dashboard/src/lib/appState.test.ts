@@ -32,6 +32,10 @@ describe("resolveRoute", () => {
     expect(resolveRoute("", null)).toBeNull();
   });
 
+  it("restore opens for anyone, even before any stage is known", () => {
+    for (const s of ["visitor", "onboarding", "protected", "local", null] as const) expect(resolveRoute("restore", s)).toBe("restore");
+  });
+
   it("the homepage opens for anyone; a visitor goes nowhere else but setup", () => {
     for (const s of ["visitor", "onboarding", "protected", "local"] as const) expect(resolveRoute("home", s)).toBe("home");
     expect(resolveRoute("vault", "visitor")).toBe("home");

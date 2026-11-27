@@ -4,6 +4,7 @@ import { createOwnerAuth } from "./auth.ts";
 import { createGateway } from "./gateway.ts";
 import { createLimits } from "./limits.ts";
 import { createProvisioner, loadFunder, productionChainDeps } from "./provision.ts";
+import { createRecoverer, productionRecoverDeps } from "./recover.ts";
 import { createHostedServer } from "./server.ts";
 import { createStore } from "./store.ts";
 import { agentBaseEnv, createGuardianSweeper, createSupervisor, maxAgentsFromEnv, spawnAgent, systemClock } from "./supervisor.ts";
@@ -64,12 +65,15 @@ const gateway = createGateway({
   log,
   refill: provision ? (o) => provision!.refillOnArm(o).then((r) => ("skipped" in r && r.skipped !== "enough" ? log(`owner ${o}: no refill (${r.skipped})`) : undefined)) : undefined,
 });
+// A lost browser signs with its recovery code; the funder pays the gas (it cannot change where it pays).
+const recover = funder ? createRecoverer({ ...productionRecoverDeps(store, funder), log }) : undefined;
 const server = createHostedServer({
   distDir,
   restUrl: NETWORK.rest,
   rpcUrl: NETWORK.rpc,
   store,
   provision,
+  recover,
   gateway,
   trustProxy: process.env.TRUST_PROXY === "1",
   status: provision ? () => provision!.status() : () => ({ onboarding: "paused", reason: "no-funder", activeGuardians: activeGuardians() }),

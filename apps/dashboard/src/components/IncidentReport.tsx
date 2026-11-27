@@ -6,7 +6,7 @@ import { agentBase } from "../lib/agent";
 import { readReceipt } from "../lib/chain";
 import type { AgentConfig } from "../lib/config";
 import { fmtAmount, fmtInt, shortAddr, shortHash, tokenSymbol, when } from "../lib/format";
-import { describeIncident } from "../lib/explain";
+import { describeIncident, reportSummary } from "../lib/explain";
 import { big, triggerKind } from "../lib/incidents";
 import type { VerifyResult } from "../lib/verify";
 
@@ -61,6 +61,7 @@ export function IncidentReport({ i, cfg, v }: { i: Incident; cfg: AgentConfig | 
     };
   }, [i]);
 
+  const summary = reportSummary(i);
   const t = i.trigger;
   const kind = triggerKind(i);
   const sym = tokenSymbol(cfg, t.token);
@@ -102,12 +103,14 @@ export function IncidentReport({ i, cfg, v }: { i: Incident; cfg: AgentConfig | 
           ))}
         </dl>
 
-        <div className="agent-note">
-          <div className="lbl">
-            Agent's summary <span className="tag">{i.summarySource === "llm" ? "Written by AI" : "Template"}</span>
+        {summary ? (
+          <div className="agent-note">
+            <div className="lbl">
+              The Guardian's summary <span className="tag">Written by AI</span>
+            </div>
+            <p className="wrap-any">{summary}</p>
           </div>
-          <p className="wrap-any">{i.summary}</p>
-        </div>
+        ) : null}
 
         <div className="timeline">
           <h3>Timeline</h3>
