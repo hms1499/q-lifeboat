@@ -26,7 +26,7 @@ type Sent = { transfer: Hex; block: bigint; target: Hex; balanceBefore: bigint; 
  * inside a 1-tx window (the Guardian is armed first). The Guardian can't tell it from a thief's transfer: it rescues the
  * rest into the vault and its signed report shows up here.
  */
-export function TestProtection({ owner }: { owner: Hex }) {
+export function TestProtection({ owner, showWithdraw }: { owner: Hex; showWithdraw: boolean }) {
   const keys = useKeys();
   const confirm = useRef<HTMLDialogElement>(null);
   const { incidents, verdictFor } = useApp();
@@ -113,7 +113,7 @@ export function TestProtection({ owner }: { owner: Hex }) {
           </dl>
           {plan === "mint-first" ? <p className="dash-hint">The test first mints 100 test fUSD to your account, so there is something to rescue.</p> : null}
           <div className="actions">
-            <button type="button" className="btn rescue" disabled={busy || plan === "loading"} onClick={() => confirm.current?.showModal()}>
+            <button type="button" className="btn primary" disabled={busy || plan === "loading"} onClick={() => confirm.current?.showModal()}>
               Run the test
             </button>
           </div>
@@ -145,9 +145,10 @@ export function TestProtection({ owner }: { owner: Hex }) {
           <a className="btn" href={`#/activity/${incident.id}`}>
             {verdict?.ok ? "See the signed report ✓" : "See the report"}
           </a>
-          {rescueHash ? (
+          {/* The incident hero already carries this action while it shows. */}
+          {rescueHash && showWithdraw ? (
             <a className="btn primary" href="#/vault">
-              Move tokens to a safe address
+              Withdraw to a fresh address
             </a>
           ) : null}
         </div>

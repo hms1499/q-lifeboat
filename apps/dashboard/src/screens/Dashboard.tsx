@@ -43,24 +43,38 @@ export function Dashboard({ owner, paused }: { owner: Hex; paused: boolean }) {
       <h1>Dashboard</h1>
       <ConfigCheckAlert />
       {hero === "incident" && unseen && story ? (
-        <section className="dash-hero alert" role="alert">
+        // A verified rescue is the good outcome: calm tone, proof first. Orange and role="alert" stay for what still needs the owner.
+        <section className={`dash-hero ${safeTitle ? "safe" : "alert"}`} role={safeTitle ? undefined : "alert"}>
           <div className="dash-eyebrow">
-            <span className="dot degraded" aria-hidden="true" />
+            <span className={safeTitle ? "dot" : "dot degraded"} aria-hidden="true" />
             {incidentTag(unseen) === "Rescue" ? "Rescue" : "Alert"} · {ago(unseen.detectedAt)}
             {v === undefined ? " · checking the report…" : v.ok ? " · report verified" : " · report did not verify"}
           </div>
           <h2>{safeTitle ? "Your tokens are safe in your vault" : story.headline}</h2>
           <p>
             {safeTitle ? `${story.headline}. ` : ""}
-            {story.detail} Treat the key of this account as leaked: move your tokens to a fresh address.
+            {story.detail} If you didn't send this, your key may be leaked: withdraw your tokens to a fresh address.
           </p>
           <div className="actions">
-            <a className="btn rescue" href="#/vault">
-              Move tokens to a safe address
-            </a>
-            <a className="btn" href={`#/activity/${unseen.id}`} onClick={() => markSeen(unseen.id)}>
-              See what happened
-            </a>
+            {safeTitle ? (
+              <>
+                <a className="btn primary" href={`#/activity/${unseen.id}`} onClick={() => markSeen(unseen.id)}>
+                  See the signed report ✓
+                </a>
+                <a className="btn" href="#/vault">
+                  Withdraw to a fresh address
+                </a>
+              </>
+            ) : (
+              <>
+                <a className="btn rescue" href="#/vault">
+                  Withdraw to a fresh address
+                </a>
+                <a className="btn" href={`#/activity/${unseen.id}`} onClick={() => markSeen(unseen.id)}>
+                  See what happened
+                </a>
+              </>
+            )}
             <button type="button" className="btn ghost" onClick={() => markSeen(unseen.id)}>
               Dismiss
             </button>
@@ -184,7 +198,7 @@ export function Dashboard({ owner, paused }: { owner: Hex; paused: boolean }) {
           </section>
         </div>
         <div className="side">
-          <TestProtection owner={owner} />
+          <TestProtection owner={owner} showWithdraw={hero !== "incident"} />
           <section className="card">
             <details className="dash-tech">
               <summary>Technical details</summary>

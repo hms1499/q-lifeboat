@@ -171,7 +171,7 @@ export function IncidentReport({ i, cfg, v }: { i: Incident; cfg: AgentConfig | 
           {done.length ? (
             agentBase().owner ? (
               <a className="btn primary" href="#/vault">
-                Move tokens to a safe address
+                Withdraw to a fresh address
               </a>
             ) : (
               <a className="btn primary" href="#/recover">
