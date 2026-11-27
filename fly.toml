@@ -17,9 +17,9 @@ swap_size_mb = 512
   HOSTED_DATA_DIR = "/data"
   # Fly's proxy appends the client IP to X-Forwarded-For: the starter-pack per-IP cap reads it.
   TRUST_PROXY = "1"
-  # 1 GB Machine: measured on Fly the service takes ~172 MB RSS and each agent ~185 MB (3 agents left ~206 MB free).
-  # The 4th agent leans on the swap below; owner #5 gets a clean "capacity" refusal.
-  HOSTED_MAX_AGENTS = "4"
+  # 2 GB Machine: measured on Fly the service takes ~172 MB RSS and each agent ~185 MB, so 8 agents need ~1.65 GB;
+  # the swap below is headroom. Owner #9 gets a clean "capacity" refusal.
+  HOSTED_MAX_AGENTS = "8"
   # Public test-token addresses on diana (README, "Addresses").
   FUSD_ADDRESS = "0x8478737e5ac2c2cbf70aad17f459d1b8ab8a7a14"
   FETH_ADDRESS = "0x0a958bba25f5fddca1b1f9cec44bdf076a8ea6c5"
@@ -48,4 +48,4 @@ swap_size_mb = 512
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "1gb"
+  memory = "2gb"

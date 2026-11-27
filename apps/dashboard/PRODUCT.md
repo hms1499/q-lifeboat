@@ -35,7 +35,7 @@ report with every check ✓, then withdrawal. The fastest recorded run took 2 mi
 
 ## Operating Context
 
-- The hosted service at https://q-lifeboat.fly.dev runs on one Fly.io machine. It serves at most 4 accounts at once
+- The hosted service at https://q-lifeboat.fly.dev runs on one Fly.io machine. It serves at most 8 accounts at once
   and gives out 3 starter packs per IP per day. When it is full, onboarding is paused.
 - Hosted journey:
   - Home.

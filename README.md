@@ -118,7 +118,7 @@ the threat model (T21–T27): it can never move tokens out of your vault.
 
 On the public URL three fresh browsers ran setup, an attack and a withdrawal on 2026-11-26 (before the UX rebuild); the fastest went from the landing page to its
 withdrawal in 2 min 32 s ([EVIDENCE, Task 12](docs/EVIDENCE.md#plan-task-12-the-public-url-three-fresh-browsers-on-diana-2026-11-26)).
-The public service is one small machine: it watches at most 4 accounts at once and hands out 3 starter packs per IP per day.
+The public service is one small machine: it watches at most 8 accounts at once and hands out 3 starter packs per IP per day.
 When it is full, the landing page says onboarding is paused; [run it yourself](#run-it-yourself) instead.
 
 ## Run it yourself

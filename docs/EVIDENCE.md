@@ -397,6 +397,7 @@ Hosted service on Fly.io, https://q-lifeboat.fly.dev (one shared-cpu-1x 1 GB Mac
 | A service restart brings every agent back | `fly machine restart` 02:24Z → "resumed 3 agent(s)"; `/api/o/<owner>/health` live for all three (owner 1 `ok: false` only for gas: 0.30 QOR after two arms, refilled on its next signed arm) | Fly logs 2026-11-26T02:24:45Z |
 | An idle owner costs nothing: no guardian tx for 24 h | owners 1–3 idle after the restart: from block 10763400 (2026-11-26 02:36Z) to 10825145 (2026-11-27 03:02Z) each guardian kept its EVM nonce and QOR balance (`0x133b…b4BF` 6 / 0.2998, `0x3581…5EA6` 5 / 0.5248, `0x6e10…3F11` 5 / 0.5248), so it sent no EVM or Cosmos tx | `eth_getTransactionCount` and `eth_getBalance` at both blocks on the EVM RPC |
 | Memory on Fly | service ~172 MB RSS, each agent ~185 MB; with 3 agents ~206 MB free of 1 GB → 512 MB swap added, cap stays 4 | `/proc/*/status` VmRSS over `fly ssh console` |
+| Machine raised to 2 GB, cap 8 (2026-11-27) | after the deploy "resumed 4 agent(s)", "max 8 agents"; `/api/status` → `onboarding: open`; with 4 agents running MemAvailable 893 MB, swap 512 MB free (each new agent ~185 MB) | Fly logs 2026-11-27T03:13:57Z, `/proc/meminfo` over `fly ssh console` |
 
 ## UX rebuild Task 10: setup, test and withdraw on the rebuilt public URL (2026-11-26)
 

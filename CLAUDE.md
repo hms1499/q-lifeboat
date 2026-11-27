@@ -206,8 +206,8 @@ SDK names that exist in `@qorechain/sdk@0.14.0`: `unifiedAccountFromSeed`, `gene
 - Hosted deploy (Fly.io, 2026-11-26): app `q-lifeboat` (org personal, region `sin`), https://q-lifeboat.fly.dev, `fly.toml` at the
   repo root. Deploy: `cd contracts && forge build && cd .. && fly deploy -a q-lifeboat --ha=false --remote-only` (keep ONE Machine:
   the volume `qlifeboat_data` belongs to it). Secrets only via `fly secrets set … --stage` run by the builder (never read `.env`).
-  The first deploy failed to allocate IPs: `fly ips allocate-v6` + `fly ips allocate-v4 --shared` fixed it. 1 GB Machine →
-  `HOSTED_MAX_AGENTS=4` + `swap_size_mb = 512` (measured ON FLY: service ~172 MB RSS, each agent ~185 MB, not the local 130 MB).
+  The first deploy failed to allocate IPs: `fly ips allocate-v6` + `fly ips allocate-v4 --shared` fixed it. 2 GB Machine (was 1 GB / 4 until 2026-11-27) →
+  `HOSTED_MAX_AGENTS=8` + `swap_size_mb = 512` (measured ON FLY: service ~172 MB RSS, each agent ~185 MB, not the local 130 MB).
   Logs: `fly logs -a q-lifeboat --no-tail`; memory: `fly ssh console -a q-lifeboat -C "grep VmRSS /proc/<pid>/status"` (no ps/free
   in the image). If `fly deploy` fails "ensure depot builder failed (401)", add `--depot=false`.
 - Task 12 browser-run owners (testnet; passwords `t12-ownerN-lifeboat`): `0xd23f…313a`, `0x7f4f…8d99`, `0x337a…56b6` on the Fly
