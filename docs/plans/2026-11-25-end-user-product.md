@@ -480,13 +480,15 @@ Test `apps/dashboard/src/lib/attack.test.ts`, extend `withdrawal.test.ts`.
   volume `qlifeboat_data` on `/data`, auto-stop off, `HOSTED_MAX_AGENTS=4`; `FUNDER_MNEMONIC` set by the builder as a Fly
   secret. https://q-lifeboat.fly.dev/api/status → `{"onboarding":"open","activeGuardians":0}`, boot log
   `funder 0xa88D…36a1, max 4 agents`.
-- [ ] **Step 3:** Three fresh browser profiles (Playwright, no extension, no QOR) complete steps 1–6 on the public URL,
+- [x] **Step 3:** Three fresh browser profiles (Playwright, no extension, no QOR) complete steps 1–6 on the public URL,
   each ≤ 15 min. Then restart the service: all three agents come back (`/api/o/<owner>/health` live). An idle owner sends
   no guardian tx for 24 h (check the guardian's tx count the next day).
   2026-11-26: steps 1–6 done for three fresh origins on https://q-lifeboat.fly.dev (owner 3: 2 min 32 s; rescues 2 blocks,
   90 % kept); restart → "resumed 3 agent(s)", all three `/health` live. Two bugs found and fixed (`7e84752`: incident
   stream never reopened after the pre-agent 404/503; step 7 enabled while the vault step minted). Open: the 24 h idle
   check (guardian tx counts read 2026-11-27 after 02:30Z). See `docs/EVIDENCE.md` "Plan Task 12".
+  2026-11-27: the 24 h idle check passed: from block 10763400 (2026-11-26 02:36Z) to 10825145 (2026-11-27 03:02Z) the three
+  guardians kept the same EVM nonce and QOR balance (no EVM or Cosmos tx).
 - [x] **Step 4:** Update README (Getting started = the URL; local mode moves to "Run it yourself"), THREAT_MODEL (§7 of the
   spec), EVIDENCE (every hash above), AI_USAGE. Commit `docs: end-user product, hosted threat model, evidence`.
   2026-11-26: README (live URL, the public instance's limits, Fly deploy), THREAT_MODEL (Fly proxy and the per-IP cap, the
