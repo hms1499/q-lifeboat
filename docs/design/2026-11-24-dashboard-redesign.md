@@ -46,21 +46,40 @@ Colour (CSS custom properties, `:root`):
 | `--signal` | `#1F5FD0` | links and focus only |
 | `--danger` | `#B42318` | failed checks, errors (distinct from rescue orange) |
 
-Type (Google Fonts: `Archivo:wdth,wght@62..125,400..800` and `IBM Plex Mono:wght@400;500`):
+Type: **self-hosted**, `apps/dashboard/public/fonts` (Archivo variable `wdth 62..125, wght 400..800`; IBM Plex Mono
+400/500), declared with `@font-face` at the top of `styles.css` and preloaded in `index.html`. No third-party font
+request: the hero h1 never renders in a fallback face and then swaps. SIL OFL 1.1, licences sit beside the files
+(`OFL-Archivo.txt`, `OFL-IBMPlexMono.txt`). `font-display: block` on Archivo (display face, no FOUT reflow),
+`swap` on the mono.
 
-- Headings: Archivo, `font-stretch: 118%`, weight 700, sentence case, tight tracking (-0.01em). Scale: page title 32/38,
-  status headline 36/42 (28 on mobile), panel title 18/24.
-- Body: Archivo 100% width, 15/24, weight 400; labels 13/18 weight 500 in `--muted`, sentence case (no all-caps, no
-  letter-spacing).
-- Numbers: Archivo with `font-variant-numeric: tabular-nums`.
-- Mono (IBM Plex Mono 13px) ONLY for addresses, hashes and CLI commands, never for labels.
+Every size, line-height, weight and width comes from a token in `:root`; no declaration in `styles.css` carries a
+raw `font-size`/`line-height`/`font-weight`/`font-stretch` value.
+
+| Group | Tokens |
+|---|---|
+| Size | `--t-12 … --t-36` (12, 13, 14, 15, 16, 17, 18, 20, 22, 24, 26, 28, 32, 36) and three fluid steps: `--t-hero` `clamp(36, 5.2vw, 58)`, `--t-section` `clamp(28, 3.4vw, 38)`, `--t-page` `clamp(26, 3vw, 34)` |
+| Line height | `--lh-16 … --lh-42` (the steps actually in use, so nothing drifts) |
+| Weight | `--w-reg` 400, `--w-med` 500, `--w-semi` 600, `--w-bold` 700 |
+| Width | `--stretch-body` 100%, `--stretch-head` 118% |
+
+Rules:
+
+- Headings: Archivo, `var(--stretch-head)`, `--w-bold`, sentence case, tracking -0.01em. Scale: page title 32/38,
+  status headline 36/42 (28 on mobile), panel title 18/24, landing h1 `--t-hero`.
+- Body: Archivo `var(--stretch-body)`, 15/24, `--w-reg`; labels 13/18 `--w-med` in `--muted`, sentence case (no
+  all-caps, no letter-spacing). This includes landing eyebrows ("How it works", "Proof"): they are labels, not
+  lettering.
+- Numbers: Archivo with `font-variant-numeric: tabular-nums` (block numbers, balances, counts).
+- Mono (IBM Plex Mono) ONLY for addresses, hashes and CLI commands, never for labels or numbers.
 
 Shape and depth: panels radius 14px, inset wells 10px, chips 6px, the status board 20px. Borders (`--rope`) instead of
 shadows; the only shadow is on the status board (`0 1px 0 var(--rope)` plus a 1px inner line). No gradients.
 
-Motion: one moment only. When the status changes to rescued, the waterline bars animate the vault part growing
-(transform scaleX, 600ms, ease-out), skipped under `prefers-reduced-motion`. Buttons get a 120ms background transition.
-Nothing animates on page load.
+Motion: one moment only per screen. When the status changes to rescued, the waterline bars animate the vault part
+growing (transform scaleX, 600ms, ease-out), skipped under `prefers-reduced-motion`. Buttons get a 120ms background
+transition. The landing (`Home`) spends its two moments deliberately: a single page-load sequence that replays the
+rescue in the hero card, and one scroll moment where the how-it-works diagram draws its arrows in order. No other
+section animates in, and all of it sits inside `prefers-reduced-motion: no-preference`.
 
 ## Layout: app shell
 
